@@ -173,10 +173,12 @@ async def verify_pin(payload: Dict[str, Any] = Body(...)):
     raise HTTPException(status_code=401, detail=result.get("error", "PIN inválido"))
 
 @app.get("/api/config")
+@app.get("/api/deck/config")
 async def get_configuration():
     return config_manager.get_config()
 
 @app.post("/api/config")
+@app.post("/api/deck/config")
 async def update_configuration(new_config: Dict[str, Any] = Body(...)):
     success = config_manager.save_config(new_config)
     if success:
