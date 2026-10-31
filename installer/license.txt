@@ -1,0 +1,22 @@
+ACUERDO DE LICENCIA Y CONDICIONES DE USO - STREAMDESK PRO
+============================================================
+
+1. ACEPTACIÓN DE CONDICIONES
+Al instalar y utilizar StreamDesk Pro, aceptas los siguientes términos:
+- El software es gratuito, de código abierto y distribuido bajo licencia MIT.
+- El usuario es responsable del uso del sistema de control y macros en su red local.
+
+2. CONEXIÓN Y PRIVACIDAD EN RED LOCAL
+StreamDesk Pro opera de manera local en tu propia red Wi-Fi. No recopila datos
+personales externos ni envía información de tus aplicaciones a terceros.
+
+3. DESCARGA Y ACTUALIZACIONES DESDE GITHUB
+El software incluye funciones automáticas para verificar actualizaciones
+desde el repositorio oficial: https://github.com/Zak208/streamdeck
+
+4. SIN GARANTÍA
+El software se entrega "tal cual", sin garantías expresas o implícitas.
+El desarrollador no se hace responsable de fallos derivados de configuraciones
+externas del sistema operativo o software de terceros (OBS, Discord, Spotify).
+
+¿Aceptas estos términos y condiciones para continuar con la instalación?

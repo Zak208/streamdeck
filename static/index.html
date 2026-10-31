@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>StreamDesk Mobile Pro</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0c1019">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <!-- Top bar -->
+  <header>
+    <div class="brand">
+      <span>STREAMDESK</span>
+      <span class="badge-pro">PRO</span>
+    </div>
+
+    <div class="header-actions">
+      <!-- PWA Install Button -->
+      <button class="btn-install" id="btn-install-pwa" style="display: none;">
+        📲 Instalar App
+      </button>
+
+      <div class="status-badge" id="status-badge" title="Toca para ver estado de enlace">
+        <div class="dot connecting" id="status-dot"></div>
+        <span id="status-text">Conectando...</span>
+      </div>
+
+      <button class="icon-btn" id="btn-open-settings" title="Ajustes y Vinculación PIN">
+        <img src="/static/icons/gear.svg" alt="Ajustes" style="width: 16px; height: 16px; filter: invert(0.8);">
+      </button>
+
+      <button class="icon-btn" id="btn-fullscreen" title="Pantalla Completa">
+        ⛶
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container: 2x12 Grid -->
+  <main id="deck-container">
+    <div id="deck-grid">
+      <!-- Rendered dynamically by streamdeck.js (24 slots) -->
+    </div>
+  </main>
+
+  <!-- PIN Pairing / Settings Modal -->
+  <div class="modal-overlay" id="pin-modal" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-title">Vincular con tu PC</div>
+      <div class="modal-desc">
+        Introduce el <strong>código PIN de 6 dígitos</strong> que aparece en la pantalla de tu PC (Studio). Solo necesitas hacerlo una vez.
+      </div>
+      <div class="pin-inputs">
+        <input type="number" class="pin-input" maxlength="1" pattern="[0-9]*" inputmode="numeric">
+        <input type="number" class="pin-input" maxlength="1" pattern="[0-9]*" inputmode="numeric">
+        <input type="number" class="pin-input" maxlength="1" pattern="[0-9]*" inputmode="numeric">
+        <input type="number" class="pin-input" maxlength="1" pattern="[0-9]*" inputmode="numeric">
+        <input type="number" class="pin-input" maxlength="1" pattern="[0-9]*" inputmode="numeric">
+        <input type="number" class="pin-input" maxlength="1" pattern="[0-9]*" inputmode="numeric">
+      </div>
+      <button class="btn-primary" id="btn-pair">Conectar con PC</button>
+      <button class="btn-secondary" id="btn-close-pin-modal" style="display: none;">Cerrar</button>
+      <p id="pin-error" style="color: #ef4444; font-size: 0.8rem; margin-top: 12px; display: none;"></p>
+    </div>
+  </div>
+
+  <!-- iOS PWA Install Instructions Modal -->
+  <div class="modal-overlay" id="ios-install-modal" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-title">📲 Instalar en tu Móvil</div>
+      <div class="modal-desc" style="text-align: left; font-size: 0.85rem; line-height: 1.6;">
+        Para instalar StreamDesk a pantalla completa como una app real:<br><br>
+        1. Pulsa el botón <strong>Compartir (⎋)</strong> en la barra de tu navegador (Safari/Chrome).<br>
+        2. Selecciona <strong>"Añadir a la pantalla de inicio" (+)</strong>.<br>
+        3. Abre la app desde el icono en tu pantalla y ¡listo!
+      </div>
+      <button class="btn-primary" id="btn-close-ios-modal">Entendido</button>
+    </div>
+  </div>
+
+  <!-- Audio App Selector Modal -->
+  <div class="app-modal" id="app-modal">
+    <div class="app-list-card">
+      <div class="app-list-header">
+        <span>Seleccionar Aplicación de Sonido</span>
+        <button id="close-app-modal" style="background: none; border: none; color: #94a3b8; font-size: 1.2rem; cursor: pointer;">✕</button>
+      </div>
+      <div class="app-list-items" id="app-list-items">
+        <!-- Audio sessions populated dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/streamdeck.js"></script>
+</body>
+</html>
