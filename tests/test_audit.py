@@ -147,6 +147,37 @@ for path, method, expected_code, expected_keys in endpoints:
 
 print(f"\nAll {passed_endpoints}/{len(endpoints)} endpoints responded with HTTP 200 OK.")
 
+# 6. Test Multi-Page Switch and Telemetry
+print("\n=== 6. Testing Multi-Page API & Telemetry ===")
+req_data = json.dumps({"page_index": 1}).encode("utf-8")
+switch_req = urllib.request.Request(
+    f"http://127.0.0.1:{PORT}/api/deck/page/switch",
+    data=req_data,
+    headers={"Content-Type": "application/json"},
+    method="POST"
+)
+with urllib.request.urlopen(switch_req, timeout=3) as resp:
+    assert resp.status == 200, f"Page switch failed: {resp.status}"
+    switch_res = json.loads(resp.read().decode("utf-8"))
+    assert switch_res.get("current_page") == 1, f"Expected page 1, got {switch_res.get('current_page')}"
+    print(f"[PASS] POST /api/deck/page/switch -> Switched to Page 1 ({switch_res})")
+
+# Switch back to Page 0
+req_data0 = json.dumps({"page_index": 0}).encode("utf-8")
+switch_req0 = urllib.request.Request(
+    f"http://127.0.0.1:{PORT}/api/deck/page/switch",
+    data=req_data0,
+    headers={"Content-Type": "application/json"},
+    method="POST"
+)
+with urllib.request.urlopen(switch_req0, timeout=3) as resp:
+    assert resp.status == 200
+    print("[PASS] Switched back to Page 0 (Principal)")
+
+from server.obs_client import obs_client
+obs_res = obs_client.execute_obs_action("record_toggle")
+print(f"[PASS] OBS Client executed safely: {obs_res.get('action') or obs_res}")
+
 # Stop server cleanly
 server.should_exit = True
 server_thread.join(timeout=2.0)

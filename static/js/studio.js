@@ -1,5 +1,6 @@
-// StreamDesk Studio Pro — 6x2 Grid & 2-Height Vertical Faders
+// StreamDesk Studio Pro — 6x2 Multi-Page Editor & Telemetry Presets
 let config = null;
+let activePageIndex = 0;
 let selectedSlotIndex = null;
 let audioSessions = [];
 let dragSourceType = null; // 'palette_btn' | 'palette_slider' | 'slot'
@@ -13,19 +14,38 @@ const updateCylinder = document.getElementById("update-cylinder");
 const updateStatusIcon = document.getElementById("update-status-icon");
 const updateStatusText = document.getElementById("update-status-text");
 const btnApplyUpdate = document.getElementById("btn-apply-update");
+const pageTabs = document.getElementById("page-tabs");
+const btnAddPage = document.getElementById("btn-add-page");
 
-// 1-Click Clean Presets with Vector SVGs (No emoji clutter)
+// Complete 1-Click Clean Presets with Vector SVGs
 const ONE_CLICK_PRESETS = [
+  // Apps
   { id: "discord", name: "Discord", icon: "", image: "/static/icons/discord.svg", color: "#5865f2", type: "preset_app", target: "discord", sub: "Voz / Chat" },
   { id: "spotify", name: "Spotify", icon: "", image: "/static/icons/spotify.svg", color: "#1db954", type: "preset_app", target: "spotify", sub: "Música" },
   { id: "obs", name: "OBS Studio", icon: "", image: "/static/icons/obs.svg", color: "#302e31", type: "preset_app", target: "obs", sub: "Directo" },
   { id: "steam", name: "Steam", icon: "", image: "/static/icons/steam.svg", color: "#171a21", type: "preset_app", target: "steam", sub: "Juegos" },
   { id: "chrome", name: "Chrome", icon: "", image: "/static/icons/chrome.svg", color: "#ea4335", type: "preset_app", target: "chrome", sub: "Navegador" },
   { id: "valorant", name: "Valorant", icon: "", image: "/static/icons/gamepad.svg", color: "#d13639", type: "preset_app", target: "valorant", sub: "Riot Games" },
+
+  // OBS Studio
+  { id: "obs_rec", name: "OBS Grabar", icon: "", image: "/static/icons/video.svg", color: "#ef4444", type: "obs_action", target: "record_toggle", sub: "Toggle Rec" },
+  { id: "obs_stream", name: "OBS Stream", icon: "", image: "/static/icons/broadcast.svg", color: "#8b5cf6", type: "obs_action", target: "stream_toggle", sub: "En Vivo" },
+  { id: "obs_next", name: "OBS Escena +", icon: "", image: "/static/icons/next.svg", color: "#38bdf8", type: "obs_action", target: "next_scene", sub: "Siguiente" },
+  { id: "obs_mute", name: "Mute Micro OBS", icon: "", image: "/static/icons/mute.svg", color: "#ef4444", type: "obs_action", target: "mute_mic", sub: "Audio OBS" },
+
+  // Telemetry & Hardware Monitors
+  { id: "mon_cpu", name: "Monitor CPU", icon: "", image: "/static/icons/cpu.svg", color: "#0ea5e9", type: "hardware_monitor", target: "cpu", sub: "Carga %" },
+  { id: "mon_ram", name: "Monitor RAM", icon: "", image: "/static/icons/ram.svg", color: "#8b5cf6", type: "hardware_monitor", target: "ram", sub: "Memoria %" },
+  { id: "mon_disk", name: "Monitor SSD", icon: "", image: "/static/icons/disk.svg", color: "#10b981", type: "hardware_monitor", target: "disk", sub: "Espacio C:" },
+  { id: "taskmgr", name: "Administrador Tareas", icon: "", image: "/static/icons/sliders.svg", color: "#f59e0b", type: "launch", target: "taskmgr", sub: "Monitor Windows" },
+
+  // Media
   { id: "play_pause", name: "Play / Pausa", icon: "", image: "/static/icons/play_pause.svg", color: "#22c55e", type: "media", target: "play_pause", sub: "Multimedia" },
-  { id: "next", name: "Siguiente", icon: "", image: "/static/icons/next.svg", color: "#38bdf8", type: "media", target: "next", sub: "Pista" },
-  { id: "prev", name: "Anterior", icon: "", image: "/static/icons/prev.svg", color: "#38bdf8", type: "media", target: "prev", sub: "Pista" },
-  { id: "mute", name: "Mute Master", icon: "", image: "/static/icons/mute.svg", color: "#ef4444", type: "media", target: "mute", sub: "Silenciar" },
+  { id: "next", name: "Siguiente Pista", icon: "", image: "/static/icons/next.svg", color: "#38bdf8", type: "media", target: "next", sub: "Audio" },
+  { id: "prev", name: "Anterior Pista", icon: "", image: "/static/icons/prev.svg", color: "#38bdf8", type: "media", target: "prev", sub: "Audio" },
+  { id: "mute", name: "Mute Master", icon: "", image: "/static/icons/mute.svg", color: "#ef4444", type: "media", target: "mute", sub: "Silenciar PC" },
+
+  // Utilities
   { id: "calc", name: "Calculadora", icon: "", image: "/static/icons/calc.svg", color: "#f59e0b", type: "launch", target: "calc", sub: "Utilidad" },
   { id: "notepad", name: "Notas", icon: "", image: "/static/icons/notes.svg", color: "#06b6d4", type: "launch", target: "notepad", sub: "Editor" },
   { id: "macro", name: "Modo Stream", icon: "", image: "/static/icons/macro.svg", color: "#a855f7", type: "multi", target: "stream", sub: "Macro OBS+Discord" },
@@ -58,7 +78,7 @@ async function checkGitHubUpdates() {
     } else {
       updateCylinder.className = "update-cylinder";
       updateStatusIcon.textContent = "🟢";
-      updateStatusText.textContent = `StreamDesk v${data.current_version || '2.1.0'} (Al día)`;
+      updateStatusText.textContent = `StreamDesk v${data.current_version || '2.2.0'} (Al día)`;
       btnApplyUpdate.style.display = "none";
     }
   } catch (e) {
@@ -113,26 +133,87 @@ function renderAudioSessionsList() {
   });
 }
 
-// Load Configuration (6x2 Grid)
+// Load Configuration (6x2 Grid Multi-Page)
 async function loadConfig() {
   try {
     const res = await fetch("/api/config");
     config = await res.json();
+    activePageIndex = config.current_page || 0;
+    renderPageTabs();
     renderPhoneScreen();
   } catch (e) {
     console.error("Error loading config", e);
   }
 }
 
-// Render the 6x2 Phone Screen Simulator
+// Page Tabs Management
+function renderPageTabs() {
+  if (!pageTabs || !config) return;
+  pageTabs.innerHTML = "";
+
+  const pages = config.pages || [{ id: "page_main", name: "Principal", slots: config.slots || [] }];
+
+  pages.forEach((p, idx) => {
+    const btn = document.createElement("button");
+    btn.className = `page-tab-btn ${idx === activePageIndex ? 'active' : ''}`;
+    btn.textContent = p.name || `Pág ${idx + 1}`;
+    btn.addEventListener("click", () => switchPage(idx));
+    pageTabs.appendChild(btn);
+  });
+}
+
+async function switchPage(pageIdx) {
+  if (!config) return;
+  const pages = config.pages || [];
+  if (pageIdx >= 0 && pageIdx < pages.length) {
+    activePageIndex = pageIdx;
+    config.current_page = pageIdx;
+    config.slots = pages[pageIdx].slots;
+    selectedSlotIndex = null;
+    renderPageTabs();
+    renderPhoneScreen();
+    // Sync with server
+    try {
+      await fetch("/api/deck/page/switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page_index: pageIdx })
+      });
+    } catch (e) {}
+  }
+}
+
+btnAddPage?.addEventListener("click", async () => {
+  const pageName = prompt("Nombre de la nueva página:", `Página ${(config.pages || []).length + 1}`);
+  if (!pageName) return;
+
+  try {
+    const res = await fetch("/api/deck/page/add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: pageName })
+    });
+    const data = await res.json();
+    if (data.success) {
+      config.pages = data.pages;
+      await switchPage(config.pages.length - 1);
+      showToast(`¡Página "${pageName}" creada!`);
+    }
+  } catch (e) {
+    showToast("Error al crear la página");
+  }
+});
+
+// Render the 6x2 Phone Screen Simulator for Active Page
 function renderPhoneScreen() {
   if (!config) return;
   phoneScreen.innerHTML = "";
 
-  const slots = config.slots || [];
+  const pages = config.pages || [];
+  const currentSlots = (pages[activePageIndex] ? pages[activePageIndex].slots : config.slots) || [];
 
   for (let i = 0; i < 12; i++) {
-    const slot = slots[i] || { index: i, type: "empty" };
+    const slot = currentSlots[i] || { index: i, type: "empty" };
     const col = (i % 6) + 1; // 1 to 6
     const row = Math.floor(i / 6) + 1; // 1 or 2
 
@@ -216,6 +297,7 @@ function createStudioButtonKeycap(btn, index) {
       <div class="slot-accent" style="background: ${btn.color || 'var(--accent-blue)'}"></div>
       ${iconHtml}
       <div class="slot-keycap-title">${btn.label || 'Botón'}</div>
+      <div style="font-size: 0.55rem; color: var(--text-muted);">${btn.sublabel || ''}</div>
     </div>
   `;
 
@@ -244,7 +326,7 @@ function createStudioFaderCard(slider, index) {
       <span>${slider.label || (isMaster ? 'Master' : 'App')}</span>
     </div>
     <div class="slot-fader-track">
-      <div class="slot-fader-fill" style="height: 50%; background: ${isMaster ? 'var(--accent-blue)' : 'var(--accent-purple)'};"></div>
+      <div class="slot-fader-fill" style="height: 50%; background: ${slider.color || (isMaster ? 'var(--accent-blue)' : 'var(--accent-purple)')};"></div>
     </div>
     <div style="font-size: 0.72rem; font-weight: 800; color: var(--text-main);">50%</div>
   `;
@@ -257,10 +339,11 @@ function handleDropOnSlot(targetIndex) {
   const col = targetIndex % 6;
   const topSlot = col;
   const bottomSlot = col + 6;
+  const currentSlots = config.pages[activePageIndex].slots;
 
   if (dragSourceType === "palette_slider") {
     // Add new vertical volume slider occupying 2 vertical spaces in column 'col'
-    config.slots[topSlot] = {
+    currentSlots[topSlot] = {
       index: topSlot,
       type: "slider",
       id: `slider_${Date.now()}`,
@@ -273,7 +356,7 @@ function handleDropOnSlot(targetIndex) {
       icon: "/static/icons/volume_up.svg",
       image: "/static/icons/volume_up.svg"
     };
-    config.slots[bottomSlot] = {
+    currentSlots[bottomSlot] = {
       index: bottomSlot,
       type: "occupied_by_slider",
       id: `slot_${bottomSlot}`,
@@ -288,12 +371,12 @@ function handleDropOnSlot(targetIndex) {
 
   } else if (dragSourceType === "palette_btn") {
     // If target column was previously a slider, free both slots
-    if (config.slots[topSlot]?.type === "slider") {
-      config.slots[topSlot] = { index: topSlot, type: "empty" };
-      config.slots[bottomSlot] = { index: bottomSlot, type: "empty" };
+    if (currentSlots[topSlot]?.type === "slider") {
+      currentSlots[topSlot] = { index: topSlot, type: "empty" };
+      currentSlots[bottomSlot] = { index: bottomSlot, type: "empty" };
     }
 
-    config.slots[targetIndex] = {
+    currentSlots[targetIndex] = {
       index: targetIndex,
       type: "button",
       id: `btn_${Date.now()}`,
@@ -313,8 +396,8 @@ function handleDropOnSlot(targetIndex) {
 
   } else if (dragSourceType === "slot" && draggedSlotIndex !== null) {
     if (draggedSlotIndex !== targetIndex) {
-      const sourceSlot = config.slots[draggedSlotIndex];
-      const targetSlot = config.slots[targetIndex];
+      const sourceSlot = currentSlots[draggedSlotIndex];
+      const targetSlot = currentSlots[targetIndex];
 
       // If moving a slider, swap or place whole column
       if (sourceSlot?.type === "slider") {
@@ -322,13 +405,13 @@ function handleDropOnSlot(targetIndex) {
         const tCol = targetIndex % 6;
         
         // Free old column
-        config.slots[sCol] = { index: sCol, type: "empty" };
-        config.slots[sCol + 6] = { index: sCol + 6, type: "empty" };
+        currentSlots[sCol] = { index: sCol, type: "empty" };
+        currentSlots[sCol + 6] = { index: sCol + 6, type: "empty" };
 
         // Set in new column
         sourceSlot.index = tCol;
-        config.slots[tCol] = sourceSlot;
-        config.slots[tCol + 6] = {
+        currentSlots[tCol] = sourceSlot;
+        currentSlots[tCol + 6] = {
           index: tCol + 6,
           type: "occupied_by_slider",
           id: `slot_${tCol + 6}`,
@@ -340,11 +423,11 @@ function handleDropOnSlot(targetIndex) {
         showToast("Fader reubicado");
       } else {
         // Swap standard slots
-        config.slots[draggedSlotIndex] = targetSlot || { index: draggedSlotIndex, type: "empty" };
-        config.slots[targetIndex] = sourceSlot;
+        currentSlots[draggedSlotIndex] = targetSlot || { index: draggedSlotIndex, type: "empty" };
+        currentSlots[targetIndex] = sourceSlot;
 
-        if (config.slots[draggedSlotIndex]) config.slots[draggedSlotIndex].index = draggedSlotIndex;
-        if (config.slots[targetIndex]) config.slots[targetIndex].index = targetIndex;
+        if (currentSlots[draggedSlotIndex]) currentSlots[draggedSlotIndex].index = draggedSlotIndex;
+        if (currentSlots[targetIndex]) currentSlots[targetIndex].index = targetIndex;
 
         renderPhoneScreen();
         selectSlot(targetIndex);
@@ -374,7 +457,9 @@ function selectSlot(index) {
   selectedSlotIndex = index;
   renderPhoneScreen();
 
-  const slot = config.slots[index];
+  const currentSlots = config.pages[activePageIndex].slots;
+  const slot = currentSlots[index];
+
   if (!slot || slot.type === "empty") {
     inspectorTitle.textContent = `Casilla #${index + 1} (Vacía)`;
     renderEmptySlotInspector(index);
@@ -390,6 +475,8 @@ function selectSlot(index) {
 // Empty Slot Inspector
 function renderEmptySlotInspector(index) {
   const col = index % 6;
+  const currentSlots = config.pages[activePageIndex].slots;
+
   inspectorContent.innerHTML = `
     <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px;">
       Esta casilla está vacía. Selecciona una acción o crea un fader:
@@ -405,7 +492,7 @@ function renderEmptySlotInspector(index) {
   `;
 
   document.getElementById("btn-create-button-here")?.addEventListener("click", () => {
-    config.slots[index] = {
+    currentSlots[index] = {
       index,
       type: "button",
       id: `btn_${Date.now()}`,
@@ -423,7 +510,7 @@ function renderEmptySlotInspector(index) {
   });
 
   document.getElementById("btn-create-slider-here")?.addEventListener("click", () => {
-    config.slots[col] = {
+    currentSlots[col] = {
       index: col,
       type: "slider",
       id: `slider_${Date.now()}`,
@@ -436,7 +523,7 @@ function renderEmptySlotInspector(index) {
       icon: "/static/icons/volume_up.svg",
       image: "/static/icons/volume_up.svg"
     };
-    config.slots[col + 6] = {
+    currentSlots[col + 6] = {
       index: col + 6,
       type: "occupied_by_slider",
       id: `slot_${col + 6}`,
@@ -463,7 +550,7 @@ function renderButtonInspector(btn, index) {
   inspectorContent.innerHTML = `
     <div class="form-group">
       <label>Asignar Acción Rápida (1 Clic)</label>
-      <div class="quick-apps-grid">
+      <div class="quick-apps-grid" style="max-height: 220px; overflow-y: auto;">
         ${presetButtonsHtml}
       </div>
     </div>
@@ -527,7 +614,7 @@ function renderButtonInspector(btn, index) {
   });
 
   document.getElementById("btn-delete-slot")?.addEventListener("click", () => {
-    config.slots[index] = { index, type: "empty" };
+    config.pages[activePageIndex].slots[index] = { index, type: "empty" };
     renderPhoneScreen();
     selectSlot(index);
     saveConfigToServer();
@@ -539,6 +626,7 @@ function renderButtonInspector(btn, index) {
 function renderSliderInspector(slider, index) {
   const isMaster = slider.slider_type === "master" || slider.type === "master";
   const col = index % 6;
+  const currentSlots = config.pages[activePageIndex].slots;
 
   inspectorContent.innerHTML = `
     <div class="form-group">
@@ -613,8 +701,8 @@ function renderSliderInspector(slider, index) {
   });
 
   document.getElementById("btn-delete-slider")?.addEventListener("click", () => {
-    config.slots[col] = { index: col, type: "empty" };
-    config.slots[col + 6] = { index: col + 6, type: "empty" };
+    currentSlots[col] = { index: col, type: "empty" };
+    currentSlots[col + 6] = { index: col + 6, type: "empty" };
     renderPhoneScreen();
     selectSlot(col);
     saveConfigToServer();
@@ -626,6 +714,10 @@ function renderSliderInspector(slider, index) {
 async function saveConfigToServer() {
   if (!config) return;
   try {
+    // Keep slots in sync with active page
+    if (config.pages && config.pages[activePageIndex]) {
+      config.slots = config.pages[activePageIndex].slots;
+    }
     await fetch("/api/deck/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -203,8 +203,65 @@ main {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 0 16px;
   background: var(--bg-sidebar);
+  gap: 10px;
+}
+
+/* Multi-Page Tabs in Studio */
+.page-tabs-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #080a10;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.page-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.page-tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.page-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+}
+
+.page-tab-btn.active {
+  background: var(--accent-blue);
+  color: #fff;
+}
+
+.btn-page-add {
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.btn-page-add:hover {
+  border-color: var(--accent-blue);
+  color: #fff;
 }
 
 /* Update Status Cylinder (Pill) */

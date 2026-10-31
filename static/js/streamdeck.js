@@ -1,4 +1,4 @@
-// StreamDesk Mobile Client Pro (6x2 Grid + 2-Height Vertical Faders + PWA)
+// StreamDesk Mobile Client Pro (6x2 Grid + Multi-Page Swipe + Telemetry Widgets)
 let ws = null;
 let token = localStorage.getItem("streamdesk_token") || null;
 let wakeLock = null;
@@ -15,8 +15,13 @@ const btnClosePinModal = document.getElementById("btn-close-pin-modal");
 const appModal = document.getElementById("app-modal");
 const appListItems = document.getElementById("app-list-items");
 const deckGrid = document.getElementById("deck-grid");
+const deckContainer = document.getElementById("deck-container");
 const btnInstallPwa = document.getElementById("btn-install-pwa");
 const iosInstallModal = document.getElementById("ios-install-modal");
+const currentPageName = document.getElementById("current-page-name");
+const pageDots = document.getElementById("page-dots");
+const btnPrevPage = document.getElementById("btn-prev-page");
+const btnNextPage = document.getElementById("btn-next-page");
 
 // Register Service Worker for PWA
 if ('serviceWorker' in navigator) {
@@ -43,7 +48,6 @@ btnInstallPwa?.addEventListener('click', async () => {
     }
     deferredInstallPrompt = null;
   } else {
-    // Show iOS instructions or manual guide
     if (iosInstallModal) iosInstallModal.style.display = 'flex';
   }
 });
@@ -72,10 +76,88 @@ function haptic(ms = 25) {
   }
 }
 
+// Multi-Page Navigation Handlers
+function renderPageNav(config) {
+  if (!config) return;
+  const pages = config.pages || [];
+  const curIdx = config.current_page || 0;
+
+  if (currentPageName && pages[curIdx]) {
+    currentPageName.textContent = pages[curIdx].name || `Pág ${curIdx + 1}`;
+  }
+
+  if (pageDots) {
+    pageDots.innerHTML = "";
+    pages.forEach((p, i) => {
+      const dot = document.createElement("div");
+      dot.className = `page-dot ${i === curIdx ? 'active' : ''}`;
+      dot.addEventListener("click", () => switchPage(i));
+      pageDots.appendChild(dot);
+    });
+  }
+}
+
+function switchPage(pageIdx) {
+  if (!currentConfig) return;
+  const pages = currentConfig.pages || [];
+  if (pageIdx >= 0 && pageIdx < pages.length) {
+    haptic(20);
+    sendWS({ type: "switch_page", page: pageIdx });
+  }
+}
+
+function goToPrevPage() {
+  if (!currentConfig) return;
+  const curIdx = currentConfig.current_page || 0;
+  const total = (currentConfig.pages || []).length;
+  if (total > 1) {
+    const nextIdx = (curIdx - 1 + total) % total;
+    switchPage(nextIdx);
+  }
+}
+
+function goToNextPage() {
+  if (!currentConfig) return;
+  const curIdx = currentConfig.current_page || 0;
+  const total = (currentConfig.pages || []).length;
+  if (total > 1) {
+    const nextIdx = (curIdx + 1) % total;
+    switchPage(nextIdx);
+  }
+}
+
+btnPrevPage?.addEventListener("click", goToPrevPage);
+btnNextPage?.addEventListener("click", goToNextPage);
+
+// Touch Swipe Gesture Detection on Mobile
+let touchStartX = 0;
+let touchStartY = 0;
+
+deckContainer?.addEventListener("touchstart", (e) => {
+  if (e.touches.length === 1) {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }
+}, { passive: true });
+
+deckContainer?.addEventListener("touchend", (e) => {
+  if (e.changedTouches.length === 1) {
+    const diffX = e.changedTouches[0].clientX - touchStartX;
+    const diffY = e.changedTouches[0].clientY - touchStartY;
+    // Horizontal swipe threshold: 50px and mostly horizontal
+    if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY) * 1.4) {
+      if (diffX < 0) {
+        goToNextPage();
+      } else {
+        goToPrevPage();
+      }
+    }
+  }
+}, { passive: true });
+
 // WebSocket Connection
 function connectWebSocket() {
   if (!token) {
-    // Show PIN modal upfront if not paired
     showPinModal(false);
     return;
   }
@@ -108,7 +190,6 @@ function connectWebSocket() {
     statusDot.className = "dot";
     statusText.textContent = "Desconectado";
     if (event.code === 1008) {
-      // Token invalid or revoked: clear and prompt PIN upfront
       localStorage.removeItem("streamdesk_token");
       token = null;
       showPinModal(false);
@@ -133,30 +214,42 @@ function sendWS(payload) {
 function handleServerMessage(data) {
   switch (data.type) {
     case "config_sync":
+    case "config_updated":
       currentConfig = data.config;
       renderDeck(currentConfig);
+      renderPageNav(currentConfig);
       break;
 
     case "initial_state":
+    case "init_state":
       currentConfig = data.config;
-      currentSessions = data.audio_sessions || [];
+      currentSessions = data.audio_sessions || data.sessions || [];
       renderDeck(currentConfig);
-      updateMasterVolume(data.master_volume, data.master_muted);
+      renderPageNav(currentConfig);
+      if (data.master) updateMasterVolume(data.master.volume, data.master.muted);
       updateAppVolumes();
       break;
 
+    case "telemetry_update":
+      updateTelemetryWidgets(data);
+      break;
+
+    case "master_volume_updated":
     case "master_volume_update":
       updateMasterVolume(data.volume, data.muted);
       break;
 
+    case "master_mute_updated":
     case "master_mute_update":
       updateMasterMute(data.muted);
       break;
 
+    case "app_volume_updated":
     case "app_volume_update":
       updateSpecificAppVolume(data.process, data.volume);
       break;
 
+    case "app_mute_updated":
     case "app_mute_update":
       updateAppMuteState(data.process, data.muted);
       break;
@@ -166,6 +259,26 @@ function handleServerMessage(data) {
       updateAppModalList();
       break;
   }
+}
+
+// Live Hardware Telemetry Updates
+function updateTelemetryWidgets(data) {
+  if (!currentConfig) return;
+  const slots = currentConfig.slots || [];
+
+  slots.forEach((s) => {
+    if (s.action_type === "hardware_monitor" || s.target === "cpu" || s.target === "ram" || s.target === "disk") {
+      const btnEl = document.getElementById(s.id || `slot_btn_${s.index}`);
+      if (!btnEl) return;
+
+      const subEl = btnEl.querySelector(".deck-btn-sub");
+      if (subEl) {
+        if (s.target === "cpu") subEl.textContent = `${data.cpu}% Uso`;
+        else if (s.target === "ram") subEl.textContent = `${data.ram}% RAM`;
+        else if (s.target === "disk") subEl.textContent = `${data.disk}% Usado`;
+      }
+    }
+  });
 }
 
 // Render dynamic 6x2 grid (12 slots) with 2-height vertical faders
@@ -255,14 +368,12 @@ function createButtonElement(btn) {
   title.textContent = btn.label || "Botón";
   textWrap.appendChild(title);
 
-  if (btn.sublabel) {
-    const sub = document.createElement("div");
-    sub.className = "deck-btn-sub";
-    sub.textContent = btn.sublabel;
-    textWrap.appendChild(sub);
-  }
-  inner.appendChild(textWrap);
+  const sub = document.createElement("div");
+  sub.className = "deck-btn-sub";
+  sub.textContent = btn.sublabel || "";
+  textWrap.appendChild(sub);
 
+  inner.appendChild(textWrap);
   keycap.appendChild(inner);
 
   // Touch and trigger handlers (snappy micro-animation)

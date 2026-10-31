@@ -100,11 +100,31 @@ async def audio_sync_loop():
             pass
         await asyncio.sleep(1.2)
 
+async def telemetry_sync_loop():
+    import psutil
+    while True:
+        try:
+            if ws_manager.active_connections:
+                cpu = int(psutil.cpu_percent())
+                ram = int(psutil.virtual_memory().percent)
+                disk = int(psutil.disk_usage("C:").percent) if os.path.exists("C:") else 0
+                await ws_manager.broadcast({
+                    "type": "telemetry_update",
+                    "cpu": cpu,
+                    "ram": ram,
+                    "disk": disk
+                })
+        except Exception:
+            pass
+        await asyncio.sleep(1.5)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     sync_task = asyncio.create_task(audio_sync_loop())
+    telemetry_task = asyncio.create_task(telemetry_sync_loop())
     yield
     sync_task.cancel()
+    telemetry_task.cancel()
 
 app = FastAPI(title="StreamDesk Pro Server", version=VERSION, lifespan=lifespan)
 
@@ -188,6 +208,49 @@ async def update_configuration(new_config: Dict[str, Any] = Body(...)):
         })
         return {"success": True, "config": new_config}
     raise HTTPException(status_code=500, detail="No se pudo guardar la configuración")
+
+@app.post("/api/deck/page/switch")
+async def switch_deck_page(page_index: int = Body(..., embed=True)):
+    success = config_manager.set_active_page(page_index)
+    if success:
+        await ws_manager.broadcast({
+            "type": "config_sync",
+            "config": config_manager.get_config()
+        })
+    return {"success": success, "current_page": config_manager.get_config().get("current_page", 0)}
+
+@app.post("/api/deck/page/add")
+async def add_deck_page(name: str = Body(default="Nueva Página", embed=True)):
+    cfg = config_manager.get_config()
+    pages = cfg.setdefault("pages", [])
+    page_name = name or f"Página {len(pages) + 1}"
+    new_slots = [{"index": i, "type": "empty", "id": f"slot_{i}_{uuid.uuid4().hex[:4]}", "label": "Vacío"} for i in range(12)]
+    new_slots[4] = {"index": 4, "type": "slider", "id": f"slider_master_{uuid.uuid4().hex[:4]}", "label": "Master", "sublabel": "PC", "slider_type": "master", "color": "#0ea5e9", "row_span": 2, "icon": "/static/icons/volume_up.svg", "image": "/static/icons/volume_up.svg"}
+    new_slots[5] = {"index": 5, "type": "slider", "id": f"slider_app_{uuid.uuid4().hex[:4]}", "label": "App", "sublabel": "Audio", "slider_type": "app_dynamic", "target_app": "Spotify.exe", "color": "#a855f7", "row_span": 2, "icon": "/static/icons/spotify.svg", "image": "/static/icons/spotify.svg"}
+    new_slots[10] = {"index": 10, "type": "occupied_by_slider", "id": f"slot_10_{uuid.uuid4().hex[:4]}", "parent_slot": 4}
+    new_slots[11] = {"index": 11, "type": "occupied_by_slider", "id": f"slot_11_{uuid.uuid4().hex[:4]}", "parent_slot": 5}
+    pages.append({"id": f"page_{uuid.uuid4().hex[:6]}", "name": page_name, "slots": new_slots})
+    config_manager.save_config(cfg)
+    await ws_manager.broadcast({
+        "type": "config_sync",
+        "config": config_manager.get_config()
+    })
+    return {"success": True, "pages": pages}
+
+@app.post("/api/deck/page/delete")
+async def delete_deck_page(page_index: int = Body(..., embed=True)):
+    cfg = config_manager.get_config()
+    pages = cfg.get("pages", [])
+    if len(pages) > 1 and 0 <= page_index < len(pages):
+        pages.pop(page_index)
+        cfg["current_page"] = min(cfg.get("current_page", 0), len(pages) - 1)
+        config_manager.save_config(cfg)
+        await ws_manager.broadcast({
+            "type": "config_sync",
+            "config": config_manager.get_config()
+        })
+        return {"success": True, "pages": pages}
+    return {"success": False, "error": "No se puede borrar la única página"}
 
 @app.get("/api/audio/sessions")
 async def get_audio_sessions():
@@ -291,7 +354,15 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                 data = json.loads(raw_data)
                 msg_type = data.get("type")
 
-                if msg_type == "trigger_button":
+                if msg_type == "switch_page":
+                    page_idx = int(data.get("page", 0))
+                    if config_manager.set_active_page(page_idx):
+                        await ws_manager.broadcast({
+                            "type": "config_sync",
+                            "config": config_manager.get_config()
+                        })
+
+                elif msg_type == "trigger_button":
                     btn_id = data.get("id")
                     config = config_manager.get_config()
                     slots = config.get("slots", [])

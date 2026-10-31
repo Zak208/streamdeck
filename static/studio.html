@@ -11,7 +11,7 @@
   <aside>
     <div class="sidebar-header">
       <h1>STREAMDESK <span class="highlight">STUDIO</span></h1>
-      <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Diseñador 6x2 & Simulador Móvil</p>
+      <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Diseñador 6x2 Multi-Página & Simulador</p>
     </div>
 
     <div class="sidebar-scroll">
@@ -76,10 +76,16 @@
   <!-- Center Workspace -->
   <main>
     <div class="studio-topbar">
+      <!-- Multi-Page Tabs Switcher -->
+      <div class="page-tabs-container">
+        <div class="page-tabs" id="page-tabs"></div>
+        <button class="btn-page-add" id="btn-add-page" title="Crear nueva página">+ Página</button>
+      </div>
+
       <!-- GitHub Auto-Update Status Cylinder / Pill -->
       <div class="update-cylinder" id="update-cylinder" title="Estado de actualizaciones con GitHub">
         <span id="update-status-icon">🟢</span>
-        <span id="update-status-text">StreamDesk v2.1.0 (Al día)</span>
+        <span id="update-status-text">StreamDesk v2.2.0 (Al día)</span>
         <button class="update-btn-action" id="btn-apply-update" style="display: none;">Actualizar 🚀</button>
       </div>
 

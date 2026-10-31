@@ -114,6 +114,14 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] =
             subprocess.Popen(["powershell.exe", "-NoProfile", "-Command", target_str], shell=True)
             return {"success": True, "action": action_type, "target": target_str}
 
+        elif action_type == "obs_action":
+            from server.obs_client import obs_client
+            return obs_client.execute_obs_action(target_str, extra)
+
+        elif action_type == "hardware_monitor":
+            subprocess.Popen("taskmgr.exe")
+            return {"success": True, "action": "open_taskmgr"}
+
         elif action_type == "sound":
             sound_type = target_str.lower()
             if sound_type == "beep":

@@ -19,6 +19,14 @@
       <span class="badge-pro">PRO</span>
     </div>
 
+    <!-- Multi-Page Navigation Bar -->
+    <div class="page-nav" id="page-nav">
+      <button class="page-nav-arrow" id="btn-prev-page" title="Página Anterior">‹</button>
+      <div class="page-dots" id="page-dots"></div>
+      <span class="page-name-badge" id="current-page-name">Principal</span>
+      <button class="page-nav-arrow" id="btn-next-page" title="Página Siguiente">›</button>
+    </div>
+
     <div class="header-actions">
       <!-- PWA Install Button -->
       <button class="btn-install" id="btn-install-pwa" style="display: none;">
@@ -40,7 +48,7 @@
     </div>
   </header>
 
-  <!-- Main Container: 6x2 Grid -->
+  <!-- Main Container: 6x2 Grid (Supports Touch Swipe) -->
   <main id="deck-container">
     <div id="deck-grid">
       <!-- Rendered dynamically by streamdeck.js (12 slots, 2-height vertical faders) -->
