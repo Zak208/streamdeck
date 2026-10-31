@@ -2,10 +2,20 @@ import os
 import sys
 import time
 import threading
-import uvicorn
 
-# Ensure UTF-8 output on Windows
-if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
+# Crucial fix for PyInstaller --windowed mode where sys.stdout and sys.stderr are None
+if sys.stdout is None:
+    try:
+        sys.stdout = open(os.devnull, 'w', encoding='utf-8')
+    except Exception:
+        pass
+if sys.stderr is None:
+    try:
+        sys.stderr = open(os.devnull, 'w', encoding='utf-8')
+    except Exception:
+        pass
+
+if sys.stdout and hasattr(sys.stdout, 'encoding') and sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
     try:
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
@@ -60,3 +70,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
