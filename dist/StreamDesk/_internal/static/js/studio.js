@@ -1,4 +1,4 @@
-// StreamDesk Studio Pro — 2x12 Grid & GitHub Updater
+// StreamDesk Studio Pro — 6x2 Grid & 2-Height Vertical Faders
 let config = null;
 let selectedSlotIndex = null;
 let audioSessions = [];
@@ -14,21 +14,22 @@ const updateStatusIcon = document.getElementById("update-status-icon");
 const updateStatusText = document.getElementById("update-status-text");
 const btnApplyUpdate = document.getElementById("btn-apply-update");
 
-// 1-Click App & Control Presets (Zero technical knowledge required!)
+// 1-Click Clean Presets with Vector SVGs (No emoji clutter)
 const ONE_CLICK_PRESETS = [
   { id: "discord", name: "Discord", icon: "", image: "/static/icons/discord.svg", color: "#5865f2", type: "preset_app", target: "discord", sub: "Voz / Chat" },
   { id: "spotify", name: "Spotify", icon: "", image: "/static/icons/spotify.svg", color: "#1db954", type: "preset_app", target: "spotify", sub: "Música" },
   { id: "obs", name: "OBS Studio", icon: "", image: "/static/icons/obs.svg", color: "#302e31", type: "preset_app", target: "obs", sub: "Directo" },
   { id: "steam", name: "Steam", icon: "", image: "/static/icons/steam.svg", color: "#171a21", type: "preset_app", target: "steam", sub: "Juegos" },
   { id: "chrome", name: "Chrome", icon: "", image: "/static/icons/chrome.svg", color: "#ea4335", type: "preset_app", target: "chrome", sub: "Navegador" },
-  { id: "valorant", name: "Valorant", icon: "⚔️", image: "", color: "#d13639", type: "preset_app", target: "valorant", sub: "Riot Games" },
-  { id: "calc", name: "Calculadora", icon: "🧮", image: "", color: "#f59e0b", type: "launch", target: "calc", sub: "Utilidad" },
-  { id: "notepad", name: "Notas", icon: "📝", image: "", color: "#06b6d4", type: "launch", target: "notepad", sub: "Editor" },
-  { id: "play_pause", name: "Play / Pausa", icon: "⏯️", image: "", color: "#22c55e", type: "media", target: "play_pause", sub: "Multimedia" },
-  { id: "next", name: "Siguiente", icon: "⏭️", image: "", color: "#38bdf8", type: "media", target: "next", sub: "Pista" },
-  { id: "prev", name: "Anterior", icon: "⏮️", image: "", color: "#38bdf8", type: "media", target: "prev", sub: "Pista" },
-  { id: "mute", name: "Mute Master", icon: "🔇", image: "", color: "#ef4444", type: "media", target: "mute", sub: "Silenciar" },
-  { id: "beep", name: "Beep Alerta", icon: "🔔", image: "", color: "#8b5cf6", type: "sound", target: "beep", sub: "Sonido PC" }
+  { id: "valorant", name: "Valorant", icon: "", image: "/static/icons/gamepad.svg", color: "#d13639", type: "preset_app", target: "valorant", sub: "Riot Games" },
+  { id: "play_pause", name: "Play / Pausa", icon: "", image: "/static/icons/play_pause.svg", color: "#22c55e", type: "media", target: "play_pause", sub: "Multimedia" },
+  { id: "next", name: "Siguiente", icon: "", image: "/static/icons/next.svg", color: "#38bdf8", type: "media", target: "next", sub: "Pista" },
+  { id: "prev", name: "Anterior", icon: "", image: "/static/icons/prev.svg", color: "#38bdf8", type: "media", target: "prev", sub: "Pista" },
+  { id: "mute", name: "Mute Master", icon: "", image: "/static/icons/mute.svg", color: "#ef4444", type: "media", target: "mute", sub: "Silenciar" },
+  { id: "calc", name: "Calculadora", icon: "", image: "/static/icons/calc.svg", color: "#f59e0b", type: "launch", target: "calc", sub: "Utilidad" },
+  { id: "notepad", name: "Notas", icon: "", image: "/static/icons/notes.svg", color: "#06b6d4", type: "launch", target: "notepad", sub: "Editor" },
+  { id: "macro", name: "Modo Stream", icon: "", image: "/static/icons/macro.svg", color: "#a855f7", type: "multi", target: "stream", sub: "Macro OBS+Discord" },
+  { id: "youtube", name: "YouTube", icon: "", image: "/static/icons/youtube.svg", color: "#e11d48", type: "url", target: "https://www.youtube.com", sub: "Web" }
 ];
 
 // Load Pairing Info
@@ -112,7 +113,7 @@ function renderAudioSessionsList() {
   });
 }
 
-// Load Configuration (2x12 Grid)
+// Load Configuration (6x2 Grid)
 async function loadConfig() {
   try {
     const res = await fetch("/api/config");
@@ -123,19 +124,35 @@ async function loadConfig() {
   }
 }
 
-// Render the 2x12 Phone Screen Simulator
+// Render the 6x2 Phone Screen Simulator
 function renderPhoneScreen() {
   if (!config) return;
   phoneScreen.innerHTML = "";
 
   const slots = config.slots || [];
 
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 12; i++) {
     const slot = slots[i] || { index: i, type: "empty" };
+    const col = (i % 6) + 1; // 1 to 6
+    const row = Math.floor(i / 6) + 1; // 1 or 2
+
+    // If occupied by a 2-height vertical slider, it is merged with the slot above
+    if (slot.type === "occupied_by_slider") {
+      continue;
+    }
+
     const cell = document.createElement("div");
     cell.className = `slot-cell ${selectedSlotIndex === i ? 'selected' : ''}`;
     cell.id = `cell_slot_${i}`;
     cell.dataset.index = i;
+    cell.style.gridColumn = `${col}`;
+
+    if (slot.type === "slider") {
+      cell.style.gridRow = "1 / span 2"; // Occupies 2 vertical spaces!
+      cell.classList.add("cell-slider-spanning");
+    } else {
+      cell.style.gridRow = `${row}`;
+    }
 
     // Attach Drop Target Events
     cell.addEventListener("dragover", (e) => {
@@ -153,7 +170,7 @@ function renderPhoneScreen() {
       handleDropOnSlot(i);
     });
 
-    // Direct Click to Select (NO 3 dots!)
+    // Direct Click to Select
     cell.addEventListener("click", () => {
       selectSlot(i);
     });
@@ -186,8 +203,12 @@ function createStudioButtonKeycap(btn, index) {
   let iconHtml = "";
   if (btn.image) {
     iconHtml = `<img src="${btn.image}" class="slot-keycap-img" alt="${btn.label}">`;
+  } else if (btn.icon && (btn.icon.startsWith("/") || btn.icon.endsWith(".svg"))) {
+    iconHtml = `<img src="${btn.icon}" class="slot-keycap-img" alt="${btn.label}">`;
+  } else if (btn.icon) {
+    iconHtml = `<span class="slot-keycap-emoji">${btn.icon}</span>`;
   } else {
-    iconHtml = `<span class="slot-keycap-emoji">${btn.icon || '⚡'}</span>`;
+    iconHtml = `<img src="/static/icons/power.svg" class="slot-keycap-img" alt="">`;
   }
 
   wrap.innerHTML = `
@@ -213,12 +234,19 @@ function createStudioFaderCard(slider, index) {
     e.dataTransfer.effectAllowed = "move";
   });
 
+  const headerIcon = slider.image 
+    ? `<img src="${slider.image}" style="width: 14px; height: 14px; margin-bottom: 2px;">` 
+    : `<img src="/static/icons/${isMaster ? 'volume_up' : 'spotify'}.svg" style="width: 14px; height: 14px; margin-bottom: 2px;">`;
+
   wrap.innerHTML = `
-    <div style="font-size: 0.65rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; text-align: center;">${slider.label || 'Volumen'}</div>
-    <div style="flex: 1; width: 28px; background: #06080d; border-radius: 14px; border: 1px solid var(--border); display: flex; align-items: flex-end; overflow: hidden;">
-      <div style="width: 100%; height: 50%; background: ${isMaster ? 'var(--accent-blue)' : 'var(--accent-purple)'}; border-radius: 0 0 14px 14px;"></div>
+    <div style="font-size: 0.68rem; font-weight: 700; color: #fff; text-align: center; display: flex; flex-direction: column; align-items: center;">
+      ${headerIcon}
+      <span>${slider.label || (isMaster ? 'Master' : 'App')}</span>
     </div>
-    <div style="font-size: 0.7rem; font-weight: 800; margin-top: 4px;">50%</div>
+    <div class="slot-fader-track">
+      <div class="slot-fader-fill" style="height: 50%; background: ${isMaster ? 'var(--accent-blue)' : 'var(--accent-purple)'};"></div>
+    </div>
+    <div style="font-size: 0.72rem; font-weight: 800; color: var(--text-main);">50%</div>
   `;
 
   return wrap;
@@ -226,55 +254,103 @@ function createStudioFaderCard(slider, index) {
 
 // Drag & Drop Handling on Slots
 function handleDropOnSlot(targetIndex) {
-  if (dragSourceType === "palette_btn") {
-    // Add new button in target slot
+  const col = targetIndex % 6;
+  const topSlot = col;
+  const bottomSlot = col + 6;
+
+  if (dragSourceType === "palette_slider") {
+    // Add new vertical volume slider occupying 2 vertical spaces in column 'col'
+    config.slots[topSlot] = {
+      index: topSlot,
+      type: "slider",
+      id: `slider_${Date.now()}`,
+      label: "Volumen",
+      sublabel: "Master",
+      slider_type: "master",
+      target_app: null,
+      row_span: 2,
+      color: "#0ea5e9",
+      icon: "/static/icons/volume_up.svg",
+      image: "/static/icons/volume_up.svg"
+    };
+    config.slots[bottomSlot] = {
+      index: bottomSlot,
+      type: "occupied_by_slider",
+      id: `slot_${bottomSlot}`,
+      label: "Ocupado por Slider",
+      parent_slot: topSlot
+    };
+
+    renderPhoneScreen();
+    selectSlot(topSlot);
+    saveConfigToServer();
+    showToast("Fader de volumen colocado (2 casillas)");
+
+  } else if (dragSourceType === "palette_btn") {
+    // If target column was previously a slider, free both slots
+    if (config.slots[topSlot]?.type === "slider") {
+      config.slots[topSlot] = { index: topSlot, type: "empty" };
+      config.slots[bottomSlot] = { index: bottomSlot, type: "empty" };
+    }
+
     config.slots[targetIndex] = {
       index: targetIndex,
       type: "button",
       id: `btn_${Date.now()}`,
-      label: "Nuevo Botón",
+      label: "Acción",
       sublabel: "",
-      icon: "⚡",
-      image: "",
-      color: "#38bdf8",
+      icon: "",
+      image: "/static/icons/discord.svg",
+      color: "#5865f2",
       action_type: "preset_app",
       target: "discord"
     };
+
     renderPhoneScreen();
     selectSlot(targetIndex);
     saveConfigToServer();
     showToast("Botón colocado en la cuadrícula");
 
-  } else if (dragSourceType === "palette_slider") {
-    // Add new volume slider in target slot
-    config.slots[targetIndex] = {
-      index: targetIndex,
-      type: "slider",
-      id: `slider_${Date.now()}`,
-      label: "Volumen",
-      slider_type: "master",
-      color: "#38bdf8"
-    };
-    renderPhoneScreen();
-    selectSlot(targetIndex);
-    saveConfigToServer();
-    showToast("Fader de volumen colocado");
-
   } else if (dragSourceType === "slot" && draggedSlotIndex !== null) {
     if (draggedSlotIndex !== targetIndex) {
-      // Swap or move slots
-      const temp = config.slots[draggedSlotIndex];
-      config.slots[draggedSlotIndex] = config.slots[targetIndex] || { index: draggedSlotIndex, type: "empty" };
-      config.slots[targetIndex] = temp;
+      const sourceSlot = config.slots[draggedSlotIndex];
+      const targetSlot = config.slots[targetIndex];
 
-      // Update their index property
-      if (config.slots[draggedSlotIndex]) config.slots[draggedSlotIndex].index = draggedSlotIndex;
-      if (config.slots[targetIndex]) config.slots[targetIndex].index = targetIndex;
+      // If moving a slider, swap or place whole column
+      if (sourceSlot?.type === "slider") {
+        const sCol = draggedSlotIndex % 6;
+        const tCol = targetIndex % 6;
+        
+        // Free old column
+        config.slots[sCol] = { index: sCol, type: "empty" };
+        config.slots[sCol + 6] = { index: sCol + 6, type: "empty" };
 
-      renderPhoneScreen();
-      selectSlot(targetIndex);
-      saveConfigToServer();
-      showToast("Posiciones actualizadas");
+        // Set in new column
+        sourceSlot.index = tCol;
+        config.slots[tCol] = sourceSlot;
+        config.slots[tCol + 6] = {
+          index: tCol + 6,
+          type: "occupied_by_slider",
+          id: `slot_${tCol + 6}`,
+          parent_slot: tCol
+        };
+        renderPhoneScreen();
+        selectSlot(tCol);
+        saveConfigToServer();
+        showToast("Fader reubicado");
+      } else {
+        // Swap standard slots
+        config.slots[draggedSlotIndex] = targetSlot || { index: draggedSlotIndex, type: "empty" };
+        config.slots[targetIndex] = sourceSlot;
+
+        if (config.slots[draggedSlotIndex]) config.slots[draggedSlotIndex].index = draggedSlotIndex;
+        if (config.slots[targetIndex]) config.slots[targetIndex].index = targetIndex;
+
+        renderPhoneScreen();
+        selectSlot(targetIndex);
+        saveConfigToServer();
+        showToast("Posiciones actualizadas");
+      }
     }
   }
 
@@ -306,23 +382,24 @@ function selectSlot(index) {
     inspectorTitle.textContent = `Configurar Botón (Casilla #${index + 1})`;
     renderButtonInspector(slot, index);
   } else if (slot.type === "slider") {
-    inspectorTitle.textContent = `Configurar Fader (Casilla #${index + 1})`;
+    inspectorTitle.textContent = `Configurar Fader (Columna #${(index % 6) + 1})`;
     renderSliderInspector(slot, index);
   }
 }
 
 // Empty Slot Inspector
 function renderEmptySlotInspector(index) {
+  const col = index % 6;
   inspectorContent.innerHTML = `
     <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px;">
-      Esta casilla está vacía. Puedes arrastrar un elemento desde la izquierda o crearlo directamente con un clic:
+      Esta casilla está vacía. Selecciona una acción o crea un fader:
     </p>
     <div style="display: flex; flex-direction: column; gap: 8px;">
       <button class="btn-primary" id="btn-create-button-here" style="justify-content: center;">
-        🔲 Crear Botón Aquí
+        <img src="/static/icons/power.svg" style="width: 16px; height: 16px;"> Crear Botón Aquí (1 Casilla)
       </button>
-      <button class="btn-primary" id="btn-create-slider-here" style="justify-content: center; background: linear-gradient(135deg, var(--accent-purple), #7e22ce);">
-        🎚️ Crear Fader de Volumen Aquí
+      <button class="btn-primary" id="btn-create-slider-here" style="justify-content: center; background: var(--accent-purple);">
+        <img src="/static/icons/fader.svg" style="width: 16px; height: 16px;"> Crear Fader en Columna #${col + 1} (2 Casillas)
       </button>
     </div>
   `;
@@ -334,9 +411,9 @@ function renderEmptySlotInspector(index) {
       id: `btn_${Date.now()}`,
       label: "Nuevo Botón",
       sublabel: "",
-      icon: "⚡",
-      image: "",
-      color: "#38bdf8",
+      icon: "",
+      image: "/static/icons/discord.svg",
+      color: "#5865f2",
       action_type: "preset_app",
       target: "discord"
     };
@@ -346,25 +423,36 @@ function renderEmptySlotInspector(index) {
   });
 
   document.getElementById("btn-create-slider-here")?.addEventListener("click", () => {
-    config.slots[index] = {
-      index,
+    config.slots[col] = {
+      index: col,
       type: "slider",
       id: `slider_${Date.now()}`,
       label: "Volumen",
+      sublabel: "Master",
       slider_type: "master",
-      color: "#38bdf8"
+      target_app: null,
+      row_span: 2,
+      color: "#0ea5e9",
+      icon: "/static/icons/volume_up.svg",
+      image: "/static/icons/volume_up.svg"
+    };
+    config.slots[col + 6] = {
+      index: col + 6,
+      type: "occupied_by_slider",
+      id: `slot_${col + 6}`,
+      parent_slot: col
     };
     renderPhoneScreen();
-    selectSlot(index);
+    selectSlot(col);
     saveConfigToServer();
   });
 }
 
-// Ultra Simple Button Inspector (1-Click Presets, NO directory search!)
+// Ultra Simple Button Inspector (1-Click Presets with SVGs)
 function renderButtonInspector(btn, index) {
   let presetButtonsHtml = ONE_CLICK_PRESETS.map(p => `
     <button class="quick-app-btn" data-preset-id="${p.id}">
-      ${p.image ? `<img src="${p.image}" alt="${p.name}">` : `<span class="emoji">${p.icon}</span>`}
+      <img src="${p.image}" alt="${p.name}">
       <div>
         <div class="quick-app-label">${p.name}</div>
         <div style="font-size: 0.65rem; color: var(--text-muted);">${p.sub}</div>
@@ -388,12 +476,17 @@ function renderButtonInspector(btn, index) {
     </div>
 
     <div class="form-group">
+      <label>Subtítulo</label>
+      <input type="text" id="edit-btn-sublabel" value="${btn.sublabel || ''}">
+    </div>
+
+    <div class="form-group">
       <label>Color de Acento</label>
-      <input type="color" id="edit-btn-color" value="${btn.color || '#38bdf8'}" style="height: 38px; padding: 2px;">
+      <input type="color" id="edit-btn-color" value="${btn.color || '#0ea5e9'}" style="height: 38px; padding: 2px;">
     </div>
 
     <button class="btn-danger" id="btn-delete-slot">
-      🗑️ Vaciar esta Casilla
+      Vaciar esta Casilla
     </button>
   `;
 
@@ -405,7 +498,7 @@ function renderButtonInspector(btn, index) {
       if (preset) {
         btn.label = preset.name;
         btn.sublabel = preset.sub;
-        btn.icon = preset.icon;
+        btn.icon = preset.icon || "";
         btn.image = preset.image;
         btn.color = preset.color;
         btn.action_type = preset.type;
@@ -418,17 +511,22 @@ function renderButtonInspector(btn, index) {
     });
   });
 
-  document.getElementById("edit-btn-label").addEventListener("input", (e) => {
+  document.getElementById("edit-btn-label")?.addEventListener("input", (e) => {
     btn.label = e.target.value;
     renderPhoneScreen();
   });
 
-  document.getElementById("edit-btn-color").addEventListener("input", (e) => {
+  document.getElementById("edit-btn-sublabel")?.addEventListener("input", (e) => {
+    btn.sublabel = e.target.value;
+    renderPhoneScreen();
+  });
+
+  document.getElementById("edit-btn-color")?.addEventListener("input", (e) => {
     btn.color = e.target.value;
     renderPhoneScreen();
   });
 
-  document.getElementById("btn-delete-slot").addEventListener("click", () => {
+  document.getElementById("btn-delete-slot")?.addEventListener("click", () => {
     config.slots[index] = { index, type: "empty" };
     renderPhoneScreen();
     selectSlot(index);
@@ -440,100 +538,125 @@ function renderButtonInspector(btn, index) {
 // Slider Inspector
 function renderSliderInspector(slider, index) {
   const isMaster = slider.slider_type === "master" || slider.type === "master";
+  const col = index % 6;
 
   inspectorContent.innerHTML = `
+    <div class="form-group">
+      <label>Tipo de Fader</label>
+      <select id="edit-slider-type">
+        <option value="master" ${isMaster ? 'selected' : ''}>Volumen Maestro (Todo el PC)</option>
+        <option value="app_dynamic" ${!isMaster ? 'selected' : ''}>Volumen de Aplicación Específica</option>
+      </select>
+    </div>
+
     <div class="form-group">
       <label>Nombre del Fader</label>
       <input type="text" id="edit-slider-label" value="${slider.label || ''}">
     </div>
 
-    <div class="form-group">
-      <label>Tipo de Control</label>
-      <select id="edit-slider-type">
-        <option value="master" ${isMaster ? 'selected' : ''}>Volumen Global / Master de Windows</option>
-        <option value="app_dynamic" ${!isMaster ? 'selected' : ''}>Selector Dinámico de Aplicación</option>
+    <div class="form-group" id="group-target-app" style="${isMaster ? 'display: none;' : ''}">
+      <label>Aplicación Asignada</label>
+      <select id="edit-slider-app">
+        <option value="Spotify.exe">Spotify</option>
+        <option value="Discord.exe">Discord</option>
+        <option value="chrome.exe">Google Chrome</option>
+        <option value="obs64.exe">OBS Studio</option>
+        <option value="VALORANT-Win64-Shipping.exe">Valorant</option>
       </select>
     </div>
 
     <div class="form-group">
-      <label>Color</label>
-      <input type="color" id="edit-slider-color" value="${slider.color || (isMaster ? '#38bdf8' : '#a855f7')}" style="height: 38px; padding: 2px;">
+      <label>Color del Fader</label>
+      <input type="color" id="edit-slider-color" value="${slider.color || (isMaster ? '#0ea5e9' : '#a855f7')}" style="height: 38px; padding: 2px;">
     </div>
 
     <button class="btn-danger" id="btn-delete-slider">
-      🗑️ Eliminar Fader de Volumen
+      Eliminar Fader de la Columna #${col + 1}
     </button>
   `;
 
-  document.getElementById("edit-slider-label").addEventListener("input", (e) => {
+  document.getElementById("edit-slider-type")?.addEventListener("change", (e) => {
+    const val = e.target.value;
+    slider.slider_type = val;
+    if (val === "master") {
+      slider.label = "Master";
+      slider.sublabel = "PC";
+      slider.color = "#0ea5e9";
+      slider.target_app = null;
+      slider.image = "/static/icons/volume_up.svg";
+    } else {
+      slider.label = "Spotify";
+      slider.sublabel = "App";
+      slider.color = "#a855f7";
+      slider.target_app = "Spotify.exe";
+      slider.image = "/static/icons/spotify.svg";
+    }
+    renderPhoneScreen();
+    renderSliderInspector(slider, index);
+    saveConfigToServer();
+  });
+
+  document.getElementById("edit-slider-label")?.addEventListener("input", (e) => {
     slider.label = e.target.value;
     renderPhoneScreen();
   });
 
-  document.getElementById("edit-slider-type").addEventListener("change", (e) => {
-    slider.slider_type = e.target.value;
-    slider.type = e.target.value;
-    renderPhoneScreen();
+  document.getElementById("edit-slider-app")?.addEventListener("change", (e) => {
+    slider.target_app = e.target.value;
+    slider.label = e.target.options[e.target.selectedIndex].text;
     saveConfigToServer();
   });
 
-  document.getElementById("edit-slider-color").addEventListener("input", (e) => {
+  document.getElementById("edit-slider-color")?.addEventListener("input", (e) => {
     slider.color = e.target.value;
     renderPhoneScreen();
   });
 
-  document.getElementById("btn-delete-slider").addEventListener("click", () => {
-    config.slots[index] = { index, type: "empty" };
+  document.getElementById("btn-delete-slider")?.addEventListener("click", () => {
+    config.slots[col] = { index: col, type: "empty" };
+    config.slots[col + 6] = { index: col + 6, type: "empty" };
     renderPhoneScreen();
-    selectSlot(index);
+    selectSlot(col);
     saveConfigToServer();
-    showToast("Fader eliminado");
+    showToast(`Fader eliminado de la Columna #${col + 1}`);
   });
 }
 
-// Save config to PC server & broadcast to phone
+// Save Configuration to Server
 async function saveConfigToServer() {
+  if (!config) return;
   try {
-    await fetch("/api/config", {
+    await fetch("/api/deck/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(config)
     });
-  } catch (err) {}
+  } catch (e) {
+    console.error("Error saving config", e);
+  }
 }
 
 document.getElementById("btn-save-all")?.addEventListener("click", async () => {
   await saveConfigToServer();
-  showToast("¡Configuración guardada y sincronizada al móvil!");
+  showToast("¡Configuración guardada y sincronizada en el móvil!");
+});
+
+document.getElementById("btn-refresh-pin")?.addEventListener("click", () => {
+  loadAuthInfo();
+  showToast("Nuevo código PIN generado");
 });
 
 function showToast(msg) {
   toast.textContent = msg;
-  toast.style.display = "block";
-  setTimeout(() => {
-    toast.style.display = "none";
-  }, 2500);
+  toast.classList.add("show");
+  setTimeout(() => toast.classList.remove("show"), 2500);
 }
 
-// Refresh PIN Button
-document.getElementById("btn-refresh-pin")?.addEventListener("click", async () => {
-  try {
-    const res = await fetch("/api/auth/regenerate-pin", { method: "POST" });
-    const data = await res.json();
-    document.getElementById("pin-code").textContent = data.pin;
-    document.getElementById("qr-image").src = data.qr_code;
-    showToast("Nuevo PIN generado");
-  } catch (e) {
-    await loadAuthInfo();
-  }
-});
-
-// Init
-(async () => {
-  await loadAuthInfo();
-  await loadConfig();
-  await loadAudioSessions();
-  await checkGitHubUpdates();
+// Startup
+window.addEventListener("DOMContentLoaded", () => {
+  loadAuthInfo();
+  loadConfig();
+  loadAudioSessions();
+  checkGitHubUpdates();
   setInterval(loadAudioSessions, 3000);
-  setInterval(checkGitHubUpdates, 30000); // Check GitHub update every 30s
-})();
+});

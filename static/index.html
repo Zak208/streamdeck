@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>StreamDesk Mobile Pro</title>
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#0c1019">
+  <meta name="theme-color" content="#090c12">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
@@ -25,13 +25,13 @@
         📲 Instalar App
       </button>
 
-      <div class="status-badge" id="status-badge" title="Toca para ver estado de enlace">
+      <div class="status-badge" id="btn-status-badge" title="Toca para ver estado de enlace">
         <div class="dot connecting" id="status-dot"></div>
         <span id="status-text">Conectando...</span>
       </div>
 
       <button class="icon-btn" id="btn-open-settings" title="Ajustes y Vinculación PIN">
-        <img src="/static/icons/gear.svg" alt="Ajustes" style="width: 16px; height: 16px; filter: invert(0.8);">
+        <img src="/static/icons/gear.svg" alt="Ajustes" style="width: 16px; height: 16px; filter: invert(0.85);">
       </button>
 
       <button class="icon-btn" id="btn-fullscreen" title="Pantalla Completa">
@@ -40,10 +40,10 @@
     </div>
   </header>
 
-  <!-- Main Container: 2x12 Grid -->
+  <!-- Main Container: 6x2 Grid -->
   <main id="deck-container">
     <div id="deck-grid">
-      <!-- Rendered dynamically by streamdeck.js (24 slots) -->
+      <!-- Rendered dynamically by streamdeck.js (12 slots, 2-height vertical faders) -->
     </div>
   </main>
 
@@ -55,16 +55,11 @@
         Introduce el <strong>código PIN de 6 dígitos</strong> que aparece en la pantalla de tu PC (Studio). Solo necesitas hacerlo una vez.
       </div>
       <div class="pin-inputs">
-        <input type="number" class="pin-input" maxlength="1" pattern="[0-9]*" inputmode="numeric">
-        <input type="number" class="pin-input" maxlength="1" pattern="[0-9]*" inputmode="numeric">
-        <input type="number" class="pin-input" maxlength="1" pattern="[0-9]*" inputmode="numeric">
-        <input type="number" class="pin-input" maxlength="1" pattern="[0-9]*" inputmode="numeric">
-        <input type="number" class="pin-input" maxlength="1" pattern="[0-9]*" inputmode="numeric">
-        <input type="number" class="pin-input" maxlength="1" pattern="[0-9]*" inputmode="numeric">
+        <input type="text" id="pin-input" class="pin-input" maxlength="6" pattern="[0-9]*" inputmode="numeric" placeholder="· · · · · ·" autofocus>
       </div>
-      <button class="btn-primary" id="btn-pair">Conectar con PC</button>
-      <button class="btn-secondary" id="btn-close-pin-modal" style="display: none;">Cerrar</button>
-      <p id="pin-error" style="color: #ef4444; font-size: 0.8rem; margin-top: 12px; display: none;"></p>
+      <button class="btn-primary" id="btn-verify-pin">Conectar con PC</button>
+      <button class="btn-secondary" id="btn-close-pin-modal" style="display: none; margin-top: 8px;">Cerrar</button>
+      <p id="pin-error" class="pin-error"></p>
     </div>
   </div>
 
@@ -84,12 +79,12 @@
 
   <!-- Audio App Selector Modal -->
   <div class="app-modal" id="app-modal">
-    <div class="app-list-card">
-      <div class="app-list-header">
-        <span>Seleccionar Aplicación de Sonido</span>
-        <button id="close-app-modal" style="background: none; border: none; color: #94a3b8; font-size: 1.2rem; cursor: pointer;">✕</button>
+    <div class="app-modal-card">
+      <div class="app-modal-header">
+        <h3>Seleccionar Aplicación de Sonido</h3>
+        <button class="close-btn" id="close-app-modal">✕</button>
       </div>
-      <div class="app-list-items" id="app-list-items">
+      <div class="app-list" id="app-list-items">
         <!-- Audio sessions populated dynamically -->
       </div>
     </div>

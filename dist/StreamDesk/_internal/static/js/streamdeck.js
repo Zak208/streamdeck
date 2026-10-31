@@ -1,4 +1,4 @@
-// StreamDesk Mobile Client Pro (2x12 Grid + PWA Support)
+// StreamDesk Mobile Client Pro (6x2 Grid + 2-Height Vertical Faders + PWA)
 let ws = null;
 let token = localStorage.getItem("streamdesk_token") || null;
 let wakeLock = null;
@@ -44,12 +44,12 @@ btnInstallPwa?.addEventListener('click', async () => {
     deferredInstallPrompt = null;
   } else {
     // Show iOS instructions or manual guide
-    iosInstallModal.style.display = 'flex';
+    if (iosInstallModal) iosInstallModal.style.display = 'flex';
   }
 });
 
 document.getElementById('btn-close-ios-modal')?.addEventListener('click', () => {
-  iosInstallModal.style.display = 'none';
+  if (iosInstallModal) iosInstallModal.style.display = 'none';
 });
 
 // Screen Wake Lock
@@ -118,43 +118,47 @@ function connectWebSocket() {
   };
 
   ws.onerror = () => {
-    ws.close();
+    statusDot.className = "dot";
+    statusText.textContent = "Error de red";
   };
 }
 
-// Handle Messages from PC
+function sendWS(payload) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(payload));
+  }
+}
+
+// Server Message Handler
 function handleServerMessage(data) {
   switch (data.type) {
-    case "init_state":
-      currentConfig = data.config;
-      currentSessions = data.sessions || [];
-      renderDeck(currentConfig);
-      updateMasterVolume(data.master?.volume, data.master?.muted);
-      break;
-
-    case "config_updated":
+    case "config_sync":
       currentConfig = data.config;
       renderDeck(currentConfig);
       break;
 
-    case "audio_state":
-      currentSessions = data.sessions || [];
-      if (data.master) {
-        updateMasterVolume(data.master.volume, data.master.muted);
-      }
+    case "initial_state":
+      currentConfig = data.config;
+      currentSessions = data.audio_sessions || [];
+      renderDeck(currentConfig);
+      updateMasterVolume(data.master_volume, data.master_muted);
       updateAppVolumes();
       break;
 
-    case "master_volume_updated":
+    case "master_volume_update":
       updateMasterVolume(data.volume, data.muted);
       break;
 
-    case "master_mute_updated":
+    case "master_mute_update":
       updateMasterMute(data.muted);
       break;
 
-    case "app_volume_updated":
+    case "app_volume_update":
       updateSpecificAppVolume(data.process, data.volume);
+      break;
+
+    case "app_mute_update":
+      updateAppMuteState(data.process, data.muted);
       break;
 
     case "sessions_update":
@@ -164,27 +168,42 @@ function handleServerMessage(data) {
   }
 }
 
-// Render dynamic 2x12 grid (24 slots)
+// Render dynamic 6x2 grid (12 slots) with 2-height vertical faders
 function renderDeck(config) {
   if (!config) return;
   deckGrid.innerHTML = "";
 
   const slots = config.slots || [];
 
-  slots.forEach((slot, idx) => {
+  for (let idx = 0; idx < 12; idx++) {
+    const slot = slots[idx] || { index: idx, type: "empty" };
+    const col = (idx % 6) + 1; // 1 to 6
+    const row = Math.floor(idx / 6) + 1; // 1 or 2
+
+    // If occupied by a 2-height vertical fader spanning from row 1, skip rendering an extra cell
+    if (slot.type === "occupied_by_slider") {
+      continue;
+    }
+
     if (slot.type === "button") {
       const btnEl = createButtonElement(slot);
+      btnEl.style.gridColumn = `${col}`;
+      btnEl.style.gridRow = `${row}`;
       deckGrid.appendChild(btnEl);
     } else if (slot.type === "slider") {
       const faderEl = createFaderElement(slot);
+      faderEl.style.gridColumn = `${col}`;
+      faderEl.style.gridRow = "1 / span 2"; // Spans both vertical rows!
       deckGrid.appendChild(faderEl);
     } else {
       // Empty slot
       const emptyEl = document.createElement("div");
       emptyEl.className = "deck-slot-empty";
+      emptyEl.style.gridColumn = `${col}`;
+      emptyEl.style.gridRow = `${row}`;
       deckGrid.appendChild(emptyEl);
     }
-  });
+  }
 }
 
 function createButtonElement(btn) {
@@ -209,11 +228,22 @@ function createButtonElement(btn) {
     img.className = "deck-btn-img";
     img.alt = btn.label || "";
     iconWrap.appendChild(img);
-  } else {
+  } else if (btn.icon && (btn.icon.startsWith("/") || btn.icon.endsWith(".svg"))) {
+    const img = document.createElement("img");
+    img.src = btn.icon;
+    img.className = "deck-btn-img";
+    img.alt = btn.label || "";
+    iconWrap.appendChild(img);
+  } else if (btn.icon) {
     const emoji = document.createElement("span");
     emoji.className = "deck-btn-emoji";
-    emoji.textContent = btn.icon || "⚡";
+    emoji.textContent = btn.icon;
     iconWrap.appendChild(emoji);
+  } else {
+    const img = document.createElement("img");
+    img.src = "/static/icons/power.svg";
+    img.className = "deck-btn-img";
+    iconWrap.appendChild(img);
   }
   inner.appendChild(iconWrap);
 
@@ -235,9 +265,9 @@ function createButtonElement(btn) {
 
   keycap.appendChild(inner);
 
-  // Trigger handlers
+  // Touch and trigger handlers (snappy micro-animation)
   keycap.addEventListener("pointerdown", () => {
-    haptic(30);
+    haptic(25);
     keycap.classList.add("triggered");
     sendWS({ type: "trigger_button", id: btn.id });
   });
@@ -260,9 +290,16 @@ function createFaderElement(slider) {
   targetAppMap[slider.id] = targetProcess;
   isDraggingMap[slider.id] = false;
 
+  const headerIcon = slider.image 
+    ? `<img src="${slider.image}" class="fader-header-icon" alt="">` 
+    : `<img src="/static/icons/${isMaster ? 'volume_up' : 'spotify'}.svg" class="fader-header-icon" alt="">`;
+
   card.innerHTML = `
     <div class="fader-header">
-      <span>${slider.label || (isMaster ? "Master" : "App")}</span>
+      <div class="fader-header-title">
+        ${headerIcon}
+        <span>${slider.label || (isMaster ? "Master" : "App")}</span>
+      </div>
       ${!isMaster ? `<button class="app-select-btn" id="select-app-${slider.id}">${cleanAppName(targetProcess)}</button>` : ''}
     </div>
     <div class="fader-track-container" id="track-${slider.id}">
@@ -272,7 +309,9 @@ function createFaderElement(slider) {
     </div>
     <div class="fader-footer">
       <div class="fader-val" id="val-${slider.id}">50%</div>
-      <button class="mute-btn" id="mute-${slider.id}">🔊</button>
+      <button class="mute-btn" id="mute-${slider.id}">
+        <img src="/static/icons/volume_up.svg" class="mute-svg-icon" alt="Vol">
+      </button>
     </div>
   `;
 
@@ -307,6 +346,13 @@ function cleanAppName(name) {
 
 String.prototype.capitalizeFirst = function() {
   return this.charAt(0).toUpperCase() + this.slice(1);
+}
+
+function setMuteBtnVisual(muteBtn, isMuted) {
+  if (!muteBtn) return;
+  const iconSrc = isMuted ? '/static/icons/mute.svg' : '/static/icons/volume_up.svg';
+  muteBtn.innerHTML = `<img src="${iconSrc}" class="mute-svg-icon" alt="Mute">`;
+  muteBtn.classList.toggle("active", Boolean(isMuted));
 }
 
 // Robust Fader Drag (Never jumps to 0 on fast swipes!)
@@ -357,7 +403,7 @@ function attachFaderDrag(trackEl, sliderId, isMaster) {
       handleCoord(e.clientY);
       setTimeout(() => {
         isDraggingMap[sliderId] = false;
-      }, 150);
+      }, 120);
     }
   };
 
@@ -378,16 +424,14 @@ function updateMasterVolume(vol, muted) {
   if (fill) fill.style.height = `${vol}%`;
   if (val) val.textContent = `${vol}%`;
   if (muteBtn) {
-    muteBtn.textContent = muted ? "🔇" : "🔊";
-    muteBtn.classList.toggle("active", Boolean(muted));
+    setMuteBtnVisual(muteBtn, muted);
   }
 }
 
 function updateMasterMute(muted) {
   const muteBtn = document.getElementById("mute-slider_master");
   if (muteBtn) {
-    muteBtn.textContent = muted ? "🔇" : "🔊";
-    muteBtn.classList.toggle("active", Boolean(muted));
+    setMuteBtnVisual(muteBtn, muted);
   }
 }
 
@@ -404,8 +448,7 @@ function updateAppVolumes() {
       if (fill) fill.style.height = `${session.volume}%`;
       if (val) val.textContent = `${session.volume}%`;
       if (muteBtn) {
-        muteBtn.textContent = session.muted ? "🔇" : "🔊";
-        muteBtn.classList.toggle("active", Boolean(session.muted));
+        setMuteBtnVisual(muteBtn, session.muted);
       }
     }
   });
@@ -420,6 +463,17 @@ function updateSpecificAppVolume(processName, vol) {
       const val = document.getElementById(`val-${sliderId}`);
       if (fill) fill.style.height = `${vol}%`;
       if (val) val.textContent = `${vol}%`;
+    }
+  });
+}
+
+function updateAppMuteState(processName, muted) {
+  Object.keys(targetAppMap).forEach((sliderId) => {
+    if (targetAppMap[sliderId]?.toLowerCase() === processName?.toLowerCase()) {
+      const muteBtn = document.getElementById(`mute-${sliderId}`);
+      if (muteBtn) {
+        setMuteBtnVisual(muteBtn, muted);
+      }
     }
   });
 }
@@ -442,61 +496,61 @@ function updateAppModalList() {
   appListItems.innerHTML = "";
 
   if (currentSessions.length === 0) {
-    appListItems.innerHTML = `<div style="color: #64748b; padding: 12px; text-align: center;">No hay apps con audio activo</div>`;
+    appListItems.innerHTML = `<div class="empty-sessions">No hay aplicaciones reproduciendo audio en el PC</div>`;
     return;
   }
 
   currentSessions.forEach((s) => {
-    const btn = document.createElement("button");
-    btn.className = "app-item-btn";
-    btn.innerHTML = `
-      <span>${s.display_name}</span>
-      <span style="color: var(--accent-purple); font-weight: 700;">${s.volume}%</span>
+    const item = document.createElement("div");
+    item.className = "app-item";
+    item.innerHTML = `
+      <div class="app-item-info">
+        <span class="app-item-name">${s.display_name}</span>
+        <span class="app-item-proc">${s.process_name}</span>
+      </div>
+      <span class="app-item-vol">${s.volume}%</span>
     `;
-    btn.addEventListener("click", () => {
+
+    item.addEventListener("click", () => {
       if (activeSelectingSliderId) {
         targetAppMap[activeSelectingSliderId] = s.process_name;
-        const selectorBtn = document.getElementById(`select-app-${activeSelectingSliderId}`);
-        if (selectorBtn) selectorBtn.textContent = s.display_name;
+        const btn = document.getElementById(`select-app-${activeSelectingSliderId}`);
+        if (btn) btn.textContent = cleanAppName(s.process_name);
 
         const fill = document.getElementById(`fill-${activeSelectingSliderId}`);
         const val = document.getElementById(`val-${activeSelectingSliderId}`);
         if (fill) fill.style.height = `${s.volume}%`;
         if (val) val.textContent = `${s.volume}%`;
+
+        const muteBtn = document.getElementById(`mute-${activeSelectingSliderId}`);
+        setMuteBtnVisual(muteBtn, s.muted);
+
+        appModal.classList.remove("open");
+        haptic(20);
       }
-      appModal.classList.remove("open");
     });
-    appListItems.appendChild(btn);
+
+    appListItems.appendChild(item);
   });
 }
 
-function sendWS(msg) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(msg));
-  }
-}
-
-// Settings & PIN Modal Logic
+// PIN Modal
 function showPinModal(canClose = true) {
   pinModal.style.display = "flex";
-  btnClosePinModal.style.display = canClose ? "block" : "none";
-  const inputs = document.querySelectorAll(".pin-input");
-  inputs[0]?.focus();
+  if (btnClosePinModal) {
+    btnClosePinModal.style.display = canClose ? "block" : "none";
+  }
+  document.getElementById("pin-input")?.focus();
 }
+
+document.getElementById("btn-status-badge")?.addEventListener("click", () => {
+  showPinModal(true);
+});
 
 document.getElementById("btn-open-settings")?.addEventListener("click", () => {
   showPinModal(true);
 });
 
-document.getElementById("status-badge")?.addEventListener("click", () => {
-  showPinModal(true);
-});
-
-btnClosePinModal?.addEventListener("click", () => {
-  pinModal.style.display = "none";
-});
-
-// Fullscreen Toggle
 document.getElementById("btn-fullscreen")?.addEventListener("click", () => {
   if (!document.fullscreenElement) {
     document.documentElement.requestFullscreen().catch(() => {});
@@ -505,28 +559,18 @@ document.getElementById("btn-fullscreen")?.addEventListener("click", () => {
   }
 });
 
-const pinInputs = document.querySelectorAll(".pin-input");
-pinInputs.forEach((input, index) => {
-  input.addEventListener("input", (e) => {
-    if (e.target.value.length === 1 && index < pinInputs.length - 1) {
-      pinInputs[index + 1].focus();
-    }
-  });
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Backspace" && !e.target.value && index > 0) {
-      pinInputs[index - 1].focus();
-    }
-  });
+btnClosePinModal?.addEventListener("click", () => {
+  pinModal.style.display = "none";
 });
 
-document.getElementById("btn-pair")?.addEventListener("click", async () => {
-  const pin = Array.from(pinInputs).map(i => i.value).join("");
-  const errEl = document.getElementById("pin-error");
-  errEl.style.display = "none";
+document.getElementById("btn-verify-pin")?.addEventListener("click", async () => {
+  const pinInput = document.getElementById("pin-input");
+  const pinError = document.getElementById("pin-error");
+  const enteredPin = pinInput.value.trim();
 
-  if (pin.length !== 6) {
-    errEl.textContent = "Introduce los 6 dígitos del PIN";
-    errEl.style.display = "block";
+  if (enteredPin.length < 6) {
+    pinError.textContent = "El PIN debe tener 6 dígitos";
+    pinError.style.display = "block";
     return;
   }
 
@@ -534,47 +578,27 @@ document.getElementById("btn-pair")?.addEventListener("click", async () => {
     const res = await fetch("/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pin, device_name: navigator.userAgent.includes("iPhone") ? "iPhone" : "Android" })
+      body: JSON.stringify({ pin: enteredPin })
     });
+
     const data = await res.json();
-    if (data.valid && data.token) {
-      localStorage.setItem("streamdesk_token", data.token);
+    if (res.ok && data.success) {
       token = data.token;
+      localStorage.setItem("streamdesk_token", token);
       pinModal.style.display = "none";
+      pinError.style.display = "none";
       connectWebSocket();
     } else {
-      errEl.textContent = data.detail || "PIN incorrecto";
-      errEl.style.display = "block";
+      pinError.textContent = data.detail || "PIN incorrecto";
+      pinError.style.display = "block";
     }
   } catch (err) {
-    errEl.textContent = "Error de conexión con el PC";
-    errEl.style.display = "block";
+    pinError.textContent = "Error de conexión con el PC";
+    pinError.style.display = "block";
   }
 });
 
-// Auto-pair if PIN in URL query (?pin=123456)
-async function checkUrlParams() {
-  const params = new URLSearchParams(window.location.search);
-  const pinParam = params.get("pin");
-  if (pinParam && pinParam.length === 6) {
-    try {
-      const res = await fetch("/api/auth/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: pinParam, device_name: "Auto-QR Paired Device" })
-      });
-      const data = await res.json();
-      if (data.valid && data.token) {
-        localStorage.setItem("streamdesk_token", data.token);
-        token = data.token;
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-    } catch (e) {}
-  }
-}
-
-// Start
-(async () => {
-  await checkUrlParams();
+// Auto-connect on startup
+window.addEventListener("DOMContentLoaded", () => {
   connectWebSocket();
-})();
+});

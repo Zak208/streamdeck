@@ -11,7 +11,7 @@
   <aside>
     <div class="sidebar-header">
       <h1>STREAMDESK <span class="highlight">STUDIO</span></h1>
-      <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Diseñador 2x8 & Simulador Móvil</p>
+      <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Diseñador 6x2 & Simulador Móvil</p>
     </div>
 
     <div class="sidebar-scroll">
@@ -40,18 +40,22 @@
         </p>
         <div class="drag-palette-box">
           <div class="palette-item" draggable="true" id="palette-new-btn">
-            <span class="palette-item-icon">🔲</span>
+            <span class="palette-item-icon">
+              <img src="/static/icons/power.svg" class="palette-svg-icon" alt="Btn">
+            </span>
             <div>
-              <div class="palette-item-title">Botón Nuevo</div>
-              <div class="palette-item-desc">Apps, multimedia o macros</div>
+              <div class="palette-item-title">Botón de Acción</div>
+              <div class="palette-item-desc">Apps, multimedia o macros (1 casilla)</div>
             </div>
           </div>
 
           <div class="palette-item palette-slider" draggable="true" id="palette-new-slider">
-            <span class="palette-item-icon">🎚️</span>
+            <span class="palette-item-icon">
+              <img src="/static/icons/fader.svg" class="palette-svg-icon" alt="Fader">
+            </span>
             <div>
               <div class="palette-item-title">Fader de Volumen</div>
-              <div class="palette-item-desc">Control vertical Master o App</div>
+              <div class="palette-item-desc">Control vertical Master o App (2 casillas)</div>
             </div>
           </div>
         </div>
@@ -90,9 +94,9 @@
       <!-- Phone Mockup Preview Frame (Landscape) -->
       <div class="preview-container">
         <div class="phone-mockup">
-          <!-- Inner Phone Screen with 2x8 Grid (16 slots) -->
+          <!-- Inner Phone Screen with 6x2 Grid (12 slots) -->
           <div class="phone-screen" id="phone-screen">
-            <!-- Populated by studio.js (2 rows x 8 columns) -->
+            <!-- Populated by studio.js (2 rows x 6 columns) -->
           </div>
         </div>
       </div>
@@ -103,7 +107,7 @@
 
         <div id="inspector-content">
           <p style="color: var(--text-muted); font-size: 0.85rem; text-align: center; margin-top: 50px;">
-            Haz clic en cualquier casilla de la cuadrícula 2x8 para configurarla fácilmente.
+            Haz clic en cualquier casilla de la cuadrícula 6x2 para configurarla fácilmente.
           </p>
         </div>
       </div>
