@@ -130,7 +130,7 @@ function renderPhoneScreen() {
 
   const slots = config.slots || [];
 
-  for (let i = 0; i < 24; i++) {
+  for (let i = 0; i < 16; i++) {
     const slot = slots[i] || { index: i, type: "empty" };
     const cell = document.createElement("div");
     cell.className = `slot-cell ${selectedSlotIndex === i ? 'selected' : ''}`;

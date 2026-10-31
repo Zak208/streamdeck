@@ -2,8 +2,8 @@
   "deck_name": "StreamDesk Pro Elite",
   "layout": {
     "rows": 2,
-    "columns": 12,
-    "total_slots": 24
+    "columns": 8,
+    "total_slots": 16
   },
   "slots": [
     {
@@ -80,6 +80,24 @@
     },
     {
       "index": 6,
+      "type": "slider",
+      "id": "slider_master",
+      "label": "Master",
+      "slider_type": "master",
+      "target_app": null,
+      "color": "#38bdf8"
+    },
+    {
+      "index": 7,
+      "type": "slider",
+      "id": "slider_app",
+      "label": "App",
+      "slider_type": "app_dynamic",
+      "target_app": "Spotify.exe",
+      "color": "#a855f7"
+    },
+    {
+      "index": 8,
       "type": "button",
       "id": "btn_play",
       "label": "Play/Pausa",
@@ -91,7 +109,7 @@
       "target": "play_pause"
     },
     {
-      "index": 7,
+      "index": 9,
       "type": "button",
       "id": "btn_next",
       "label": "Siguiente",
@@ -103,7 +121,7 @@
       "target": "next"
     },
     {
-      "index": 8,
+      "index": 10,
       "type": "button",
       "id": "btn_prev",
       "label": "Anterior",
@@ -115,34 +133,16 @@
       "target": "prev"
     },
     {
-      "index": 9,
+      "index": 11,
       "type": "button",
       "id": "btn_mute",
-      "label": "Mute Master",
+      "label": "Mute",
       "sublabel": "Silenciar",
       "icon": "🔇",
       "image": "",
       "color": "#ef4444",
       "action_type": "media",
       "target": "mute"
-    },
-    {
-      "index": 10,
-      "type": "slider",
-      "id": "slider_master",
-      "label": "Master",
-      "slider_type": "master",
-      "target_app": null,
-      "color": "#38bdf8"
-    },
-    {
-      "index": 11,
-      "type": "slider",
-      "id": "slider_app",
-      "label": "App Selector",
-      "slider_type": "app_dynamic",
-      "target_app": "Spotify.exe",
-      "color": "#a855f7"
     },
     {
       "index": 12,
@@ -209,66 +209,6 @@
       "color": "#e11d48",
       "action_type": "url",
       "target": "https://www.youtube.com"
-    },
-    {
-      "index": 16,
-      "type": "button",
-      "id": "btn_twitch",
-      "label": "Twitch",
-      "sublabel": "Web",
-      "icon": "🟣",
-      "image": "",
-      "color": "#9146ff",
-      "action_type": "url",
-      "target": "https://www.twitch.tv"
-    },
-    {
-      "index": 17,
-      "type": "button",
-      "id": "btn_beep",
-      "label": "Beep",
-      "sublabel": "Alerta",
-      "icon": "🔔",
-      "image": "",
-      "color": "#8b5cf6",
-      "action_type": "sound",
-      "target": "beep"
-    },
-    {
-      "index": 18,
-      "type": "empty",
-      "id": "slot_18",
-      "label": "Vacío"
-    },
-    {
-      "index": 19,
-      "type": "empty",
-      "id": "slot_19",
-      "label": "Vacío"
-    },
-    {
-      "index": 20,
-      "type": "empty",
-      "id": "slot_20",
-      "label": "Vacío"
-    },
-    {
-      "index": 21,
-      "type": "empty",
-      "id": "slot_21",
-      "label": "Vacío"
-    },
-    {
-      "index": 22,
-      "type": "empty",
-      "id": "slot_22",
-      "label": "Vacío"
-    },
-    {
-      "index": 23,
-      "type": "empty",
-      "id": "slot_23",
-      "label": "Vacío"
     }
   ]
 }

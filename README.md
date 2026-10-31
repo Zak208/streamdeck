@@ -1,6 +1,6 @@
-# 🎛️ StreamDesk Pro — Controlador Táctil 2x12 para PC desde Móvil
+# 🎛️ StreamDesk Pro — Controlador Táctil 2x8 para PC desde Móvil
 
-**StreamDesk Pro** es una solución integral y moderna para transformar cualquier smartphone o tablet en una Stream Deck profesional táctil e inalámbrica para Windows, con una **cuadrícula de 2x12 (24 casillas configurables)**, faders de volumen vertical analógicos, autodescubrimiento inteligente de aplicaciones y sistema de auto-actualización directa con GitHub.
+**StreamDesk Pro** es una solución integral y moderna para transformar cualquier smartphone o tablet en una Stream Deck profesional táctil e inalámbrica para Windows, con una **cuadrícula de 2x8 (16 casillas configurables)**, faders de volumen vertical analógicos, autodescubrimiento inteligente de aplicaciones y sistema de auto-actualización directa con GitHub.
 
 Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollada con FastAPI y WebView2, sin necesidad de mantener consolas abiertas ni depender de navegadores externos.
 
@@ -15,8 +15,8 @@ Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollad
 - **Servidor Integrado en Segundo Plano:** El núcleo FastAPI y el controlador de audio para Windows corren de forma silenciosa y asíncrona dentro del proceso de la aplicación.
 - **Modo Portátil o Instalable:** Puedes ejecutarlo directamente desde el binario compilado o mediante los scripts de inicio rápido.
 
-### 2. 📱 Conexión PWA para Móvil con Cuadrícula 2x12
-- **24 Casillas Táctiles (2 Filas x 12 Columnas):** Diseñado especialmente para aprovechar el formato panorámico de los teléfonos móviles en horizontal (o adaptable en vertical), ofreciendo hasta 24 accesos directos simultáneos y faders analógicos.
+### 2. 📱 Conexión PWA para Móvil con Cuadrícula 2x8
+- **16 Casillas Táctiles (2 Filas x 8 Columnas):** Diseñado especialmente para aprovechar el formato panorámico de los teléfonos móviles en horizontal (o adaptable en vertical), ofreciendo hasta 16 accesos directos simultáneos y faders analógicos con botones grandes y cómodos.
 - **PWA 100% Instalable (Progressive Web App):**
   - Incorpora Service Worker y Web App Manifest con iconos de alta resolución (`192x192` y `512x512`).
   - Botón directo en la barra superior: **📲 Instalar App** en Android (Google Chrome/Brave/Edge).
@@ -78,7 +78,7 @@ Si prefieres ejecutar el proyecto desde el código fuente o los scripts auxiliar
 2. En la ventana de escritorio de StreamDesk Pro en tu PC, haz clic en el botón de ajustes/enlace para visualizar la IP local y el **código PIN de 6 dígitos** (o el código QR).
 3. Abre la cámara de tu móvil para escanear el QR o ingresa manualmente la dirección IP mostrada (por ejemplo: `http://192.168.1.XX:48291`).
 4. Introduce el código PIN una única vez.
-5. Pulsa el botón **📲 Instalar App** para añadir StreamDesk Pro a la pantalla de inicio de tu smartphone y úsalo a pantalla completa como un periférico táctil físico de 2x12.
+5. Pulsa el botón **📲 Instalar App** para añadir StreamDesk Pro a la pantalla de inicio de tu smartphone y úsalo a pantalla completa como un periférico táctil físico de 2x8.
 
 ---
 
@@ -94,7 +94,7 @@ streamdeck/
 ├── requirements.txt           # Dependencias Python (FastAPI, PyWebView, Uvicorn, etc.)
 │
 ├── config/
-│   └── deck_config.json       # Configuración guardada de las 24 casillas (cuadrícula 2x12)
+│   └── deck_config.json       # Configuración guardada de las 16 casillas (cuadrícula 2x8)
 │
 ├── installer/
 │   ├── license.txt            # Licencia del instalador
@@ -111,7 +111,7 @@ streamdeck/
 ├── dist/StreamDesk/           # Binarios empaquetados listos para distribución independiente
 └── static/
     ├── css/
-    │   ├── style.css          # Estilos de la interfaz móvil (cuadrícula 2x12)
+    │   ├── style.css          # Estilos de la interfaz móvil (cuadrícula 2x8)
     │   └── studio.css         # Estilos del panel de configuración de PC Studio
     ├── js/
     │   ├── streamdeck.js      # Controlador de eventos táctiles, faders y WebSocket móvil

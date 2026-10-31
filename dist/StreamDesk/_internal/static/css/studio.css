@@ -263,7 +263,7 @@ main {
 
 /* Realistic Smartphone Frame (Landscape) */
 .phone-mockup {
-  width: 1040px;
+  width: 900px;
   height: 480px;
   background: #090c13;
   border: 5px solid #222b3d;
@@ -302,7 +302,7 @@ main {
   padding: 10px;
   display: grid;
   grid-template-rows: repeat(2, 1fr);
-  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 8px;
 }
 
