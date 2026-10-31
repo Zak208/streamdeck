@@ -21,6 +21,12 @@ if sys.stdout and hasattr(sys.stdout, 'encoding') and sys.stdout.encoding and sy
     except Exception:
         pass
 
+if sys.stderr and hasattr(sys.stderr, 'encoding') and sys.stderr.encoding and sys.stderr.encoding.lower() != 'utf-8':
+    try:
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 # Determine base dir (handles PyInstaller frozen mode)
 if getattr(sys, 'frozen', False):
     BASE_DIR = sys._MEIPASS
@@ -29,6 +35,7 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Import server
+import uvicorn
 from server.main import app, PORT, auth_manager
 import webview
 

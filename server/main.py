@@ -30,6 +30,11 @@ if sys.stdout and hasattr(sys.stdout, 'encoding') and sys.stdout.encoding and sy
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
         pass
+if sys.stderr and hasattr(sys.stderr, 'encoding') and sys.stderr.encoding and sys.stderr.encoding.lower() != 'utf-8':
+    try:
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 from server.audio_controller import audio_controller
 from server.actions import execute_action
