@@ -188,9 +188,14 @@ async def verify_pin(payload: Dict[str, Any] = Body(...)):
     pin = str(payload.get("pin", ""))
     device_name = payload.get("device_name", "Smartphone")
     result = auth_manager.verify_pin_and_issue_token(pin, device_name)
-    if result.get("valid"):
+    if result.get("valid") or result.get("success"):
         return result
     raise HTTPException(status_code=401, detail=result.get("error", "PIN inválido"))
+
+@app.get("/api/auth/check")
+async def check_token(token: str = Query(default=None)):
+    authorized = auth_manager.is_token_authorized(token)
+    return {"authorized": authorized, "valid": authorized}
 
 @app.get("/api/config")
 @app.get("/api/deck/config")

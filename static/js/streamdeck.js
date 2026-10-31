@@ -157,23 +157,43 @@ deckContainer?.addEventListener("touchend", (e) => {
 
 // WebSocket Connection
 function connectWebSocket() {
-  if (!token) {
+  const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
+  if (!token && !isLocalhost) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const pinParam = urlParams.get("pin");
+    if (pinParam) {
+      autoPairWithPin(pinParam);
+      return;
+    }
     showPinModal(false);
     return;
   }
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const wsUrl = `${protocol}//${window.location.host}/ws?token=${token}`;
+  const wsTokenParam = token ? `?token=${encodeURIComponent(token)}` : "";
+  const wsUrl = `${protocol}//${window.location.host}/ws${wsTokenParam}`;
 
   statusDot.className = "dot connecting";
   statusText.textContent = "Conectando...";
 
-  ws = new WebSocket(wsUrl);
+  try {
+    if (ws) {
+      try { ws.close(); } catch (e) {}
+    }
+    ws = new WebSocket(wsUrl);
+  } catch (err) {
+    console.error("WS error:", err);
+    statusDot.className = "dot";
+    statusText.textContent = "Error de red";
+    setTimeout(connectWebSocket, 2000);
+    return;
+  }
 
   ws.onopen = () => {
     statusDot.className = "dot connected";
     statusText.textContent = "Conectado";
-    pinModal.style.display = "none";
+    if (pinModal) pinModal.style.display = "none";
     initWakeLock();
   };
 
@@ -190,6 +210,7 @@ function connectWebSocket() {
     statusDot.className = "dot";
     statusText.textContent = "Desconectado";
     if (event.code === 1008) {
+      console.warn("WS 1008: No autorizado");
       localStorage.removeItem("streamdesk_token");
       token = null;
       showPinModal(false);
@@ -645,13 +666,17 @@ function updateAppModalList() {
   });
 }
 
-// PIN Modal
+// PIN Modal & Authentication Handlers
 function showPinModal(canClose = true) {
-  pinModal.style.display = "flex";
+  if (pinModal) {
+    pinModal.style.display = "flex";
+  }
   if (btnClosePinModal) {
     btnClosePinModal.style.display = canClose ? "block" : "none";
   }
-  document.getElementById("pin-input")?.focus();
+  setTimeout(() => {
+    document.getElementById("pin-input")?.focus();
+  }, 100);
 }
 
 document.getElementById("btn-status-badge")?.addEventListener("click", () => {
@@ -671,45 +696,127 @@ document.getElementById("btn-fullscreen")?.addEventListener("click", () => {
 });
 
 btnClosePinModal?.addEventListener("click", () => {
-  pinModal.style.display = "none";
+  if (pinModal) pinModal.style.display = "none";
 });
 
+// Automatic 1-touch pairing when opening URL via QR Code (?pin=XXXXXX)
+async function autoPairWithPin(pinCode) {
+  const pinInput = document.getElementById("pin-input");
+  const pinError = document.getElementById("pin-error");
+  if (pinInput) pinInput.value = pinCode;
+
+  statusDot.className = "dot connecting";
+  statusText.textContent = "Emparejando...";
+
+  try {
+    const res = await fetch("/api/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pin: pinCode.trim(),
+        device_name: /iPhone|iPad/i.test(navigator.userAgent) ? "iPhone" : (/Android/i.test(navigator.userAgent) ? "Android" : "Móvil")
+      })
+    });
+
+    const data = await res.json();
+    if (res.ok && (data.success || data.valid) && data.token) {
+      token = data.token;
+      localStorage.setItem("streamdesk_token", token);
+      if (pinModal) pinModal.style.display = "none";
+      if (pinError) pinError.style.display = "none";
+      try {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } catch (e) {}
+      connectWebSocket();
+      return true;
+    } else {
+      if (pinError) {
+        pinError.textContent = data.detail || data.error || "El PIN del enlace ha expirado o no coincide";
+        pinError.style.display = "block";
+      }
+      showPinModal(false);
+      return false;
+    }
+  } catch (err) {
+    console.error("Auto pair error:", err);
+    showPinModal(false);
+    return false;
+  }
+}
+
+// Manual PIN Verification Form
 document.getElementById("btn-verify-pin")?.addEventListener("click", async () => {
   const pinInput = document.getElementById("pin-input");
   const pinError = document.getElementById("pin-error");
-  const enteredPin = pinInput.value.trim();
+  const enteredPin = (pinInput?.value || "").trim();
 
-  if (enteredPin.length < 6) {
-    pinError.textContent = "El PIN debe tener 6 dígitos";
-    pinError.style.display = "block";
+  if (enteredPin.length < 4) {
+    if (pinError) {
+      pinError.textContent = "El PIN debe tener al menos 6 dígitos";
+      pinError.style.display = "block";
+    }
     return;
+  }
+
+  const btnVerify = document.getElementById("btn-verify-pin");
+  if (btnVerify) {
+    btnVerify.disabled = true;
+    btnVerify.textContent = "Verificando...";
   }
 
   try {
     const res = await fetch("/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pin: enteredPin })
+      body: JSON.stringify({
+        pin: enteredPin,
+        device_name: /iPhone|iPad/i.test(navigator.userAgent) ? "iPhone" : (/Android/i.test(navigator.userAgent) ? "Android" : "Móvil")
+      })
     });
 
     const data = await res.json();
-    if (res.ok && data.success) {
+    if (res.ok && (data.success || data.valid) && data.token) {
       token = data.token;
       localStorage.setItem("streamdesk_token", token);
-      pinModal.style.display = "none";
-      pinError.style.display = "none";
+      if (pinModal) pinModal.style.display = "none";
+      if (pinError) pinError.style.display = "none";
+      try {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } catch (e) {}
       connectWebSocket();
     } else {
-      pinError.textContent = data.detail || "PIN incorrecto";
-      pinError.style.display = "block";
+      if (pinError) {
+        pinError.textContent = data.detail || data.error || "PIN incorrecto. Revisa el código en tu PC.";
+        pinError.style.display = "block";
+      }
     }
   } catch (err) {
-    pinError.textContent = "Error de conexión con el PC";
-    pinError.style.display = "block";
+    if (pinError) {
+      pinError.textContent = "Error de conexión con el PC. Verifica que estás en la misma Wi-Fi.";
+      pinError.style.display = "block";
+    }
+  } finally {
+    if (btnVerify) {
+      btnVerify.disabled = false;
+      btnVerify.textContent = "Conectar con PC";
+    }
   }
 });
 
-// Auto-connect on startup
+// Enable pressing Enter in PIN input field
+document.getElementById("pin-input")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    document.getElementById("btn-verify-pin")?.click();
+  }
+});
+
+// Startup Hook: auto-pair if ?pin= is present, else connect
 window.addEventListener("DOMContentLoaded", () => {
-  connectWebSocket();
+  const urlParams = new URLSearchParams(window.location.search);
+  const pinParam = urlParams.get("pin");
+  if (pinParam) {
+    autoPairWithPin(pinParam);
+  } else {
+    connectWebSocket();
+  }
 });

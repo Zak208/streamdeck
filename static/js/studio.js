@@ -733,9 +733,21 @@ document.getElementById("btn-save-all")?.addEventListener("click", async () => {
   showToast("¡Configuración guardada y sincronizada en el móvil!");
 });
 
+async function regenerateAuthPin() {
+  try {
+    const res = await fetch("/api/auth/regenerate-pin", { method: "POST" });
+    const data = await res.json();
+    document.getElementById("pin-code").textContent = data.pin;
+    document.getElementById("qr-image").src = data.qr_code;
+    document.getElementById("server-url").textContent = `http://${data.ip}:${data.port}`;
+    showToast("¡Nuevo PIN y código QR generados!");
+  } catch (e) {
+    console.error("Error regenerating PIN", e);
+  }
+}
+
 document.getElementById("btn-refresh-pin")?.addEventListener("click", () => {
-  loadAuthInfo();
-  showToast("Nuevo código PIN generado");
+  regenerateAuthPin();
 });
 
 function showToast(msg) {

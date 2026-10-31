@@ -6,5 +6,6 @@ __pycache__/
 static/uploads/
 build/
 StreamDesk.spec
+config/auth_tokens.json
 
 
