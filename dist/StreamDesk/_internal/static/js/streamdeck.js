@@ -348,37 +348,22 @@ function createButtonElement(btn) {
   const inner = document.createElement("div");
   inner.className = "deck-btn-inner";
 
+  const btnColor = btn.color || "var(--accent-blue)";
   const accent = document.createElement("div");
   accent.className = "deck-btn-accent";
-  accent.style.background = btn.color || "var(--accent-blue)";
+  accent.style.background = btnColor;
+  accent.style.boxShadow = `0 0 8px ${btnColor}`;
   inner.appendChild(accent);
 
   const iconWrap = document.createElement("div");
   iconWrap.className = "deck-btn-icon-wrapper";
 
-  if (btn.image) {
-    const img = document.createElement("img");
-    img.src = btn.image;
-    img.className = "deck-btn-img";
-    img.alt = btn.label || "";
-    iconWrap.appendChild(img);
-  } else if (btn.icon && (btn.icon.startsWith("/") || btn.icon.endsWith(".svg"))) {
-    const img = document.createElement("img");
-    img.src = btn.icon;
-    img.className = "deck-btn-img";
-    img.alt = btn.label || "";
-    iconWrap.appendChild(img);
-  } else if (btn.icon) {
-    const emoji = document.createElement("span");
-    emoji.className = "deck-btn-emoji";
-    emoji.textContent = btn.icon;
-    iconWrap.appendChild(emoji);
-  } else {
-    const img = document.createElement("img");
-    img.src = "/static/icons/power.svg";
-    img.className = "deck-btn-img";
-    iconWrap.appendChild(img);
-  }
+  const iconSrc = btn.image || btn.icon || "/static/icons/power.svg";
+  const img = document.createElement("img");
+  img.src = iconSrc;
+  img.className = "deck-btn-img";
+  img.alt = btn.label || "";
+  iconWrap.appendChild(img);
   inner.appendChild(iconWrap);
 
   const textWrap = document.createElement("div");
@@ -397,14 +382,20 @@ function createButtonElement(btn) {
   inner.appendChild(textWrap);
   keycap.appendChild(inner);
 
-  // Touch and trigger handlers (snappy micro-animation)
+  // Tactile touch & trigger micro-animation
   keycap.addEventListener("pointerdown", () => {
     haptic(25);
     keycap.classList.add("triggered");
+    keycap.style.borderColor = btnColor;
+    keycap.style.boxShadow = `0 0 16px ${btnColor}`;
     sendWS({ type: "trigger_button", id: btn.id });
   });
 
-  const resetBtn = () => keycap.classList.remove("triggered");
+  const resetBtn = () => {
+    keycap.classList.remove("triggered");
+    keycap.style.borderColor = "";
+    keycap.style.boxShadow = "";
+  };
   keycap.addEventListener("pointerup", resetBtn);
   keycap.addEventListener("pointercancel", resetBtn);
   keycap.addEventListener("pointerleave", resetBtn);
@@ -426,6 +417,8 @@ function createFaderElement(slider) {
     ? `<img src="${slider.image}" class="fader-header-icon" alt="">` 
     : `<img src="/static/icons/${isMaster ? 'volume_up' : 'spotify'}.svg" class="fader-header-icon" alt="">`;
 
+  const faderColor = slider.color || (isMaster ? "var(--accent-blue)" : "var(--accent-purple)");
+
   card.innerHTML = `
     <div class="fader-header">
       <div class="fader-header-title">
@@ -435,7 +428,7 @@ function createFaderElement(slider) {
       ${!isMaster ? `<button class="app-select-btn" id="select-app-${slider.id}">${cleanAppName(targetProcess)}</button>` : ''}
     </div>
     <div class="fader-track-container" id="track-${slider.id}">
-      <div class="fader-fill" id="fill-${slider.id}" style="height: 50%;">
+      <div class="fader-fill" id="fill-${slider.id}" style="height: 50%; background: ${faderColor}; box-shadow: 0 0 10px ${faderColor};">
         <div class="fader-thumb"></div>
       </div>
     </div>

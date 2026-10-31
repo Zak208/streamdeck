@@ -245,12 +245,14 @@ header {
 }
 
 .deck-btn:active, .deck-btn.triggered {
-  transform: scale(0.95);
+  transform: scale(0.94);
   background: var(--surface-hover);
+  border-color: rgba(14, 165, 233, 0.6);
+  box-shadow: 0 0 16px rgba(14, 165, 233, 0.4);
 }
 
 .deck-btn.triggered .deck-btn-inner {
-  background: #111520;
+  background: #121726;
 }
 
 .deck-btn-accent {

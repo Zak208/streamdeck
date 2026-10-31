@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>StreamDesk Studio — PC Control Center Pro</title>
   <link rel="stylesheet" href="/static/css/studio.css">
 </head>
@@ -10,21 +11,32 @@
   <!-- Left Sidebar -->
   <aside>
     <div class="sidebar-header">
-      <h1>STREAMDESK <span class="highlight">STUDIO</span></h1>
-      <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Diseñador 6x2 Multi-Página & Simulador</p>
+      <div class="sidebar-brand">
+        <div class="brand-logo-icon">
+          <img src="/static/icons/power.svg" alt="StreamDesk Logo" style="width: 18px; height: 18px; filter: brightness(0) invert(1);">
+        </div>
+        <div>
+          <h1>STREAMDESK <span class="highlight">PRO</span></h1>
+          <p class="sidebar-subtitle">Studio & Centro de Control</p>
+        </div>
+      </div>
     </div>
 
     <div class="sidebar-scroll">
       <!-- QR and PIN Pairing Panel -->
-      <div class="panel-card">
+      <div class="panel-card panel-pairing">
         <div class="panel-title">
           <span>📱 Enlace Móvil (Wi-Fi)</span>
+          <span class="badge-live-dot" title="Servidor Activo"></span>
         </div>
         <div class="qr-container">
-          <img id="qr-image" class="qr-image" alt="Escanea con la cámara de tu móvil">
+          <div class="qr-wrapper">
+            <img id="qr-image" class="qr-image" alt="Escanea con la cámara de tu móvil">
+          </div>
           <div class="pin-display">
+            <span class="pin-label">PIN:</span>
             <span class="pin-code" id="pin-code">------</span>
-            <button class="refresh-pin-btn" id="btn-refresh-pin" title="Generar nuevo PIN">🔄</button>
+            <button class="refresh-pin-btn" id="btn-refresh-pin" title="Generar nuevo PIN y QR">🔄</button>
           </div>
           <div class="info-url" id="server-url">Cargando IP...</div>
         </div>
@@ -33,10 +45,10 @@
       <!-- Drag & Drop Palette Box -->
       <div class="panel-card">
         <div class="panel-title">
-          <span>📦 Elementos para Arrastrar</span>
+          <span>📦 Elementos Rápidos</span>
         </div>
         <p style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 8px;">
-          Arrastra un elemento a cualquier casilla del móvil para colocarlo:
+          Arrastra a cualquier casilla del móvil:
         </p>
         <div class="drag-palette-box">
           <div class="palette-item" draggable="true" id="palette-new-btn">
@@ -64,9 +76,9 @@
       <!-- Active Audio Sessions Panel -->
       <div class="panel-card">
         <div class="panel-title">
-          <span>🔊 Apps con Audio en PC</span>
+          <span>🔊 Audio en Tu PC</span>
         </div>
-        <div id="audio-sessions-list" style="display: flex; flex-direction: column; gap: 4px;">
+        <div id="audio-sessions-list" class="audio-sessions-list">
           <!-- Populated by studio.js -->
         </div>
       </div>
@@ -100,9 +112,19 @@
       <!-- Phone Mockup Preview Frame (Landscape) -->
       <div class="preview-container">
         <div class="phone-mockup">
+          <!-- Realistic Top Speaker Notch / Dynamic Island -->
+          <div class="phone-notch"></div>
+          
           <!-- Inner Phone Screen with 6x2 Grid (12 slots) -->
-          <div class="phone-screen" id="phone-screen">
-            <!-- Populated by studio.js (2 rows x 6 columns) -->
+          <div class="phone-screen-wrapper">
+            <div class="phone-status-bar">
+              <span>StreamDesk Mobile</span>
+              <span id="phone-preview-page-name">Página 1</span>
+              <span>Wi-Fi 📶 100% 🔋</span>
+            </div>
+            <div class="phone-screen" id="phone-screen">
+              <!-- Populated by studio.js (2 rows x 6 columns) -->
+            </div>
           </div>
         </div>
       </div>
@@ -112,9 +134,12 @@
         <div class="editor-title" id="inspector-title">Configuración del Elemento</div>
 
         <div id="inspector-content">
-          <p style="color: var(--text-muted); font-size: 0.85rem; text-align: center; margin-top: 50px;">
-            Haz clic en cualquier casilla de la cuadrícula 6x2 para configurarla fácilmente.
-          </p>
+          <div class="empty-inspector-tip">
+            <img src="/static/icons/sliders.svg" style="width: 38px; height: 38px; opacity: 0.3; margin-bottom: 12px;" alt="">
+            <p style="color: var(--text-muted); font-size: 0.85rem; text-align: center; line-height: 1.5;">
+              Haz clic en cualquier casilla de la pantalla del móvil para personalizarla o vincularla a una app en 1 clic.
+            </p>
+          </div>
         </div>
       </div>
     </div>
