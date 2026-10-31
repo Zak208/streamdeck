@@ -69,17 +69,20 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: Dict[str, Any], exclude: Optional[WebSocket] = None):
-        dead = []
+        targets = [c for c in list(self.active_connections) if not (exclude and c == exclude)]
+        if not targets:
+            return
         payload = json.dumps(message)
-        for conn in list(self.active_connections):
-            if exclude and conn == exclude:
-                continue
+        async def _safe_send(ws):
             try:
-                await conn.send_text(payload)
+                await ws.send_text(payload)
+                return None
             except Exception:
-                dead.append(conn)
+                return ws
+        dead = await asyncio.gather(*[_safe_send(c) for c in targets], return_exceptions=True)
         for d in dead:
-            self.disconnect(d)
+            if isinstance(d, WebSocket):
+                self.disconnect(d)
 
 ws_manager = ConnectionManager()
 

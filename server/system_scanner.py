@@ -166,9 +166,16 @@ class SystemScanner:
         }
     ]
 
+    _cache = []
+    _cache_time = 0
+
     @classmethod
-    def get_detected_apps(cls) -> List[Dict[str, Any]]:
-        """Returns verified list of apps installed on this PC."""
+    def get_detected_apps(cls, force_refresh: bool = False) -> List[Dict[str, Any]]:
+        """Returns verified list of apps installed on this PC with 60s memory cache."""
+        import time
+        now = time.time()
+        if not force_refresh and cls._cache and (now - cls._cache_time < 60):
+            return cls._cache
         detected = []
         seen_names = set()
 
@@ -261,6 +268,8 @@ class SystemScanner:
             except Exception:
                 pass
 
+        cls._cache = detected
+        cls._cache_time = time.time()
         return detected
 
 system_scanner = SystemScanner()

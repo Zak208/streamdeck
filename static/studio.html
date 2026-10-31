@@ -73,6 +73,17 @@
         </div>
       </div>
 
+      <!-- Interactive Drag to Delete / Trash Dropzone -->
+      <div class="panel-card trash-dropzone" id="trash-dropzone">
+        <div class="trash-dropzone-content">
+          <img src="/static/icons/trash.svg" class="trash-drop-icon" alt="Papelera">
+          <div>
+            <div class="trash-drop-title">Papelera de Casillas</div>
+            <div class="trash-drop-desc" id="trash-drop-desc">Arrastra aquí para vaciar o borrar</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Active Audio Sessions Panel -->
       <div class="panel-card">
         <div class="panel-title">
@@ -92,6 +103,12 @@
       <div class="page-tabs-container">
         <div class="page-tabs" id="page-tabs"></div>
         <button class="btn-page-add" id="btn-add-page" title="Crear nueva página">+ Página</button>
+        <button class="btn-page-del" id="btn-delete-page" title="Eliminar página activa" style="display: none;">🗑️</button>
+      </div>
+
+      <!-- Keyboard Shortcuts Badge -->
+      <div class="kbd-shortcuts-badge" title="Atajos de teclado">
+        <span>⌨️ <kbd>Supr</kbd> Vaciar · <kbd>Esc</kbd> Deseleccionar · <kbd>Ctrl+C/V</kbd> Copiar/Pegar</span>
       </div>
 
       <!-- GitHub Auto-Update Status Cylinder / Pill -->

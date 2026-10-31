@@ -48,6 +48,12 @@
     </div>
   </header>
 
+  <!-- Reconnection Alert Banner -->
+  <div id="reconnect-banner" class="reconnect-banner" style="display: none;">
+    <span class="reconnect-dot-pulse"></span>
+    <span>Reconectando con tu PC... Comprueba que estás en la misma red Wi-Fi</span>
+  </div>
+
   <!-- Main Container: 6x2 Grid (Supports Touch Swipe) -->
   <main id="deck-container">
     <div id="deck-grid">
@@ -97,6 +103,9 @@
       </div>
     </div>
   </div>
+
+  <!-- Action Result & Error Toast -->
+  <div id="mobile-toast" class="mobile-toast"></div>
 
   <script src="/static/js/streamdeck.js"></script>
 </body>

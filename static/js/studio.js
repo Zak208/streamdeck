@@ -19,6 +19,8 @@ const btnApplyUpdate = document.getElementById("btn-apply-update");
 const pageTabs = document.getElementById("page-tabs");
 const btnAddPage = document.getElementById("btn-add-page");
 const phonePreviewPageName = document.getElementById("phone-preview-page-name");
+const btnDeletePage = document.getElementById("btn-delete-page");
+let copiedSlotConfig = null;
 
 // Curated 8 Vibrant Color Swatches for instant styling
 const COLOR_SWATCHES = [
@@ -212,6 +214,10 @@ function renderPageTabs() {
   if (phonePreviewPageName && pages[activePageIndex]) {
     phonePreviewPageName.textContent = pages[activePageIndex].name || `Página ${activePageIndex + 1}`;
   }
+
+  if (btnDeletePage) {
+    btnDeletePage.style.display = pages.length > 1 ? "inline-flex" : "none";
+  }
 }
 
 async function switchPage(pageIndex) {
@@ -248,6 +254,36 @@ btnAddPage?.addEventListener("click", async () => {
     }
   } catch (e) {
     showToast("Error al crear la página");
+  }
+});
+
+btnDeletePage?.addEventListener("click", async () => {
+  const pages = config.pages || [];
+  if (pages.length <= 1) {
+    showToast("No se puede eliminar la única página");
+    return;
+  }
+  const curName = pages[activePageIndex]?.name || `Página ${activePageIndex + 1}`;
+  if (!confirm(`¿Eliminar la página "${curName}"? Esta acción no se puede deshacer.`)) {
+    return;
+  }
+  try {
+    const res = await fetch("/api/deck/page/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ page_index: activePageIndex })
+    });
+    const data = await res.json();
+    if (data.success) {
+      await loadConfig();
+      const newPageIdx = Math.max(0, activePageIndex - 1);
+      switchPage(newPageIdx);
+      showToast(`Página "${curName}" eliminada`);
+    } else {
+      showToast(data.error || "Error al eliminar página");
+    }
+  } catch (e) {
+    showToast("Error de conexión al eliminar página");
   }
 });
 
@@ -297,16 +333,28 @@ function renderPhoneScreen() {
     // Attach Drop Target Events
     cell.addEventListener("dragover", (e) => {
       e.preventDefault();
-      cell.classList.add("drag-over");
+      if (isDraggingFader()) {
+        highlightCoordinatedFaderColumn(col - 1);
+      } else {
+        cell.classList.add("drag-over");
+      }
     });
 
-    cell.addEventListener("dragleave", () => {
-      cell.classList.remove("drag-over");
+    cell.addEventListener("dragleave", (e) => {
+      if (isDraggingFader()) {
+        // clear highlights only if left the phone screen or target
+        const related = e.relatedTarget;
+        if (!related || !phoneScreen.contains(related)) {
+          clearAllDragHighlights();
+        }
+      } else {
+        cell.classList.remove("drag-over");
+      }
     });
 
     cell.addEventListener("drop", (e) => {
       e.preventDefault();
-      cell.classList.remove("drag-over");
+      clearAllDragHighlights();
       handleDropOnSlot(i);
     });
 
@@ -329,6 +377,113 @@ function renderPhoneScreen() {
   }
 }
 
+function isDraggingFader() {
+  if (dragSourceType === "palette_slider") return true;
+  if (dragSourceType === "slot" && draggedSlotIndex !== null) {
+    const pages = config?.pages || [];
+    const currentSlots = (pages[activePageIndex] ? pages[activePageIndex].slots : config?.slots) || [];
+    return currentSlots[draggedSlotIndex]?.type === "slider";
+  }
+  return false;
+}
+
+function clearAllDragHighlights() {
+  document.querySelectorAll(".slot-cell").forEach(cell => {
+    cell.classList.remove("drag-over", "drag-over-fader-top", "drag-over-fader-bottom");
+  });
+  document.getElementById("trash-dropzone")?.classList.remove("trash-drag-over");
+}
+
+function highlightCoordinatedFaderColumn(col) {
+  clearAllDragHighlights();
+  const topCell = document.getElementById(`cell_slot_${col}`);
+  const bottomCell = document.getElementById(`cell_slot_${col + 6}`);
+  if (topCell) {
+    if (topCell.classList.contains("cell-slider-spanning")) {
+      topCell.classList.add("drag-over-fader-top", "drag-over-fader-bottom");
+    } else {
+      topCell.classList.add("drag-over-fader-top");
+      if (bottomCell) bottomCell.classList.add("drag-over-fader-bottom");
+    }
+  }
+}
+
+function triggerDropBounce(index) {
+  setTimeout(() => {
+    const cell = document.getElementById(`cell_slot_${index}`);
+    if (cell) {
+      cell.classList.remove("slot-drop-bounce");
+      void cell.offsetWidth;
+      cell.classList.add("slot-drop-bounce");
+      setTimeout(() => cell.classList.remove("slot-drop-bounce"), 350);
+    }
+  }, 30);
+}
+
+function clearColumn(slots, col) {
+  slots[col] = { index: col, type: "empty" };
+  slots[col + 6] = { index: col + 6, type: "empty" };
+}
+
+function emptySlotByIndex(idx) {
+  const pages = config?.pages || [];
+  const currentSlots = (pages[activePageIndex] ? pages[activePageIndex].slots : config?.slots) || [];
+  const col = idx % 6;
+  const slot = currentSlots[idx];
+  if (!slot || slot.type === "empty") return;
+
+  if (slot.type === "slider" || slot.type === "occupied_by_slider" || currentSlots[col]?.type === "slider") {
+    clearColumn(currentSlots, col);
+    showToast(`Columna #${col + 1} vaciada`);
+  } else {
+    currentSlots[idx] = { index: idx, type: "empty" };
+    showToast(`Casilla #${idx + 1} vaciada`);
+  }
+  renderPhoneScreen();
+  selectSlot(idx);
+  saveConfigToServer();
+}
+
+function pasteCopiedSlot(targetIdx) {
+  if (!copiedSlotConfig) return;
+  const pages = config?.pages || [];
+  const currentSlots = (pages[activePageIndex] ? pages[activePageIndex].slots : config?.slots) || [];
+  const tCol = targetIdx % 6;
+
+  if (copiedSlotConfig.type === "slider") {
+    clearColumn(currentSlots, tCol);
+    const pastedSlider = JSON.parse(JSON.stringify(copiedSlotConfig));
+    pastedSlider.index = tCol;
+    pastedSlider.id = `slider_${Date.now()}`;
+    currentSlots[tCol] = pastedSlider;
+    currentSlots[tCol + 6] = {
+      index: tCol + 6,
+      type: "occupied_by_slider",
+      id: `slot_${tCol + 6}`,
+      label: "Ocupado por Slider",
+      parent_slot: tCol
+    };
+    renderPhoneScreen();
+    selectSlot(tCol);
+    triggerDropBounce(tCol);
+    saveConfigToServer();
+    showToast(`Fader pegado en Columna #${tCol + 1} (Ctrl+V)`);
+  } else {
+    if (currentSlots[tCol]?.type === "slider" || currentSlots[targetIdx]?.type === "occupied_by_slider") {
+      clearColumn(currentSlots, tCol);
+    }
+    const pastedBtn = JSON.parse(JSON.stringify(copiedSlotConfig));
+    pastedBtn.index = targetIdx;
+    pastedBtn.id = `btn_${Date.now()}`;
+    currentSlots[targetIdx] = pastedBtn;
+    renderPhoneScreen();
+    selectSlot(targetIdx);
+    triggerDropBounce(targetIdx);
+    saveConfigToServer();
+    showToast(`Botón pegado en Casilla #${targetIdx + 1} (Ctrl+V)`);
+  }
+}
+
 function createStudioButtonKeycap(btn, index) {
   const wrap = document.createElement("div");
   wrap.className = "slot-keycap";
@@ -338,6 +493,16 @@ function createStudioButtonKeycap(btn, index) {
     dragSourceType = "slot";
     draggedSlotIndex = index;
     e.dataTransfer.effectAllowed = "move";
+    wrap.classList.add("dragging");
+    const cell = document.getElementById(`cell_slot_${index}`);
+    if (cell) cell.classList.add("is-source-dragging");
+  });
+
+  wrap.addEventListener("dragend", () => {
+    wrap.classList.remove("dragging");
+    const cell = document.getElementById(`cell_slot_${index}`);
+    if (cell) cell.classList.remove("is-source-dragging");
+    clearAllDragHighlights();
   });
 
   let iconSrc = btn.image || btn.icon || "/static/icons/power.svg";
@@ -364,6 +529,16 @@ function createStudioFaderCard(slider, index) {
     dragSourceType = "slot";
     draggedSlotIndex = index;
     e.dataTransfer.effectAllowed = "move";
+    wrap.classList.add("dragging");
+    const cell = document.getElementById(`cell_slot_${index}`);
+    if (cell) cell.classList.add("is-source-dragging");
+  });
+
+  wrap.addEventListener("dragend", () => {
+    wrap.classList.remove("dragging");
+    const cell = document.getElementById(`cell_slot_${index}`);
+    if (cell) cell.classList.remove("is-source-dragging");
+    clearAllDragHighlights();
   });
 
   const headerIcon = slider.image || (isMaster ? '/static/icons/volume_up.svg' : '/static/icons/spotify.svg');
@@ -385,12 +560,14 @@ function createStudioFaderCard(slider, index) {
 
 // Drag & Drop Handling on Slots
 function handleDropOnSlot(targetIndex) {
+  clearAllDragHighlights();
   const col = targetIndex % 6;
   const topSlot = col;
   const bottomSlot = col + 6;
   const currentSlots = config.pages[activePageIndex].slots;
 
   if (dragSourceType === "palette_slider") {
+    clearColumn(currentSlots, col);
     currentSlots[topSlot] = {
       index: topSlot,
       type: "slider",
@@ -414,13 +591,14 @@ function handleDropOnSlot(targetIndex) {
 
     renderPhoneScreen();
     selectSlot(topSlot);
+    triggerDropBounce(topSlot);
     saveConfigToServer();
-    showToast("Fader de volumen colocado (2 casillas)");
+    showToast(`Fader de volumen colocado en Columna #${col + 1}`);
 
   } else if (dragSourceType === "palette_btn") {
-    if (currentSlots[topSlot]?.type === "slider") {
-      currentSlots[topSlot] = { index: topSlot, type: "empty" };
-      currentSlots[bottomSlot] = { index: bottomSlot, type: "empty" };
+    // If target column had a slider, clean up both slots cleanly!
+    if (currentSlots[topSlot]?.type === "slider" || currentSlots[targetIndex]?.type === "occupied_by_slider") {
+      clearColumn(currentSlots, col);
     }
 
     currentSlots[targetIndex] = {
@@ -438,61 +616,186 @@ function handleDropOnSlot(targetIndex) {
 
     renderPhoneScreen();
     selectSlot(targetIndex);
+    triggerDropBounce(targetIndex);
     saveConfigToServer();
     showToast("Botón colocado en la cuadrícula");
 
   } else if (dragSourceType === "slot" && draggedSlotIndex !== null) {
     if (draggedSlotIndex !== targetIndex) {
-      const sourceSlot = currentSlots[draggedSlotIndex];
-      const targetSlot = currentSlots[targetIndex];
+      const isSourceSlider = currentSlots[draggedSlotIndex]?.type === "slider";
 
-      if (sourceSlot?.type === "slider") {
+      if (isSourceSlider) {
         const sCol = draggedSlotIndex % 6;
         const tCol = targetIndex % 6;
-        
-        currentSlots[sCol] = { index: sCol, type: "empty" };
-        currentSlots[sCol + 6] = { index: sCol + 6, type: "empty" };
+        if (sCol !== tCol) {
+          const sourceSlider = JSON.parse(JSON.stringify(currentSlots[sCol]));
+          clearColumn(currentSlots, sCol);
+          clearColumn(currentSlots, tCol);
 
-        sourceSlot.index = tCol;
-        currentSlots[tCol] = sourceSlot;
-        currentSlots[tCol + 6] = {
-          index: tCol + 6,
-          type: "occupied_by_slider",
-          id: `slot_${tCol + 6}`,
-          parent_slot: tCol
-        };
-        renderPhoneScreen();
-        selectSlot(tCol);
-        saveConfigToServer();
-        showToast("Fader reubicado");
+          sourceSlider.index = tCol;
+          currentSlots[tCol] = sourceSlider;
+          currentSlots[tCol + 6] = {
+            index: tCol + 6,
+            type: "occupied_by_slider",
+            id: `slot_${tCol + 6}`,
+            parent_slot: tCol
+          };
+
+          renderPhoneScreen();
+          selectSlot(tCol);
+          triggerDropBounce(tCol);
+          saveConfigToServer();
+          showToast(`Fader reubicado a Columna #${tCol + 1}`);
+        }
       } else {
-        currentSlots[draggedSlotIndex] = targetSlot || { index: draggedSlotIndex, type: "empty" };
-        currentSlots[targetIndex] = sourceSlot;
+        const sIdx = draggedSlotIndex;
+        const tIdx = targetIndex;
+        const tCol = tIdx % 6;
+        const sourceBtn = JSON.parse(JSON.stringify(currentSlots[sIdx]));
 
-        if (currentSlots[draggedSlotIndex]) currentSlots[draggedSlotIndex].index = draggedSlotIndex;
-        if (currentSlots[targetIndex]) currentSlots[targetIndex].index = targetIndex;
+        // Check if target is in a slider column
+        if (currentSlots[tCol]?.type === "slider" || currentSlots[tIdx]?.type === "occupied_by_slider") {
+          clearColumn(currentSlots, tCol);
+          currentSlots[sIdx] = { index: sIdx, type: "empty" };
+          sourceBtn.index = tIdx;
+          currentSlots[tIdx] = sourceBtn;
+        } else {
+          // Normal swap with target slot
+          const targetItem = (currentSlots[tIdx] && currentSlots[tIdx].type !== "empty")
+            ? JSON.parse(JSON.stringify(currentSlots[tIdx]))
+            : { index: sIdx, type: "empty" };
+
+          sourceBtn.index = tIdx;
+          currentSlots[tIdx] = sourceBtn;
+          targetItem.index = sIdx;
+          currentSlots[sIdx] = targetItem;
+        }
 
         renderPhoneScreen();
-        selectSlot(targetIndex);
+        selectSlot(tIdx);
+        triggerDropBounce(tIdx);
         saveConfigToServer();
-        showToast("Posiciones actualizadas");
+        showToast("Posición actualizada");
       }
     }
   }
 
   dragSourceType = null;
   draggedSlotIndex = null;
+  clearAllDragHighlights();
+}
+
+// Setup Trash Dropzone
+function setupTrashDropZone() {
+  const trashZone = document.getElementById("trash-dropzone");
+  if (!trashZone) return;
+
+  trashZone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    trashZone.classList.add("trash-drag-over");
+  });
+
+  trashZone.addEventListener("dragleave", () => {
+    trashZone.classList.remove("trash-drag-over");
+  });
+
+  trashZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    trashZone.classList.remove("trash-drag-over");
+    if (dragSourceType === "slot" && draggedSlotIndex !== null) {
+      emptySlotByIndex(draggedSlotIndex);
+      dragSourceType = null;
+      draggedSlotIndex = null;
+    }
+  });
+
+  trashZone.addEventListener("click", () => {
+    if (selectedSlotIndex !== null) {
+      emptySlotByIndex(selectedSlotIndex);
+    } else {
+      showToast("Selecciona una casilla para vaciarla");
+    }
+  });
 }
 
 // Palette Drag Events
-document.getElementById("palette-new-btn")?.addEventListener("dragstart", (e) => {
-  dragSourceType = "palette_btn";
-  e.dataTransfer.effectAllowed = "copy";
-});
+const paletteNewBtn = document.getElementById("palette-new-btn");
+if (paletteNewBtn) {
+  paletteNewBtn.addEventListener("dragstart", (e) => {
+    dragSourceType = "palette_btn";
+    e.dataTransfer.effectAllowed = "copy";
+    paletteNewBtn.classList.add("is-dragging");
+  });
+  paletteNewBtn.addEventListener("dragend", () => {
+    paletteNewBtn.classList.remove("is-dragging");
+    clearAllDragHighlights();
+  });
+}
 
-document.getElementById("palette-new-slider")?.addEventListener("dragstart", (e) => {
-  dragSourceType = "palette_slider";
-  e.dataTransfer.effectAllowed = "copy";
+const paletteNewSlider = document.getElementById("palette-new-slider");
+if (paletteNewSlider) {
+  paletteNewSlider.addEventListener("dragstart", (e) => {
+    dragSourceType = "palette_slider";
+    e.dataTransfer.effectAllowed = "copy";
+    paletteNewSlider.classList.add("is-dragging");
+  });
+  paletteNewSlider.addEventListener("dragend", () => {
+    paletteNewSlider.classList.remove("is-dragging");
+    clearAllDragHighlights();
+  });
+}
+
+// Keyboard Shortcuts Controller
+window.addEventListener("keydown", (e) => {
+  const activeEl = document.activeElement;
+  if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.isContentEditable)) {
+    return;
+  }
+
+  if (e.key === "Delete" || e.key === "Backspace") {
+    if (selectedSlotIndex !== null) {
+      e.preventDefault();
+      emptySlotByIndex(selectedSlotIndex);
+    }
+  } else if (e.key === "Escape") {
+    if (selectedSlotIndex !== null) {
+      e.preventDefault();
+      selectedSlotIndex = null;
+      renderPhoneScreen();
+      resetInspectorDrawer();
+    }
+  } else if (e.key === "ArrowRight") {
+    e.preventDefault();
+    const next = selectedSlotIndex === null ? 0 : (selectedSlotIndex + 1) % 12;
+    selectSlot(next);
+  } else if (e.key === "ArrowLeft") {
+    e.preventDefault();
+    const prev = selectedSlotIndex === null ? 0 : (selectedSlotIndex + 11) % 12;
+    selectSlot(prev);
+  } else if (e.key === "ArrowDown") {
+    e.preventDefault();
+    const down = selectedSlotIndex === null ? 0 : (selectedSlotIndex + 6) % 12;
+    selectSlot(down);
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    const up = selectedSlotIndex === null ? 0 : (selectedSlotIndex + 6) % 12;
+    selectSlot(up);
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+    if (selectedSlotIndex !== null) {
+      const pages = config?.pages || [];
+      const currentSlots = (pages[activePageIndex] ? pages[activePageIndex].slots : config?.slots) || [];
+      const slot = currentSlots[selectedSlotIndex];
+      if (slot && slot.type !== "empty" && slot.type !== "occupied_by_slider") {
+        copiedSlotConfig = JSON.parse(JSON.stringify(slot));
+        showToast(`Casilla copiada (${slot.label || slot.type}) [Ctrl+C]`);
+      }
+    }
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+    if (copiedSlotConfig && selectedSlotIndex !== null) {
+      pasteCopiedSlot(selectedSlotIndex);
+    }
+  }
 });
 
 // Select Slot and Open Inspector Drawer
@@ -1133,6 +1436,7 @@ window.addEventListener("DOMContentLoaded", () => {
   loadConfig();
   loadSystemApps();
   loadAudioSessions();
+  setupTrashDropZone();
   checkGitHubUpdates();
   setInterval(loadAudioSessions, 3000);
 });

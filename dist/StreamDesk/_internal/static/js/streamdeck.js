@@ -70,6 +70,16 @@ async function initWakeLock() {
   }
 }
 
+function showMobileToast(msg, isError = false) {
+  const t = document.getElementById("mobile-toast");
+  if (!t) return;
+  t.textContent = msg;
+  t.className = isError ? "mobile-toast error show" : "mobile-toast show";
+  setTimeout(() => {
+    t.classList.remove("show");
+  }, 2600);
+}
+
 function haptic(ms = 25) {
   if (navigator.vibrate) {
     try { navigator.vibrate(ms); } catch (e) {}
@@ -141,6 +151,9 @@ deckContainer?.addEventListener("touchstart", (e) => {
 }, { passive: true });
 
 deckContainer?.addEventListener("touchend", (e) => {
+  if (Object.values(isDraggingMap).some(Boolean)) {
+    return;
+  }
   if (e.changedTouches.length === 1) {
     const diffX = e.changedTouches[0].clientX - touchStartX;
     const diffY = e.changedTouches[0].clientY - touchStartY;
@@ -193,6 +206,8 @@ function connectWebSocket() {
   ws.onopen = () => {
     statusDot.className = "dot connected";
     statusText.textContent = "Conectado";
+    const banner = document.getElementById("reconnect-banner");
+    if (banner) banner.style.display = "none";
     if (pinModal) pinModal.style.display = "none";
     initWakeLock();
   };
@@ -209,6 +224,8 @@ function connectWebSocket() {
   ws.onclose = (event) => {
     statusDot.className = "dot";
     statusText.textContent = "Desconectado";
+    const banner = document.getElementById("reconnect-banner");
+    if (banner) banner.style.display = "flex";
     if (event.code === 1008) {
       console.warn("WS 1008: No autorizado");
       localStorage.removeItem("streamdesk_token");
@@ -273,6 +290,22 @@ function handleServerMessage(data) {
     case "app_mute_updated":
     case "app_mute_update":
       updateAppMuteState(data.process, data.muted);
+      break;
+
+        case "action_result":
+      if (data.status === "error" || data.success === false) {
+        haptic([40, 60, 40]);
+        showMobileToast(data.message || data.error || "Error al ejecutar acción", true);
+        if (data.slot_id) {
+          const btnEl = document.getElementById(data.slot_id);
+          if (btnEl) {
+            btnEl.classList.remove("btn-shake-error");
+            void btnEl.offsetWidth;
+            btnEl.classList.add("btn-shake-error");
+            setTimeout(() => btnEl.classList.remove("btn-shake-error"), 400);
+          }
+        }
+      }
       break;
 
     case "sessions_update":
@@ -484,7 +517,7 @@ function setMuteBtnVisual(muteBtn, isMuted) {
 function attachFaderDrag(trackEl, sliderId, isMaster) {
   let lastSent = 0;
 
-  function handleCoord(clientY) {
+  function handleCoord(clientY, forceSend = false) {
     const rect = trackEl.getBoundingClientRect();
     if (rect.height <= 0) return;
 
@@ -497,7 +530,7 @@ function attachFaderDrag(trackEl, sliderId, isMaster) {
     if (valEl) valEl.textContent = `${percent}%`;
 
     const now = Date.now();
-    if (now - lastSent > 30) {
+    if (forceSend || now - lastSent > 25) {
       lastSent = now;
       if (isMaster) {
         sendWS({ type: "set_master_volume", volume: percent });
@@ -525,10 +558,10 @@ function attachFaderDrag(trackEl, sliderId, isMaster) {
 
   const stopDrag = (e) => {
     if (isDraggingMap[sliderId]) {
-      handleCoord(e.clientY);
+      handleCoord(e.clientY, true);
       setTimeout(() => {
         isDraggingMap[sliderId] = false;
-      }, 120);
+      }, 100);
     }
   };
 
