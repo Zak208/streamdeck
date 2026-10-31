@@ -1,9 +1,9 @@
-; Script de Instalación para StreamDesk Pro con Inno Setup
+; Script de Instalación para StreamDesk Pro (Aplicación de Escritorio Nativa)
 #define MyAppName "StreamDesk Pro"
 #define MyAppVersion "2.1.0"
 #define MyAppPublisher "Zak208"
 #define MyAppURL "https://github.com/Zak208/streamdeck"
-#define MyAppExeName "start.bat"
+#define MyAppExeName "StreamDesk.exe"
 
 [Setup]
 AppId={{5E97D453-6523-49A3-97BA-912A8F349580}
@@ -13,15 +13,16 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={autopf}\{#MyAppName}
+DefaultDirName={localappdata}\Programs\{#MyAppName}
 DisableProgramGroupPage=yes
 LicenseFile=license.txt
 OutputDir=..\
 OutputBaseFilename=instalador_streamdeck
-Compression=lzma
+Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 SetupIconFile=..\static\icons\icon.ico
+PrivilegesRequired=lowest
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -30,11 +31,11 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "..\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: ".venv\*,.git\*,*.pyc,__pycache__\*,installer\*,dist\*,instalador_streamdeck.exe"
+Source: "..\dist\StreamDesk\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: shellexec postinstall nowait skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

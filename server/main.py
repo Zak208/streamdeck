@@ -27,9 +27,16 @@ from server.system_scanner import system_scanner
 
 PORT = 48291
 VERSION = "2.1.0"
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-UPLOADS_DIR = os.path.join(STATIC_DIR, "uploads")
+
+if getattr(sys, 'frozen', False):
+    BASE_DIR = sys._MEIPASS
+    STATIC_DIR = os.path.join(BASE_DIR, "static")
+    UPLOADS_DIR = os.path.join(os.path.expandvars(r"%APPDATA%\StreamDesk"), "uploads")
+else:
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    STATIC_DIR = os.path.join(BASE_DIR, "static")
+    UPLOADS_DIR = os.path.join(STATIC_DIR, "uploads")
+
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 class ConnectionManager:

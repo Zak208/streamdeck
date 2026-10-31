@@ -1,15 +1,20 @@
 import os
+import sys
 import json
 from typing import Dict, Any, List
 
-CONFIG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config")
+# If running frozen (PyInstaller), store config in %APPDATA%\StreamDesk or app dir
+if getattr(sys, 'frozen', False):
+    USER_DATA = os.path.expandvars(r"%APPDATA%\StreamDesk")
+else:
+    USER_DATA = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+CONFIG_DIR = os.path.join(USER_DATA, "config")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "deck_config.json")
 
 def generate_default_slots() -> List[Dict[str, Any]]:
     slots = []
-    # 2 rows x 12 columns = 24 slots
     presets = [
-        # Row 0 (0-11)
         {"index": 0, "type": "button", "id": "btn_discord", "label": "Discord", "sublabel": "Voz / Chat", "icon": "", "image": "/static/icons/discord.svg", "color": "#5865f2", "action_type": "preset_app", "target": "discord"},
         {"index": 1, "type": "button", "id": "btn_spotify", "label": "Spotify", "sublabel": "Música", "icon": "", "image": "/static/icons/spotify.svg", "color": "#1db954", "action_type": "preset_app", "target": "spotify"},
         {"index": 2, "type": "button", "id": "btn_obs", "label": "OBS Studio", "sublabel": "Directo", "icon": "", "image": "/static/icons/obs.svg", "color": "#302e31", "action_type": "preset_app", "target": "obs"},
@@ -23,7 +28,6 @@ def generate_default_slots() -> List[Dict[str, Any]]:
         {"index": 10, "type": "slider", "id": "slider_master", "label": "Master", "slider_type": "master", "target_app": None, "color": "#38bdf8"},
         {"index": 11, "type": "slider", "id": "slider_app", "label": "App Selector", "slider_type": "app_dynamic", "target_app": "Spotify.exe", "color": "#a855f7"},
 
-        # Row 1 (12-23)
         {"index": 12, "type": "button", "id": "btn_calc", "label": "Calculadora", "sublabel": "Utilidad", "icon": "🧮", "image": "", "color": "#f59e0b", "action_type": "launch", "target": "calc"},
         {"index": 13, "type": "button", "id": "btn_notes", "label": "Notas", "sublabel": "Editor", "icon": "📝", "image": "", "color": "#06b6d4", "action_type": "launch", "target": "notepad"},
         {"index": 14, "type": "button", "id": "btn_macro", "label": "Modo Stream", "sublabel": "Macro", "icon": "🚀", "image": "", "color": "#a855f7", "action_type": "multi", "target": "stream", "extra": {"actions": [{"action_type": "preset_app", "target": "obs", "delay_ms": 200}, {"action_type": "preset_app", "target": "discord", "delay_ms": 200}, {"action_type": "sound", "target": "asterisk"}]}},
@@ -32,7 +36,6 @@ def generate_default_slots() -> List[Dict[str, Any]]:
         {"index": 17, "type": "button", "id": "btn_beep", "label": "Beep", "sublabel": "Alerta", "icon": "🔔", "image": "", "color": "#8b5cf6", "action_type": "sound", "target": "beep"}
     ]
 
-    # Create slot mapping
     preset_dict = {p["index"]: p for p in presets}
     for i in range(24):
         if i in preset_dict:
@@ -68,7 +71,6 @@ class ConfigManager:
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    # Check if it has 2x12 slots format
                     if "slots" in data and len(data.get("slots", [])) == 24:
                         return data
             except Exception as e:
@@ -78,6 +80,7 @@ class ConfigManager:
 
     def save_config(self, new_config: Dict[str, Any]) -> bool:
         try:
+            os.makedirs(CONFIG_DIR, exist_ok=True)
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(new_config, f, indent=2, ensure_ascii=False)
             self.config = new_config

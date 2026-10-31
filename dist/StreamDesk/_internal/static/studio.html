@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>StreamDesk Studio — PC Control Center Pro</title>
+  <link rel="stylesheet" href="/static/css/studio.css">
+</head>
+<body>
+
+  <!-- Left Sidebar -->
+  <aside>
+    <div class="sidebar-header">
+      <h1>STREAMDESK <span class="highlight">STUDIO</span></h1>
+      <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Diseñador 2x12 & Simulador Móvil</p>
+    </div>
+
+    <div class="sidebar-scroll">
+      <!-- QR and PIN Pairing Panel -->
+      <div class="panel-card">
+        <div class="panel-title">
+          <span>📱 Enlace Móvil (Wi-Fi)</span>
+        </div>
+        <div class="qr-container">
+          <img id="qr-image" class="qr-image" alt="Escanea con la cámara de tu móvil">
+          <div class="pin-display">
+            <span class="pin-code" id="pin-code">------</span>
+            <button class="refresh-pin-btn" id="btn-refresh-pin" title="Generar nuevo PIN">🔄</button>
+          </div>
+          <div class="info-url" id="server-url">Cargando IP...</div>
+        </div>
+      </div>
+
+      <!-- Drag & Drop Palette Box -->
+      <div class="panel-card">
+        <div class="panel-title">
+          <span>📦 Elementos para Arrastrar</span>
+        </div>
+        <p style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 8px;">
+          Arrastra un elemento a cualquier casilla del móvil para colocarlo:
+        </p>
+        <div class="drag-palette-box">
+          <div class="palette-item" draggable="true" id="palette-new-btn">
+            <span class="palette-item-icon">🔲</span>
+            <div>
+              <div class="palette-item-title">Botón Nuevo</div>
+              <div class="palette-item-desc">Apps, multimedia o macros</div>
+            </div>
+          </div>
+
+          <div class="palette-item palette-slider" draggable="true" id="palette-new-slider">
+            <span class="palette-item-icon">🎚️</span>
+            <div>
+              <div class="palette-item-title">Fader de Volumen</div>
+              <div class="palette-item-desc">Control vertical Master o App</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active Audio Sessions Panel -->
+      <div class="panel-card">
+        <div class="panel-title">
+          <span>🔊 Apps con Audio en PC</span>
+        </div>
+        <div id="audio-sessions-list" style="display: flex; flex-direction: column; gap: 4px;">
+          <!-- Populated by studio.js -->
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Center Workspace -->
+  <main>
+    <div class="studio-topbar">
+      <!-- GitHub Auto-Update Status Cylinder / Pill -->
+      <div class="update-cylinder" id="update-cylinder" title="Estado de actualizaciones con GitHub">
+        <span id="update-status-icon">🟢</span>
+        <span id="update-status-text">StreamDesk v2.1.0 (Al día)</span>
+        <button class="update-btn-action" id="btn-apply-update" style="display: none;">Actualizar 🚀</button>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <button class="btn-primary" id="btn-save-all">
+          💾 Guardar y Sincronizar en Móvil
+        </button>
+      </div>
+    </div>
+
+    <div class="canvas-body">
+      <!-- Phone Mockup Preview Frame (Landscape) -->
+      <div class="preview-container">
+        <div class="phone-mockup">
+          <!-- Inner Phone Screen with 2x12 Grid (24 slots) -->
+          <div class="phone-screen" id="phone-screen">
+            <!-- Populated by studio.js (2 rows x 12 columns) -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Inspector / Editor Drawer (Right) -->
+      <div class="editor-drawer" id="editor-drawer">
+        <div class="editor-title" id="inspector-title">Configuración del Elemento</div>
+
+        <div id="inspector-content">
+          <p style="color: var(--text-muted); font-size: 0.85rem; text-align: center; margin-top: 50px;">
+            Haz clic en cualquier casilla de la cuadrícula 2x12 para configurarla fácilmente.
+          </p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast">¡Configuración guardada y sincronizada!</div>
+
+  <script src="/static/js/studio.js"></script>
+</body>
+</html>
