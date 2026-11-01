@@ -247,10 +247,44 @@ function maybeShowWelcome() {
   if (!seen) openWelcome();
 }
 
+// ---------- Windows firewall: let the phone in ----------
+
+async function refreshFirewall() {
+  try {
+    const { allowed } = await apiJson("/api/system/firewall");
+    document.getElementById("firewall-note").hidden = allowed;
+    return allowed;
+  } catch (e) {
+    return true; // cannot tell: do not nag
+  }
+}
+
+async function allowPhoneThroughFirewall() {
+  const button = document.getElementById("btn-allow-firewall");
+  button.disabled = true;
+  try {
+    const result = await postJson("/api/system/firewall/allow", {});
+    if (result.error) return showToast(result.error);
+    if (!result.already) showToast("Windows te pedirá permiso: elige Sí.");
+    // The prompt is answered outside the app, so look for the rule until it appears.
+    for (let attempt = 0; attempt < 30; attempt++) {
+      if (await refreshFirewall()) return showToast("Listo: tu móvil ya puede conectarse.");
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  } catch (err) {
+    showToast(err.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 // ---------- Startup ----------
 
 window.addEventListener("DOMContentLoaded", () => {
   loadTheme();
   document.getElementById("btn-settings")?.addEventListener("click", openSettings);
+  document.getElementById("btn-allow-firewall")?.addEventListener("click", allowPhoneThroughFirewall);
+  refreshFirewall();
+  setInterval(refreshFirewall, 20000);
   setTimeout(maybeShowWelcome, 700);
 });

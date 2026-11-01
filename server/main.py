@@ -43,7 +43,7 @@ from server.audio_controller import audio_controller
 from server.com_worker import com_worker
 from server.actions import execute_action
 from server.auth import auth_manager
-from server import templates
+from server import firewall, templates
 from server.config_manager import config_manager
 from server.connectors import spotify, windows
 from server.settings_store import settings
@@ -282,6 +282,17 @@ THEMES = ("ctma", "cian")
 def current_theme() -> str:
     theme = settings.get("ui").get("theme")
     return theme if theme in THEMES else "ctma"
+
+
+@app.get("/api/system/firewall")
+def firewall_status(_: None = Depends(require_local_request)):
+    return {"allowed": firewall.rule_exists(), "port": PORT}
+
+
+@app.post("/api/system/firewall/allow")
+def firewall_allow(_: None = Depends(require_local_request)):
+    """Opens Windows' own permission prompt; nothing changes unless the user accepts it."""
+    return firewall.request_rule()
 
 
 @app.get("/api/ui")

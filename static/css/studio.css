@@ -157,6 +157,11 @@ aside {
   background: var(--surface-2);
 }
 .refresh-pin-btn:hover { border-color: var(--accent); color: var(--accent); }
+.firewall-note { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 10px 12px; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius-sm); font-size: 12px; line-height: 1.4; }
+.firewall-note[hidden] { display: none; }
+.firewall-note strong { font-size: 12px; }
+.firewall-note span { color: var(--text-2); }
+.firewall-note .btn-primary { min-height: 34px; padding: 6px 10px; font-size: 12px; }
 .pin-expiry { color: var(--text-3); font-size: 11px; }
 .info-url { font: 11px var(--mono); color: var(--text-3); overflow-wrap: anywhere; text-align: center; }
 
