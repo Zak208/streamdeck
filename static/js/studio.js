@@ -904,7 +904,7 @@ function renderButtonInspector(btn, index) {
       <button class="inspector-tab-btn ${activeInspectorTab === 'media' ? 'active' : ''}" data-tab="media">Media</button>
       <button class="inspector-tab-btn ${activeInspectorTab === 'obs' ? 'active' : ''}" data-tab="obs">OBS</button>
       <button class="inspector-tab-btn ${activeInspectorTab === 'telemetry' ? 'active' : ''}" data-tab="telemetry">Sistema</button>
-      <button class="inspector-tab-btn ${activeInspectorTab === 'integrations' ? 'active' : ''}" data-tab="integrations">Servicios</button>
+      <button class="inspector-tab-btn ${activeInspectorTab === 'integrations' ? 'active' : ''}" data-tab="integrations">Conectores</button>
       <button class="inspector-tab-btn ${activeInspectorTab === 'design' ? 'active' : ''}" data-tab="design">Aspecto</button>
     </div>
 
@@ -935,7 +935,7 @@ function renderButtonInspector(btn, index) {
   } else if (activeInspectorTab === "telemetry") {
     renderTabTelemetry(tabContainer, btn, index);
   } else if (activeInspectorTab === "integrations") {
-    renderTabIntegrations(tabContainer, btn, index);
+    renderTabConnectors(tabContainer, btn, index);
   } else if (activeInspectorTab === "design") {
     renderTabDesign(tabContainer, btn, index);
   }
@@ -1132,89 +1132,301 @@ function renderTabTelemetry(container, btn, index) {
   });
 }
 
-// 5. Tab Integrations: Spotify URIs and Discord user-configured key bindings
-function renderTabIntegrations(container, btn, index) {
-  const currentSpotifyUri = btn.action_type === "spotify_uri" ? (btn.target || "") : "";
-  const currentHotkey = btn.action_type === "discord_hotkey" ? (btn.extra?.hotkey || "CTRL+SHIFT+M") : "CTRL+SHIFT+M";
-  const safeSpotifyUri = currentSpotifyUri.replace(/"/g, "&quot;");
-  const safeHotkey = currentHotkey.replace(/"/g, "&quot;");
+// 5. Tab Connectors: Windows, OBS, Spotify and Discord, set up and assigned in one place
+let connectorCache = null;
+let openConnectorId = "windows";
+const STATUS_LABELS = { ready: "Listo", needs_setup: "Falta configurar", limited: "Limitado", offline: "No disponible" };
+const SPOTIFY_DASHBOARD = "https://developer.spotify.com/dashboard";
 
-  container.innerHTML = `
-    <div class="integration-intro">
-      <strong>Conecta servicios sin scripts ni comandos.</strong>
-      <span>Las acciones se validan antes de sincronizarse con el móvil.</span>
+// Names of scenes, playlists and devices come from other programs: never put them in innerHTML raw.
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+
+async function connectorApi(path, body) {
+  const options = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  const res = await fetch(`/api/connectors${path}`, options);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "No se pudo completar la acción");
+  return data;
+}
+
+function assignFromTemplate(btn, index, template, overrides = {}) {
+  const t = { ...template, ...overrides };
+  btn.label = String(t.label || "Acción").slice(0, 32);
+  btn.sublabel = String(t.sublabel || "").slice(0, 36);
+  btn.image = t.icon;
+  btn.icon = "";
+  btn.color = t.color;
+  btn.action_type = t.action_type;
+  btn.target = t.target;
+  btn.extra = t.extra || {};
+  renderPhoneScreen();
+  renderButtonInspector(btn, index);
+  saveConfigToServer();
+  showToast(`"${btn.label}" asignado a la casilla ${index + 1}`);
+}
+
+function actionTilesHtml(actions) {
+  return `<div class="quick-actions-grid">${actions.map((a, i) => `
+    <div class="quick-action-card" data-tile="${i}">
+      <img src="${escapeHtml(a.icon)}" alt="">
+      <div class="quick-action-name">${escapeHtml(a.label)}</div>
+      <div class="quick-action-sub">${escapeHtml(a.sublabel)}</div>
+    </div>`).join("")}</div>`;
+}
+
+function wireTiles(body, actions, ctx) {
+  body.querySelectorAll("[data-tile]").forEach(tile => {
+    tile.addEventListener("click", () => assignFromTemplate(ctx.btn, ctx.index, actions[Number(tile.dataset.tile)]));
+  });
+}
+
+function statusLine(c) {
+  return `<p class="integration-hint">${escapeHtml(c.status.detail)}</p>`;
+}
+
+// Runs a request from a button, showing the reason when it fails.
+async function withToast(work, success) {
+  try {
+    await work();
+    if (success) showToast(success);
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+function connectorBodyWindows(c, body, ctx) {
+  const sessions = [...new Map((audioSessions || []).map(s => [s.process_name, s])).values()]
+    .filter(s => s.process_name && s.process_name !== "System Sounds");
+  body.innerHTML = `
+    ${statusLine(c)}
+    ${actionTilesHtml(c.actions)}
+    <label>Silenciar una app concreta</label>
+    <div class="inline-row">
+      <select id="win-app-select" ${sessions.length ? "" : "disabled"}>
+        ${sessions.length ? sessions.map(s => `<option value="${escapeHtml(s.process_name)}">${escapeHtml(s.display_name || s.process_name)}</option>`).join("") : "<option>Abre la app y reproduce algo</option>"}
+      </select>
+      <button class="btn-secondary" id="win-app-assign" ${sessions.length ? "" : "disabled"}>Asignar</button>
     </div>
-    <section class="integration-card">
-      <div class="integration-card-head">
-        <img src="/static/icons/spotify.svg" alt="Spotify">
-        <div><strong>Spotify</strong><span>Abre una playlist, álbum, artista o pista</span></div>
-      </div>
-      <label for="spotify-uri-input">Enlace o URI de Spotify</label>
-      <input id="spotify-uri-input" type="url" value="${safeSpotifyUri}" placeholder="https://open.spotify.com/playlist/...">
-      <button class="btn-primary" id="btn-set-spotify-uri">Asignar a esta casilla</button>
-      <p class="integration-hint">Para reproducir directamente con Spotify Connect deberás conectar tu cuenta de Spotify.</p>
-    </section>
-    <section class="integration-card">
-      <div class="integration-card-head">
-        <img src="/static/icons/discord.svg" alt="Discord">
-        <div><strong>Discord</strong><span>Usa tus atajos globales configurados en Discord</span></div>
-      </div>
-      <label for="discord-hotkey-input">Atajo configurado en Discord</label>
-      <input id="discord-hotkey-input" type="text" value="${safeHotkey}" placeholder="CTRL+SHIFT+M" maxlength="80">
-      <div class="integration-actions">
-        <button class="btn-secondary" id="btn-set-discord-mute">Silenciar micrófono</button>
-        <button class="btn-secondary" id="btn-set-discord-deafen">Ensordecer</button>
-      </div>
-      <p class="integration-hint">Crea el mismo atajo en Discord → Ajustes → Atajos de teclado. StreamDesk no guarda credenciales de Discord.</p>
-    </section>
-  `;
+    <label>Cambiar la salida de audio</label>
+    <div class="option-list" id="win-outputs"><span class="integration-hint">Buscando dispositivos...</span></div>`;
+  wireTiles(body, c.actions, ctx);
 
-  document.getElementById("btn-set-spotify-uri")?.addEventListener("click", () => {
-    const rawValue = document.getElementById("spotify-uri-input")?.value.trim() || "";
-    const match = rawValue.match(/^spotify:(playlist|album|artist|track):([A-Za-z0-9]{10,64})$/)
-      || rawValue.match(/^https:\/\/(?:www\.)?open\.spotify\.com\/(playlist|album|artist|track)\/([A-Za-z0-9]{10,64})/);
-    if (!match) {
-      showToast("Pega un enlace válido de Spotify");
-      return;
-    }
-    const spotifyUri = `spotify:${match[1]}:${match[2]}`;
-    const labels = { playlist: "Playlist", album: "Álbum", artist: "Artista", track: "Pista" };
-    btn.label = labels[match[1]] || "Spotify";
-    btn.sublabel = "Spotify";
-    btn.image = "/static/icons/spotify.svg";
-    btn.icon = "";
-    btn.color = "#1db954";
-    btn.action_type = "spotify_uri";
-    btn.target = spotifyUri;
-    btn.extra = {};
-    renderPhoneScreen();
-    renderButtonInspector(btn, index);
-    saveConfigToServer();
-    showToast("Acción de Spotify asignada");
+  body.querySelector("#win-app-assign")?.addEventListener("click", () => {
+    const select = body.querySelector("#win-app-select");
+    const name = select.selectedOptions[0].textContent;
+    assignFromTemplate(ctx.btn, ctx.index, {
+      label: `Mute ${name}`, sublabel: "Windows", icon: "/static/icons/mute.svg", color: "#ef4444",
+      action_type: "windows", target: "app_mute", extra: { process: select.value },
+    });
   });
 
-  function assignDiscordAction(target, label) {
-    const hotkey = (document.getElementById("discord-hotkey-input")?.value || "").trim().toUpperCase();
-    if (!/^(?=.*(?:CTRL|ALT|SHIFT|WIN)\b)(?=.*(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|SPACE|TAB|ENTER|ESC|BACKSPACE|DELETE|HOME|END|UP|DOWN|LEFT|RIGHT)\b)[A-Z0-9+ ]{3,80}$/.test(hotkey)) {
-      showToast("Usa un atajo como CTRL+SHIFT+M");
-      return;
-    }
-    btn.label = label;
-    btn.sublabel = "Discord";
-    btn.image = "/static/icons/discord.svg";
-    btn.icon = "";
-    btn.color = "#5865f2";
-    btn.action_type = "discord_hotkey";
-    btn.target = target;
-    btn.extra = { hotkey };
-    renderPhoneScreen();
-    renderButtonInspector(btn, index);
-    saveConfigToServer();
-    showToast(`Discord: ${label} asignado`);
-  }
+  connectorApi("/windows/options/outputs").then(({ options }) => {
+    const list = body.querySelector("#win-outputs");
+    if (!list) return;
+    list.innerHTML = options.map((d, i) => `
+      <div class="option-row">
+        <span>${escapeHtml(d.name)}</span>
+        ${d.default ? '<span class="status-pill status-ready">En uso</span>' : `<button class="btn-secondary" data-output="${i}">Usar</button>`}
+      </div>`).join("");
+    list.querySelectorAll("[data-output]").forEach(button => button.addEventListener("click", () => {
+      const device = options[Number(button.dataset.output)];
+      assignFromTemplate(ctx.btn, ctx.index, {
+        label: device.name.replace(/\s*\(.*$/, "") || "Salida", sublabel: "Salida de audio", icon: "/static/icons/volume_up.svg",
+        color: "#0ea5e9", action_type: "windows", target: "output_device", extra: { device_id: device.id },
+      });
+    }));
+  }).catch(err => {
+    const list = body.querySelector("#win-outputs");
+    if (list) list.innerHTML = `<span class="integration-hint">${escapeHtml(err.message)}</span>`;
+  });
+}
 
-  document.getElementById("btn-set-discord-mute")?.addEventListener("click", () => assignDiscordAction("mute", "Silenciar"));
-  document.getElementById("btn-set-discord-deafen")?.addEventListener("click", () => assignDiscordAction("deafen", "Ensordecer"));
+function connectorBodyObs(c, body, ctx) {
+  const s = c.settings || {};
+  body.innerHTML = `
+    ${statusLine(c)}
+    <label for="obs-password">Contraseña del servidor WebSocket</label>
+    <input id="obs-password" type="password" autocomplete="off" placeholder="${s.password_set ? "Guardada (escribe para cambiarla)" : "Vacío si OBS no pide contraseña"}">
+    <label for="obs-port">Puerto</label>
+    <input id="obs-port" type="number" min="1024" max="65535" value="${Number(s.port) || 4455}">
+    <button class="btn-primary" id="obs-save">Guardar y probar</button>
+    ${actionTilesHtml(c.actions)}
+    <div id="obs-live"></div>`;
+  wireTiles(body, c.actions, ctx);
+
+  body.querySelector("#obs-save").addEventListener("click", () => withToast(async () => {
+    const values = { port: Number(body.querySelector("#obs-port").value) };
+    const password = body.querySelector("#obs-password").value;
+    if (password) values.password = password;
+    await connectorApi("/obs/configure", values);
+    await ctx.refresh();
+  }, "Ajustes de OBS guardados"));
+
+  const live = body.querySelector("#obs-live");
+  if (c.status.state !== "ready") {
+    live.innerHTML = `<p class="integration-hint">Para ver tus escenas y fuentes, abre OBS y activa Herramientas &gt; Ajustes del servidor WebSocket.</p>
+      <button class="btn-secondary" id="obs-retry">Volver a comprobar</button>`;
+    live.querySelector("#obs-retry").addEventListener("click", () => ctx.refresh());
+    return;
+  }
+  live.innerHTML = '<label>Cambiar a una escena</label><div class="chip-list" id="obs-scenes"></div><label>Silenciar un micrófono de OBS</label><div class="inline-row" id="obs-inputs"></div>';
+  Promise.all([connectorApi("/obs/options/scenes"), connectorApi("/obs/options/inputs")]).then(([scenes, inputs]) => {
+    const chips = live.querySelector("#obs-scenes");
+    if (!chips) return;
+    chips.innerHTML = scenes.options.map((o, i) => `<button class="chip" data-scene="${i}">${escapeHtml(o.name)}</button>`).join("") || '<span class="integration-hint">OBS no tiene escenas</span>';
+    chips.querySelectorAll("[data-scene]").forEach(chip => chip.addEventListener("click", () => {
+      const name = scenes.options[Number(chip.dataset.scene)].name;
+      assignFromTemplate(ctx.btn, ctx.index, {
+        label: name, sublabel: "Escena", icon: "/static/icons/gamepad.svg", color: "#10b981",
+        action_type: "obs_action", target: `scene_${name}`, extra: { scene_name: name },
+      });
+    }));
+    const row = live.querySelector("#obs-inputs");
+    row.innerHTML = `<select id="obs-input-select">${inputs.options.map(i => `<option value="${escapeHtml(i.name)}">${escapeHtml(i.name)}</option>`).join("")}</select>
+      <button class="btn-secondary" id="obs-input-assign">Asignar</button>`;
+    row.querySelector("#obs-input-assign").addEventListener("click", () => {
+      const source = row.querySelector("#obs-input-select").value;
+      assignFromTemplate(ctx.btn, ctx.index, {
+        label: `Mute ${source}`, sublabel: "OBS", icon: "/static/icons/mute.svg", color: "#ef4444",
+        action_type: "obs_action", target: "mute_mic", extra: { source_name: source },
+      });
+    });
+  }).catch(err => { live.innerHTML = `<p class="integration-hint">${escapeHtml(err.message)}</p>`; });
+}
+
+function connectorBodySpotify(c, body, ctx) {
+  const s = c.settings || {};
+  const setup = s.connected ? "" : `
+    <ol class="setup-steps">
+      <li>Entra en <code class="copyable">${SPOTIFY_DASHBOARD}</code> y crea una app (el nombre da igual).</li>
+      <li>En <strong>Redirect URIs</strong> añade exactamente: <code class="copyable">${escapeHtml(s.redirect_uri)}</code></li>
+      <li>Pega aquí el <strong>Client ID</strong> de esa app:
+        <input id="sp-client-id" type="text" maxlength="32" value="${escapeHtml(s.client_id || "")}" placeholder="32 caracteres">
+        <button class="btn-secondary" id="sp-save-id">Guardar</button></li>
+      <li>Pulsa conectar y acepta en el navegador. <button class="btn-primary" id="sp-connect" ${s.client_id ? "" : "disabled"}>Conectar cuenta</button>
+        <button class="btn-secondary" id="sp-check">Ya acepté</button></li>
+    </ol>`;
+  body.innerHTML = `
+    ${statusLine(c)}
+    ${setup}
+    ${s.connected ? '<div class="option-list" id="sp-playlists"><span class="integration-hint">Cargando tus playlists...</span></div>' : ""}
+    <label for="spotify-uri-input">O pega el enlace de una playlist, álbum, artista o canción</label>
+    <div class="inline-row"><input id="spotify-uri-input" type="url" placeholder="https://open.spotify.com/playlist/..."><button class="btn-secondary" id="sp-link-assign">Asignar</button></div>
+    <p class="integration-hint">Reproducir directamente exige una cuenta Premium. Sin conectar, el botón abre la lista en Spotify.</p>
+    ${s.connected ? '<button class="btn-secondary" id="sp-disconnect">Desconectar cuenta</button>' : ""}`;
+
+  const spotifyTemplate = (name, uri) => ({
+    label: name, sublabel: "Spotify", icon: "/static/icons/spotify.svg", color: "#1db954", action_type: "spotify_uri", target: uri,
+  });
+  body.querySelector("#sp-save-id")?.addEventListener("click", () => withToast(async () => {
+    await connectorApi("/spotify/configure", { client_id: body.querySelector("#sp-client-id").value.trim() });
+    await ctx.refresh();
+  }, "Client ID guardado"));
+  body.querySelector("#sp-connect")?.addEventListener("click", () => withToast(
+    () => connectorApi("/spotify/connect", {}), "Se abrió Spotify en tu navegador. Acepta y vuelve aquí."));
+  body.querySelector("#sp-check")?.addEventListener("click", () => ctx.refresh());
+  body.querySelector("#sp-disconnect")?.addEventListener("click", () => withToast(async () => {
+    await connectorApi("/spotify/disconnect", {});
+    await ctx.refresh();
+  }, "Cuenta de Spotify desconectada"));
+  body.querySelector("#sp-link-assign").addEventListener("click", () => {
+    const raw = body.querySelector("#spotify-uri-input").value.trim();
+    const match = raw.match(/^spotify:(playlist|album|artist|track):([A-Za-z0-9]{10,64})$/)
+      || raw.match(/^https:\/\/(?:www\.)?open\.spotify\.com\/(playlist|album|artist|track)\/([A-Za-z0-9]{10,64})/);
+    if (!match) return showToast("Pega un enlace válido de Spotify");
+    const kinds = { playlist: "Playlist", album: "Álbum", artist: "Artista", track: "Canción" };
+    assignFromTemplate(ctx.btn, ctx.index, spotifyTemplate(kinds[match[1]], `spotify:${match[1]}:${match[2]}`));
+  });
+
+  if (s.connected) {
+    connectorApi("/spotify/options/playlists").then(({ options }) => {
+      const list = body.querySelector("#sp-playlists");
+      if (!list) return;
+      list.innerHTML = options.map((p, i) => `
+        <div class="option-row playlist-row" data-playlist="${i}">
+          ${p.image ? `<img src="${escapeHtml(p.image)}" alt="" referrerpolicy="no-referrer">` : '<img src="/static/icons/spotify.svg" alt="">'}
+          <span>${escapeHtml(p.name)}</span>
+        </div>`).join("") || '<span class="integration-hint">No hay playlists en tu cuenta</span>';
+      list.querySelectorAll("[data-playlist]").forEach(row => row.addEventListener("click", () => {
+        const playlist = options[Number(row.dataset.playlist)];
+        assignFromTemplate(ctx.btn, ctx.index, spotifyTemplate(playlist.name, playlist.uri));
+      }));
+    }).catch(err => {
+      const list = body.querySelector("#sp-playlists");
+      if (list) list.innerHTML = `<span class="integration-hint">${escapeHtml(err.message)}</span>`;
+    });
+  }
+}
+
+function connectorBodyDiscord(c, body, ctx) {
+  const s = c.settings || {};
+  body.innerHTML = `
+    ${statusLine(c)}
+    <label for="dc-mute">Atajo para silenciar</label>
+    <input id="dc-mute" type="text" maxlength="40" value="${escapeHtml(s.mute_hotkey)}">
+    <label for="dc-deafen">Atajo para ensordecer</label>
+    <input id="dc-deafen" type="text" maxlength="40" value="${escapeHtml(s.deafen_hotkey)}">
+    <button class="btn-primary" id="dc-save">Guardar atajos</button>
+    ${actionTilesHtml(c.actions)}
+    <ol class="setup-steps">
+      <li>En Discord abre Ajustes de usuario &gt; Atajos de teclado y pulsa Añadir un atajo.</li>
+      <li>Elige la acción "Alternar silenciar" (o "Alternar ensordecer") y pulsa la misma combinación que guardaste arriba.</li>
+    </ol>
+    <p class="integration-hint">Sin configurar nada en Discord: el botón "Mute micrófono" de Windows silencia el micro para todas las apps.</p>
+    <p class="integration-hint">Sonidos del soundboard: todavía no disponibles, Discord no los permite sin un bot propio.</p>`;
+  wireTiles(body, c.actions, ctx);
+  body.querySelector("#dc-save").addEventListener("click", () => withToast(async () => {
+    await connectorApi("/discord/configure", {
+      mute_hotkey: body.querySelector("#dc-mute").value, deafen_hotkey: body.querySelector("#dc-deafen").value,
+    });
+    await ctx.refresh();
+  }, "Atajos guardados"));
+}
+
+const CONNECTOR_BODIES = { windows: connectorBodyWindows, obs: connectorBodyObs, spotify: connectorBodySpotify, discord: connectorBodyDiscord };
+
+function renderTabConnectors(container, btn, index) {
+  const ctx = { btn, index, refresh: null };
+
+  const draw = (connectors) => {
+    if (!container.isConnected) return;
+    container.innerHTML = `
+      <div class="integration-intro">
+        <strong>Conecta tus apps</strong>
+        <span>Elige un servicio, configúralo una vez y asigna sus acciones a esta casilla con un clic.</span>
+      </div>
+      ${connectors.map(c => `
+        <section class="connector-card ${c.id === openConnectorId ? "open" : ""}">
+          <button class="connector-head" data-connector="${escapeHtml(c.id)}">
+            <img src="${escapeHtml(c.icon)}" alt="">
+            <span class="connector-name">${escapeHtml(c.name)}</span>
+            <span class="status-pill status-${escapeHtml(c.status.state)}">${STATUS_LABELS[c.status.state] || ""}</span>
+          </button>
+          ${c.id === openConnectorId ? `<div class="connector-body" id="connector-body-${escapeHtml(c.id)}"></div>` : ""}
+        </section>`).join("")}`;
+    container.querySelectorAll("[data-connector]").forEach(head => head.addEventListener("click", () => {
+      openConnectorId = openConnectorId === head.dataset.connector ? null : head.dataset.connector;
+      draw(connectorCache);
+    }));
+    const open = connectors.find(c => c.id === openConnectorId);
+    const body = open && container.querySelector(`#connector-body-${open.id}`);
+    if (body && CONNECTOR_BODIES[open.id]) CONNECTOR_BODIES[open.id](open, body, ctx);
+  };
+
+  ctx.refresh = async () => {
+    const data = await connectorApi("");
+    connectorCache = data.connectors;
+    draw(connectorCache);
+  };
+
+  if (connectorCache) draw(connectorCache);
+  else container.innerHTML = '<p class="integration-hint" style="padding:12px">Comprobando tus conectores...</p>';
+  // Statuses can take a second (OBS, Spotify): show the cached cards now and refresh behind them.
+  ctx.refresh().catch(() => {
+    if (!connectorCache) container.innerHTML = '<p class="integration-hint" style="padding:12px">No se pudo cargar la lista de conectores.</p>';
+  });
 }
 
 // 6. Tab Design: Titles, Colors & Vector SVG Gallery

@@ -11,10 +11,10 @@ from urllib.parse import urlparse
 from server.action_catalog import (
     DISCORD_TARGETS,
     MEDIA_TARGETS,
-    normalize_spotify_uri,
     validate_action,
     validate_hotkey,
 )
+from server.connectors import spotify, windows
 from server.system_scanner import system_scanner
 
 
@@ -98,15 +98,6 @@ def launch_smart_app(app_id: str) -> bool:
     return False
 
 
-def open_spotify_uri(value: str) -> bool:
-    try:
-        os.startfile(normalize_spotify_uri(value))
-        return True
-    except OSError as exc:
-        print(f"Failed to open Spotify URI: {exc}")
-        return False
-
-
 def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] | None = None) -> Dict[str, Any]:
     """Validate then execute one safe action. Custom shell commands are intentionally unsupported."""
     try:
@@ -122,7 +113,10 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
             return {"success": launch_smart_app(target), "action": action_type, "target": target}
 
         if action_type == "spotify_uri":
-            return {"success": open_spotify_uri(target), "action": action_type, "target": target}
+            return spotify.play(target)
+
+        if action_type == "windows":
+            return windows.execute(target, extra)
 
         if action_type == "discord_hotkey":
             if target not in DISCORD_TARGETS:

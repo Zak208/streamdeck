@@ -269,6 +269,7 @@ function handleServerMessage(data) {
       renderPageNav(currentConfig);
       if (data.master) updateMasterVolume(data.master.volume, data.master.muted);
       updateAppVolumes();
+      applyMicState(data.mic);
       break;
 
     case "audio_state":
@@ -276,6 +277,7 @@ function handleServerMessage(data) {
       currentSessions = data.sessions || [];
       if (data.master) updateMasterVolume(data.master.volume, data.master.muted);
       updateAppVolumes();
+      applyMicState(data.mic);
       break;
 
     case "button_state":
@@ -387,6 +389,17 @@ function renderDeck(config) {
       deckGrid.appendChild(emptyEl);
     }
   }
+}
+
+// The Windows microphone can be muted outside StreamDesk, so its buttons follow the real state.
+function applyMicState(mic) {
+  if (!mic || mic.muted === null || mic.muted === undefined || !currentConfig) return;
+  (currentConfig.slots || []).forEach((slot) => {
+    if (slot.type === "button" && slot.action_type === "windows" && slot.target === "mic_mute") {
+      buttonStates[slot.id] = Boolean(mic.muted);
+      applyButtonState(slot.id);
+    }
+  });
 }
 
 function applyButtonState(id) {

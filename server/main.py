@@ -1,3 +1,4 @@
+import faulthandler
 import os
 import sys
 import shutil
@@ -6,7 +7,6 @@ import json
 import uuid
 import subprocess
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Set, Dict, Any, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Body, UploadFile, File, Request, Depends, status
@@ -37,15 +37,17 @@ if sys.stderr and hasattr(sys.stderr, 'encoding') and sys.stderr.encoding and sy
     except Exception:
         pass
 
+from server import connectors
 from server.audio_controller import audio_controller
+from server.com_worker import com_worker
 from server.actions import execute_action
 from server.auth import auth_manager
 from server.config_manager import config_manager
+from server.connectors import spotify, windows
 from server.system_scanner import system_scanner
 
-from server.paths import BASE_DIR, FROZEN, STATIC_DIR, UPLOADS_DIR, VERSION
+from server.paths import BASE_DIR, CONFIG_DIR, FROZEN, PORT, STATIC_DIR, UPLOADS_DIR, VERSION
 
-PORT = 48291
 MAX_ICON_UPLOAD_BYTES = 2 * 1024 * 1024
 ICON_CONTENT_TYPES = {
     "image/png": ".png",
@@ -54,6 +56,15 @@ ICON_CONTENT_TYPES = {
 }
 
 os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+# A native crash (for example inside a Windows audio call) leaves no Python traceback.
+# This writes one to crash.log next to the profile so it can be diagnosed afterwards.
+try:
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    _crash_log = open(os.path.join(CONFIG_DIR, "crash.log"), "a", buffering=1)
+    faulthandler.enable(_crash_log)
+except OSError:
+    pass
 
 class ConnectionManager:
     def __init__(self):
@@ -85,10 +96,6 @@ class ConnectionManager:
 
 ws_manager = ConnectionManager()
 
-# pycaw talks to COM, which is touchy about concurrency, and slider drags must
-# apply in the order they were made. One worker thread gives both.
-_audio_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="audio")
-
 # Buttons whose action is still running, so a second tap does not queue a duplicate.
 _running_actions: Set[str] = set()
 _background_tasks: Set[asyncio.Task] = set()
@@ -97,13 +104,15 @@ button_states: Dict[str, bool] = {}
 
 
 async def run_audio(fn, *args):
-    return await asyncio.get_running_loop().run_in_executor(_audio_pool, fn, *args)
+    """Run COM/audio work on the dedicated COM thread. Calls keep their order, so slider drags apply as made."""
+    return await asyncio.wait_for(asyncio.wrap_future(com_worker.submit(fn, *args)), timeout=15)
 
 
 def read_audio_state() -> Dict[str, Any]:
     return {
         "master": audio_controller.get_master_volume(),
         "sessions": audio_controller.get_audio_sessions(),
+        "mic": {"muted": windows.get_mic_muted()},
     }
 
 
@@ -112,7 +121,7 @@ def audio_signature(state: Dict[str, Any]) -> tuple:
     sessions = tuple(sorted(
         (s["process_name"], s["volume"], s["muted"]) for s in state["sessions"]
     ))
-    return master.get("volume"), master.get("muted"), sessions
+    return master.get("volume"), master.get("muted"), sessions, state["mic"]["muted"]
 
 
 async def audio_sync_loop():
@@ -169,6 +178,19 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )
+
+
+@app.middleware("http")
+async def revalidate_app_files(request: Request, call_next):
+    """Make the browser check for new Studio/PWA files on every load.
+
+    Without this, a window that cached studio.js keeps running the old version
+    after an update, because static files have no explicit cache lifetime.
+    """
+    response = await call_next(request)
+    if request.url.path.startswith(("/static/", "/studio")) or request.url.path == "/":
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 def _is_loopback(host: str) -> bool:
@@ -341,6 +363,66 @@ async def upload_button_image(file: UploadFile = File(...), _: None = Depends(re
     finally:
         await file.close()
 
+# --- Connectors (OBS, Spotify, Discord, Windows) ---
+
+def _connector(connector_id: str):
+    try:
+        return connectors.get(connector_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Conector desconocido")
+
+
+@app.get("/api/connectors")
+def list_connectors(_: None = Depends(require_local_request)):
+    return {"connectors": connectors.describe_all()}
+
+
+@app.get("/api/connectors/{connector_id}/options/{name}")
+def connector_options(connector_id: str, name: str, _: None = Depends(require_local_request)):
+    module = _connector(connector_id)
+    try:
+        return {"options": module.options(name)}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.post("/api/connectors/{connector_id}/configure")
+def configure_connector(connector_id: str, values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    module = _connector(connector_id)
+    if not hasattr(module, "configure"):
+        raise HTTPException(status_code=404, detail="Este conector no tiene ajustes")
+    try:
+        return {"success": True, "settings": module.configure(values)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/api/connectors/spotify/connect")
+def spotify_connect(_: None = Depends(require_local_request)):
+    try:
+        return spotify.begin_login()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/api/connectors/spotify/disconnect")
+def spotify_disconnect(_: None = Depends(require_local_request)):
+    return {"success": True, "settings": spotify.disconnect()}
+
+
+@app.get("/api/connectors/spotify/callback", response_class=HTMLResponse)
+def spotify_callback(code: str = "", state: str = "", error: str = "", _: None = Depends(require_local_request)):
+    """Spotify sends the browser back here after the user accepts. Only reachable from this PC."""
+    page = "<!doctype html><meta charset='utf-8'><title>StreamDesk</title><body style='font-family:sans-serif;padding:2rem'><h2>{}</h2><p>{}</p>"
+    if error or not code:
+        return HTMLResponse(page.format("Spotify no se conectó", "Cancelaste el permiso o Spotify lo rechazó. Cierra esta pestaña e inténtalo de nuevo."), status_code=400)
+    try:
+        spotify.finish_login(code, state)
+    except spotify.SpotifyError as exc:
+        return HTMLResponse(page.format("Spotify no se conectó", str(exc)), status_code=400)
+    return HTMLResponse(page.format("Spotify conectado", "Ya puedes cerrar esta pestaña y volver a StreamDesk."))
+
+
 # --- GitHub Auto-Update Endpoints ---
 
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -404,9 +486,6 @@ def apply_github_update(_: None = Depends(require_local_request)):
 
 # --- WebSocket Channel ---
 
-TOGGLE_ACTIONS = {"obs_record_toggle", "obs_stream_toggle"}
-
-
 async def run_button_action(websocket: WebSocket, slot: Dict[str, Any]) -> None:
     """Execute a button off the event loop and tell every phone how it went."""
     btn_id = slot.get("id")
@@ -434,8 +513,9 @@ async def run_button_action(websocket: WebSocket, slot: Dict[str, Any]) -> None:
         except Exception:
             pass  # the phone went away while the action was running
 
-        if success and result.get("action") in TOGGLE_ACTIONS and "outputActive" in result:
-            button_states[btn_id] = bool(result["outputActive"])
+        # Actions with a lasting on/off state (recording, streaming, a muted mic) report it as "active".
+        if success and "active" in result:
+            button_states[btn_id] = bool(result["active"])
             await ws_manager.broadcast({"type": "button_state", "id": btn_id, "active": button_states[btn_id]})
     finally:
         _running_actions.discard(btn_id)
@@ -459,6 +539,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
             "config": config_manager.get_config(),
             "master": audio_state["master"],
             "sessions": audio_state["sessions"],
+            "mic": audio_state["mic"],
             "button_states": button_states,
         }
         await websocket.send_text(json.dumps(init_state))

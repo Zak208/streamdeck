@@ -161,7 +161,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
     def test_toggle_state_is_broadcast_and_remembered_for_new_phones(self):
-        toggle = mock.Mock(return_value={"success": True, "action": "obs_record_toggle", "outputActive": True})
+        toggle = mock.Mock(return_value={"success": True, "action": "windows_mic_mute", "muted": True, "active": True})
 
         async def scenario():
             async with websockets.connect(self.ws_url()) as ws:
@@ -181,6 +181,7 @@ class ServerTests(unittest.TestCase):
         def audio(volume):
             return {
                 "master": {"volume": 50, "muted": False},
+                "mic": {"muted": False},
                 "sessions": [{"id": "x_1", "process_name": "Spotify.exe", "display_name": "Spotify",
                               "pid": 1, "volume": volume, "muted": False}],
             }
@@ -203,9 +204,10 @@ class ServerTests(unittest.TestCase):
 
 
 class AudioSignatureTests(unittest.TestCase):
-    def state(self, app_volume, muted=False):
+    def state(self, app_volume, muted=False, mic_muted=False):
         return {
             "master": {"volume": 50, "muted": False},
+            "mic": {"muted": mic_muted},
             "sessions": [{"process_name": "Discord.exe", "volume": app_volume, "muted": muted}],
         }
 
@@ -214,6 +216,7 @@ class AudioSignatureTests(unittest.TestCase):
         self.assertEqual(base, main.audio_signature(self.state(30)))
         self.assertNotEqual(base, main.audio_signature(self.state(31)))
         self.assertNotEqual(base, main.audio_signature(self.state(30, muted=True)))
+        self.assertNotEqual(base, main.audio_signature(self.state(30, mic_muted=True)))
 
 
 class OBSClientTests(unittest.TestCase):

@@ -1,0 +1,408 @@
+import asyncio
+import json
+import threading
+import unittest
+import urllib.error
+import urllib.parse
+import urllib.request
+from unittest import mock
+
+import support
+from server import action_catalog
+from server.connectors import discord, obs, spotify, windows
+from server.obs_client import (
+    OBS_NEEDS_PASSWORD,
+    OBS_UNREACHABLE,
+    OBS_WRONG_PASSWORD,
+    OBSClient,
+    _auth_string,
+)
+from server.settings_store import SettingsStore, settings
+
+
+class FakeOBS:
+    """A minimal OBS WebSocket 5 server: Hello, optional authentication, then canned responses."""
+
+    SALT = "lM1GncleQOaCu9lT1yeUZhFYnqhsLLP1G5lAGo3ixaI="
+    CHALLENGE = "+IxH4CnCiqpX1rM9scsNynZzbOe4KhDeYcTNS3PDaeY="
+
+    def __init__(self, password=None, responses=None):
+        self.password = password
+        self.responses = responses or {}
+        self.requests = []
+        self.port = support.free_port()
+        self._loop = None
+        self._stop = None
+        self._ready = threading.Event()
+        self._thread = threading.Thread(target=lambda: asyncio.run(self._main()), daemon=True)
+
+    async def _handler(self, ws):
+        hello = {"op": 0, "d": {"obsWebSocketVersion": "5.5.0", "rpcVersion": 1}}
+        if self.password:
+            hello["d"]["authentication"] = {"challenge": self.CHALLENGE, "salt": self.SALT}
+        await ws.send(json.dumps(hello))
+        identify = json.loads(await ws.recv())
+        if self.password and identify["d"].get("authentication") != _auth_string(self.password, self.SALT, self.CHALLENGE):
+            await ws.close(4009, "Authentication failed.")
+            return
+        await ws.send(json.dumps({"op": 2, "d": {"negotiatedRpcVersion": 1}}))
+        async for raw in ws:
+            request = json.loads(raw)["d"]
+            self.requests.append((request["requestType"], request.get("requestData")))
+            status, data = self.responses.get(request["requestType"], (True, {}))
+            await ws.send(json.dumps({"op": 7, "d": {
+                "requestType": request["requestType"], "requestId": request["requestId"],
+                "requestStatus": {"result": status, "code": 100 if status else 600},
+                "responseData": data,
+            }}))
+
+    async def _main(self):
+        from websockets.asyncio.server import serve
+        self._loop = asyncio.get_running_loop()
+        self._stop = asyncio.Event()
+        async with serve(self._handler, "127.0.0.1", self.port):
+            self._ready.set()
+            await self._stop.wait()
+
+    def __enter__(self):
+        self._thread.start()
+        self._ready.wait(5)
+        return self
+
+    def __exit__(self, *exc):
+        self._loop.call_soon_threadsafe(self._stop.set)
+        self._thread.join(5)
+
+
+class SettingsStoreTests(unittest.TestCase):
+    def test_secrets_never_leave_through_public(self):
+        store = SettingsStore(support.os.path.join(support.tempfile.mkdtemp(), "settings.json"))
+        store.update("obs", {"port": 4455, "password": "hunter2"})
+        self.assertEqual(store.public("obs"), {"port": 4455, "password_set": True})
+        self.assertEqual(store.get("obs")["password"], "hunter2")
+        store.update("obs", {}, remove=("password",))
+        self.assertEqual(store.public("obs"), {"port": 4455})
+
+
+class OBSProtocolTests(unittest.TestCase):
+    def test_authentication_string_matches_the_protocol_documentation(self):
+        self.assertEqual(
+            _auth_string("supersecretpassword", FakeOBS.SALT, FakeOBS.CHALLENGE),
+            "1Ct943GAT+6YQUUX47Ia/ncufilbe6+oD6lY+5kaCu4=",
+        )
+
+    def test_toggle_record_reports_the_real_state(self):
+        with FakeOBS(responses={"ToggleRecord": (True, {"outputActive": True})}) as fake:
+            result = OBSClient(port=fake.port, password="").execute_obs_action("record_toggle")
+        self.assertEqual((result["success"], result["active"]), (True, True))
+
+    def test_password_is_sent_and_accepted(self):
+        with FakeOBS(password="secret", responses={"GetVersion": (True, {"obsVersion": "31.0.0"})}) as fake:
+            status = OBSClient(port=fake.port, password="secret").status()
+        self.assertEqual(status, {"state": "ready", "detail": "OBS 31.0.0"})
+
+    def test_missing_and_wrong_passwords_have_their_own_messages(self):
+        with FakeOBS(password="secret") as fake:
+            missing = OBSClient(port=fake.port, password="").status()
+            wrong = OBSClient(port=fake.port, password="nope").status()
+        self.assertEqual((missing["state"], missing["detail"]), ("needs_setup", OBS_NEEDS_PASSWORD))
+        self.assertEqual((wrong["state"], wrong["detail"]), ("needs_setup", OBS_WRONG_PASSWORD))
+
+    def test_scenes_and_inputs_come_from_obs(self):
+        responses = {
+            "GetSceneList": (True, {"scenes": [{"sceneName": "Juego"}, {"sceneName": "Charla"}]}),
+            "GetInputList": (True, {"inputs": [{"inputName": "Mic/Aux", "inputKind": "wasapi_input_capture"}]}),
+        }
+        with FakeOBS(responses=responses) as fake:
+            client = OBSClient(port=fake.port, password="")
+            self.assertEqual(client.list_scenes(), ["Juego", "Charla"])
+            self.assertEqual(client.list_inputs(), [{"name": "Mic/Aux", "kind": "wasapi_input_capture"}])
+
+    def test_mute_uses_the_chosen_source_and_reports_the_mute_state(self):
+        with FakeOBS(responses={"ToggleInputMute": (True, {"inputMuted": True})}) as fake:
+            result = OBSClient(port=fake.port, password="").execute_obs_action("mute_mic", {"source_name": "Micro USB"})
+            requests = list(fake.requests)
+        self.assertEqual(requests, [("ToggleInputMute", {"inputName": "Micro USB"})])
+        self.assertEqual((result["success"], result["active"]), (True, True))
+
+    def test_obs_refusing_a_request_is_a_failure(self):
+        with FakeOBS(responses={"SetCurrentProgramScene": (False, {})}) as fake:
+            result = OBSClient(port=fake.port, password="").execute_obs_action("scene_x", {"scene_name": "x"})
+        self.assertIs(result["success"], False)
+
+    def test_closed_obs_gives_the_setup_hint(self):
+        result = OBSClient(port=support.free_port(), password="").execute_obs_action("stream_toggle")
+        self.assertEqual(result["error"], OBS_UNREACHABLE)
+
+    def test_connector_validates_its_settings(self):
+        with self.assertRaises(ValueError):
+            obs.configure({"port": 80})
+        with self.assertRaises(ValueError):
+            obs.configure({"password": 123})
+
+
+class SpotifyTests(unittest.TestCase):
+    CLIENT_ID = "0123456789abcdef0123456789abcdef"
+    PLAYLIST = "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"
+    TRACK = "spotify:track:4uLU6hMCjMI75M1A2tKUQC"
+
+    def setUp(self):
+        settings.clear("spotify")
+        spotify._pending.clear()
+
+    def connect(self, premium=True):
+        spotify.configure({"client_id": self.CLIENT_ID})
+        settings.update("spotify", {"refresh_token": "r", "access_token": "a", "expires_at": 9e12})
+
+    def test_client_id_is_validated(self):
+        for bad in ("", "short", "z" * 32):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                spotify.configure({"client_id": bad})
+
+    def test_changing_the_app_forgets_the_old_tokens(self):
+        self.connect()
+        spotify.configure({"client_id": "f" * 32})
+        self.assertFalse(spotify.public_settings()["connected"])
+
+    def test_login_uses_pkce_and_checks_state(self):
+        spotify.configure({"client_id": self.CLIENT_ID})
+        with mock.patch.object(spotify.webbrowser, "open"):
+            url = spotify.begin_login()["url"]
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        self.assertEqual(query["redirect_uri"], [spotify.REDIRECT_URI])
+        self.assertTrue(spotify.REDIRECT_URI.startswith("http://127.0.0.1:"))
+        state = query["state"][0]
+
+        with self.assertRaises(spotify.SpotifyError):
+            spotify.finish_login("code", "forged-state")
+
+        captured = {}
+
+        def fake_token(form):
+            captured.update(form)
+            return {"access_token": "ACCESS-SECRET", "refresh_token": "REFRESH-SECRET", "expires_in": 3600}
+
+        with mock.patch.object(spotify, "_token_request", fake_token):
+            spotify.finish_login("the-code", state)
+        self.assertEqual(spotify._challenge(captured["code_verifier"]), query["code_challenge"][0])
+        self.assertEqual(captured["code"], "the-code")
+        self.assertTrue(spotify.public_settings()["connected"])
+        public = json.dumps(spotify.public_settings())
+        self.assertNotIn("ACCESS-SECRET", public)
+        self.assertNotIn("REFRESH-SECRET", public)
+        self.assertEqual(settings.get("spotify")["refresh_token"], "REFRESH-SECRET")
+
+    def test_state_cannot_be_reused(self):
+        spotify.configure({"client_id": self.CLIENT_ID})
+        with mock.patch.object(spotify.webbrowser, "open"):
+            state = urllib.parse.parse_qs(urllib.parse.urlparse(spotify.begin_login()["url"]).query)["state"][0]
+        with mock.patch.object(spotify, "_token_request", return_value={"access_token": "a", "refresh_token": "r"}):
+            spotify.finish_login("c", state)
+            with self.assertRaises(spotify.SpotifyError):
+                spotify.finish_login("c", state)
+
+    def test_without_an_account_the_button_opens_the_app(self):
+        with mock.patch.object(spotify, "_open_in_app") as opened:
+            result = spotify.play("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=x")
+        opened.assert_called_once_with(self.PLAYLIST)
+        self.assertEqual(result["mode"], "open")
+
+    def test_connected_playlist_and_track_use_the_right_body(self):
+        self.connect()
+        with mock.patch.object(spotify, "_api") as api:
+            self.assertEqual(spotify.play(self.PLAYLIST)["mode"], "play")
+            spotify.play(self.TRACK)
+        self.assertEqual(api.call_args_list[0].args, ("PUT", "/me/player/play", {"context_uri": self.PLAYLIST}))
+        self.assertEqual(api.call_args_list[1].args, ("PUT", "/me/player/play", {"uris": [self.TRACK]}))
+
+    def test_closed_spotify_is_launched_then_played_on_its_device(self):
+        self.connect()
+
+        def api(method, path, body=None):
+            if path == "/me/player/play":
+                raise spotify.SpotifyError("no device", 404, "NO_ACTIVE_DEVICE")
+            if path == "/me/player/devices":
+                return {"devices": [{"id": "phone", "type": "Smartphone"}, {"id": "pc", "type": "Computer"}]}
+
+        with mock.patch.object(spotify, "_api", side_effect=api) as mocked, \
+                mock.patch.object(spotify, "_open_in_app") as opened, mock.patch.object(spotify.time, "sleep"):
+            result = spotify.play(self.PLAYLIST)
+        opened.assert_called_once_with("spotify:")
+        self.assertEqual(result["mode"], "play")
+        self.assertEqual(mocked.call_args.args[1], "/me/player/play?device_id=pc")
+
+    def test_no_device_ever_appearing_falls_back_to_opening_the_list(self):
+        self.connect()
+
+        def api(method, path, body=None):
+            if path == "/me/player/play":
+                raise spotify.SpotifyError("no device", 404, "NO_ACTIVE_DEVICE")
+            return {"devices": []}
+
+        clock = iter(range(0, 1000, 3))
+        with mock.patch.object(spotify, "_api", side_effect=api), mock.patch.object(spotify, "_open_in_app") as opened, \
+                mock.patch.object(spotify.time, "sleep"), mock.patch.object(spotify.time, "time", lambda: next(clock)):
+            result = spotify.play(self.PLAYLIST)
+        self.assertEqual(result["mode"], "open")
+        self.assertEqual(opened.call_args_list[-1].args, (self.PLAYLIST,))
+
+    def test_free_accounts_get_the_list_opened_with_an_explanation(self):
+        self.connect()
+        with mock.patch.object(spotify, "_api", side_effect=spotify.SpotifyError("x", 403, "PREMIUM_REQUIRED")), \
+                mock.patch.object(spotify, "_open_in_app") as opened:
+            result = spotify.play(self.PLAYLIST)
+        self.assertEqual(result["mode"], "open")
+        self.assertIn("Premium", result["note"])
+        opened.assert_called_once_with(self.PLAYLIST)
+
+    def test_revoked_access_asks_to_reconnect(self):
+        self.connect()
+        with mock.patch.object(spotify, "_api", side_effect=spotify.SpotifyError("x", 401)):
+            result = spotify.play(self.PLAYLIST)
+        self.assertIs(result["success"], False)
+        self.assertIn("volver a conectar", result["error"])
+
+    def test_playlist_picker_drops_bad_uris_and_non_https_images(self):
+        self.connect()
+        items = {"items": [
+            {"uri": self.PLAYLIST, "name": "Focus", "images": [{"url": "https://i.scdn.co/image/a"}]},
+            {"uri": "spotify:playlist:37i9dQZF1DXcBWIGoYBM5N", "name": "Tracking", "images": [{"url": "http://evil/x"}]},
+            {"uri": "javascript:alert(1)", "name": "Bad"},
+            None,
+        ]}
+        with mock.patch.object(spotify, "_api", return_value=items):
+            playlists = spotify.options("playlists")
+        self.assertEqual([p["name"] for p in playlists], ["Focus", "Tracking"])
+        self.assertEqual(playlists[1]["image"], "")
+
+    def test_status_explains_each_level(self):
+        self.assertEqual(spotify.status()["state"], "needs_setup")
+        self.connect()
+        with mock.patch.object(spotify, "_api", return_value={"display_name": "Zak", "product": "premium"}):
+            self.assertEqual(spotify.status(), {"state": "ready", "detail": "Conectado como Zak"})
+        with mock.patch.object(spotify, "_api", return_value={"display_name": "Zak", "product": "free"}):
+            self.assertEqual(spotify.status()["state"], "limited")
+
+
+class WindowsAndDiscordTests(unittest.TestCase):
+    DEVICE = "{0.0.0.00000000}.{85bed6a9-4717-4072-8eb1-f2d4943a5d40}"
+
+    def test_windows_actions_are_validated(self):
+        ok = action_catalog.validate_action("windows", "output_device", {"device_id": self.DEVICE, "junk": 1})
+        self.assertEqual(ok["extra"], {"device_id": self.DEVICE})
+        self.assertEqual(action_catalog.validate_action("windows", "mic_mute")["extra"], {})
+        self.assertEqual(action_catalog.validate_action("windows", "app_mute", {"process": "Discord.exe"})["extra"], {"process": "Discord.exe"})
+        for target, extra in (("format_c", {}), ("output_device", {"device_id": "x; calc"}), ("app_mute", {"process": "a;b"})):
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                action_catalog.validate_action("windows", target, extra)
+
+    def test_obs_mic_source_survives_validation(self):
+        action = action_catalog.validate_action("obs_action", "mute_mic", {"source_name": "Micro USB"})
+        self.assertEqual(action["extra"], {"source_name": "Micro USB"})
+
+    def test_mic_toggle_reports_the_new_state(self):
+        endpoint = mock.Mock()
+        endpoint.GetMute.return_value = 0
+        with mock.patch.object(windows, "_mic_endpoint", return_value=endpoint):
+            result = windows.toggle_mic_mute()
+        endpoint.SetMute.assert_called_once_with(True, None)
+        self.assertEqual((result["success"], result["muted"], result["active"]), (True, True, True))
+
+    def test_no_microphone_is_a_readable_failure(self):
+        with mock.patch.object(windows, "_mic_endpoint", side_effect=OSError):
+            self.assertIs(windows.toggle_mic_mute()["success"], False)
+            self.assertIsNone(windows.get_mic_muted())
+
+    def test_output_device_switch_only_touches_known_devices(self):
+        devices = [{"id": self.DEVICE, "name": "Auriculares", "default": False}]
+        with mock.patch.object(windows, "_list_output_devices", return_value=devices), \
+                mock.patch.object(windows.AudioUtilities, "SetDefaultDevice") as switch:
+            self.assertEqual(windows.set_output_device(self.DEVICE)["device"], "Auriculares")
+            switch.assert_called_once_with(self.DEVICE)
+            switch.reset_mock()
+            self.assertIs(windows.set_output_device("{0.0.0.00000000}.{00000000-0000-0000-0000-000000000000}")["success"], False)
+            self.assertIs(windows.set_output_device("; calc")["success"], False)
+            switch.assert_not_called()
+
+    def test_discord_hotkeys_are_saved_and_used_by_the_templates(self):
+        settings.clear("discord")
+        discord.configure({"mute_hotkey": "control+alt+f7", "deafen_hotkey": "CTRL+ALT+F8"})
+        templates = {a["id"]: a for a in discord.actions()}
+        self.assertEqual(templates["mute"]["extra"], {"hotkey": "CTRL+ALT+F7"})
+        self.assertEqual(templates["deafen"]["extra"], {"hotkey": "CTRL+ALT+F8"})
+        for template in templates.values():
+            action_catalog.validate_action(template["action_type"], template["target"], template["extra"])
+
+    def test_discord_rejects_clashing_or_invalid_hotkeys(self):
+        settings.clear("discord")
+        with self.assertRaises(ValueError):
+            discord.configure({"mute_hotkey": "CTRL+ALT+F7", "deafen_hotkey": "CTRL+ALT+F7"})
+        with self.assertRaises(ValueError):
+            discord.configure({"mute_hotkey": "M"})
+
+
+class ConnectorEndpointTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.live = support.LiveServer().__enter__()
+        # Point OBS at a closed port so the "OBS is closed" paths are deterministic.
+        settings.update("obs", {"port": support.free_port()}, remove=("password",))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.live.__exit__(None, None, None)
+
+    def call(self, path, payload=None, method=None):
+        data = json.dumps(payload).encode() if payload is not None else None
+        request = urllib.request.Request(self.live.base_url + path, data=data, method=method or ("POST" if data else "GET"),
+                                         headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                return response.status, response.read().decode()
+        except urllib.error.HTTPError as error:
+            return error.code, error.read().decode()
+
+    def test_gallery_lists_every_connector_with_a_status(self):
+        status, body = self.call("/api/connectors")
+        self.assertEqual(status, 200)
+        cards = {c["id"]: c for c in json.loads(body)["connectors"]}
+        self.assertEqual(set(cards), {"windows", "obs", "spotify", "discord"})
+        self.assertEqual(cards["obs"]["status"]["detail"], OBS_UNREACHABLE)
+        self.assertIn(cards["spotify"]["status"]["state"], {"needs_setup"})
+        self.assertTrue(all(c["status"]["state"] in {"ready", "needs_setup", "limited", "offline"} for c in cards.values()))
+        self.assertEqual([a["id"] for a in cards["discord"]["actions"]], ["mute", "deafen"])
+
+    def test_saved_obs_password_is_never_sent_back(self):
+        status, body = self.call("/api/connectors/obs/configure", {"password": "do-not-leak"})
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(body)["settings"]["password_set"])
+        self.assertNotIn("do-not-leak", body)
+        self.assertNotIn("do-not-leak", self.call("/api/connectors")[1])
+        self.assertEqual(settings.get("obs")["password"], "do-not-leak")
+
+    def test_bad_settings_and_unknown_connectors(self):
+        self.assertEqual(self.call("/api/connectors/spotify/configure", {"client_id": "nope"})[0], 422)
+        self.assertEqual(self.call("/api/connectors/windows/configure", {"x": 1})[0], 404)
+        self.assertEqual(self.call("/api/connectors/missing/options/x")[0], 404)
+
+    def test_obs_lists_explain_why_they_are_empty(self):
+        status, body = self.call("/api/connectors/obs/options/scenes")
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(body)["detail"], OBS_UNREACHABLE)
+
+    def test_spotify_login_cannot_be_started_without_a_client_id_and_callback_checks_state(self):
+        settings.clear("spotify")
+        self.assertEqual(self.call("/api/connectors/spotify/connect", {})[0], 422)
+        status, body = self.call("/api/connectors/spotify/callback?code=x&state=forged")
+        self.assertEqual(status, 400)
+        self.assertNotIn("forged", body)
+        self.assertEqual(self.call("/api/connectors/spotify/callback?error=access_denied")[0], 400)
+
+    def test_windows_output_options_do_not_change_anything(self):
+        with mock.patch.object(windows, "list_output_devices", return_value=[{"id": "x", "name": "N", "default": True}]):
+            status, body = self.call("/api/connectors/windows/options/outputs")
+        self.assertEqual((status, json.loads(body)["options"][0]["name"]), (200, "N"))
+
+
+if __name__ == "__main__":
+    unittest.main()

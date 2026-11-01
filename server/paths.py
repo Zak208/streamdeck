@@ -8,6 +8,7 @@ import os
 import sys
 
 VERSION = "2.2.0"
+PORT = 48291
 
 FROZEN = bool(getattr(sys, "frozen", False))
 

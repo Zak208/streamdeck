@@ -15,3 +15,5 @@ dist/
 instalador_streamdeck.exe
 config/deck_config.json
 config/auth_tokens.json
+config/settings.json
+config/crash.log

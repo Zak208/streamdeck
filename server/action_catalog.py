@@ -14,8 +14,10 @@ from urllib.parse import urlparse
 
 ACTION_TYPES = frozenset({
     "preset_app", "launch", "media", "url", "obs_action", "hardware_monitor",
-    "sound", "multi", "spotify_uri", "discord_hotkey",
+    "sound", "multi", "spotify_uri", "discord_hotkey", "windows",
 })
+WINDOWS_TARGETS = frozenset({"mic_mute", "app_mute", "output_device"})
+WINDOWS_DEVICE_ID = re.compile(r"^\{[0-9A-Fa-f.]{1,40}\}\.\{[0-9A-Fa-f-]{36}\}$")
 MEDIA_TARGETS = frozenset({"play_pause", "play", "next", "next_track", "prev", "previous", "prev_track", "stop", "mute"})
 OBS_TARGETS = frozenset({"record_toggle", "toggle_record", "record", "record_pause", "pause_record", "stream_toggle", "toggle_stream", "stream", "next_scene", "prev_scene", "mute_mic", "toggle_mute_mic"})
 HARDWARE_TARGETS = frozenset({"cpu", "ram", "disk"})
@@ -118,12 +120,29 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
             raise ValueError("Acción de Discord no válida")
         target_text = target_text.lower()
         clean_extra = {"hotkey": validate_hotkey(action_extra.get("hotkey", ""))}
+    elif action_type == "windows":
+        target_text = target_text.lower()
+        if target_text not in WINDOWS_TARGETS:
+            raise ValueError("Acción de Windows no válida")
+        clean_extra = {}
+        if target_text == "app_mute":
+            process = _text(action_extra.get("process"), "aplicación de audio", 128, allow_empty=False)
+            if not SAFE_PROCESS.fullmatch(process):
+                raise ValueError("Aplicación de audio no válida")
+            clean_extra = {"process": process}
+        elif target_text == "output_device":
+            device_id = _text(action_extra.get("device_id"), "dispositivo de audio", 80, allow_empty=False)
+            if not WINDOWS_DEVICE_ID.fullmatch(device_id):
+                raise ValueError("Dispositivo de audio no válido")
+            clean_extra = {"device_id": device_id}
     elif action_type == "obs_action":
         if target_text.lower().startswith("scene_"):
             scene_name = _text(action_extra.get("scene_name", target_text[6:]), "escena de OBS", 80, allow_empty=False)
             clean_extra = {"scene_name": scene_name}
         elif target_text.lower() in OBS_TARGETS:
             clean_extra = {}
+            if target_text.lower() in {"mute_mic", "toggle_mute_mic"} and action_extra.get("source_name"):
+                clean_extra = {"source_name": _text(action_extra["source_name"], "fuente de OBS", 80, allow_empty=False)}
         else:
             raise ValueError("Acción de OBS no válida")
         target_text = target_text.lower()

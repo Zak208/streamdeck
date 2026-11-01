@@ -72,6 +72,19 @@ Si prefieres ejecutar el proyecto desde el código fuente o los scripts auxiliar
 
 ---
 
+## 🔌 Conectores (OBS, Spotify, Discord y Windows)
+
+En Studio, selecciona una casilla y abre la pestaña **Conectores**. Cada servicio se configura una vez y sus acciones se asignan con un clic:
+
+- **Windows:** mute del micrófono (funciona con Discord, juegos y cualquier app), mute de una app concreta y cambio de salida de audio. No necesita configuración.
+- **OBS Studio:** grabar, transmitir, cambiar de escena y mutear una fuente, con las escenas y fuentes reales de tu OBS. Soporta la contraseña del servidor WebSocket. Los botones de grabar y transmitir se marcan en rojo mientras están activos.
+- **Spotify:** elige una de tus playlists (o pega un enlace) y el botón la reproduce. Requiere crear una app gratuita en el panel de desarrolladores de Spotify, pegar su Client ID y una cuenta **Premium**. Sin conectar, o con cuenta gratuita, el botón abre la lista en la app de Spotify.
+- **Discord:** silenciar y ensordecer pulsando los atajos globales que tú defines una vez (por defecto `CTRL+ALT+F9` y `CTRL+ALT+F10`) y creas también en Discord. El soundboard no está disponible: Discord no lo permite sin un bot propio.
+
+Las contraseñas y tokens se guardan en `config/settings.json` dentro de tu carpeta de datos y nunca se envían al navegador ni al móvil.
+
+---
+
 ## 📲 Conectar tu Móvil al StreamDesk
 
 1. Asegúrate de que tu PC y tu teléfono móvil estén conectados a la **misma red Wi-Fi**.
