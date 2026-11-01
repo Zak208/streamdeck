@@ -5,7 +5,7 @@ import urllib.request
 from unittest import mock
 
 import support
-from server import firewall
+from server import diagnostics, firewall
 from server.paths import PORT
 
 
@@ -66,9 +66,21 @@ class FirewallTests(unittest.TestCase):
         with support.LiveServer() as server, \
                 mock.patch.object(firewall, "rule_exists", return_value=False), \
                 mock.patch.object(firewall, "request_rule", return_value={"requested": True}) as request:
-            self.assertEqual(get_json(f"{server.base_url}/api/system/firewall"), {"allowed": False, "port": PORT})
+            diagnostics.clear()
+            self.assertEqual(get_json(f"{server.base_url}/api/system/firewall"), {"allowed": False, "rule": False, "port": PORT})
             self.assertEqual(post_json(f"{server.base_url}/api/system/firewall/allow"), {"requested": True})
         request.assert_called_once()
+
+
+    def test_no_warning_once_a_phone_has_got_through(self):
+        # Windows can create its own rule under another name; a phone that connected proves it is open.
+        with support.LiveServer() as server, mock.patch.object(firewall, "rule_exists", return_value=False):
+            diagnostics.clear()
+            self.assertFalse(get_json(f"{server.base_url}/api/system/firewall")["allowed"])
+            diagnostics.record("ok", "Móvil conectado", "192.168.2.84", "Android")
+            status = get_json(f"{server.base_url}/api/system/firewall")
+            self.assertEqual((status["allowed"], status["rule"]), (True, False))
+            diagnostics.clear()
 
 
 if __name__ == "__main__":

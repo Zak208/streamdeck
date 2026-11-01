@@ -289,7 +289,10 @@ def current_theme() -> str:
 
 @app.get("/api/system/firewall")
 def firewall_status(_: None = Depends(require_local_request)):
-    return {"allowed": firewall.rule_exists(), "port": PORT}
+    rule = firewall.rule_exists()
+    # Windows may have made its own rule (under another name) when the user accepted its prompt.
+    # A phone that already got through proves the way is open, so do not warn in that case.
+    return {"allowed": rule or diagnostics.phone_reached(), "rule": rule, "port": PORT}
 
 
 @app.post("/api/system/firewall/allow")

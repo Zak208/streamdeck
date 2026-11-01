@@ -9,6 +9,8 @@ from collections import deque
 from typing import Any, Deque, Dict, List, Optional
 
 _events: Deque[Dict[str, Any]] = deque(maxlen=40)
+# Set once any phone gets through. Kept apart from the log, which forgets old events.
+_phone_reached = False
 
 
 def device_label(user_agent: Optional[str]) -> str:
@@ -21,6 +23,9 @@ def device_label(user_agent: Optional[str]) -> str:
 
 
 def record(kind: str, message: str, ip: str = "", user_agent: Optional[str] = None) -> None:
+    global _phone_reached
+    if kind == "ok":
+        _phone_reached = True
     _events.appendleft({
         "time": time.strftime("%H:%M:%S"),
         "kind": kind,
@@ -34,5 +39,12 @@ def recent() -> List[Dict[str, Any]]:
     return list(_events)
 
 
+def phone_reached() -> bool:
+    """True once a phone has paired or connected since StreamDesk started."""
+    return _phone_reached
+
+
 def clear() -> None:
+    global _phone_reached
     _events.clear()
+    _phone_reached = False
