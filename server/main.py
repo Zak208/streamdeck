@@ -6,6 +6,7 @@ import json
 import uuid
 import subprocess
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Set, Dict, Any, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Body, UploadFile, File, Request, Depends, status
@@ -42,23 +43,15 @@ from server.auth import auth_manager
 from server.config_manager import config_manager
 from server.system_scanner import system_scanner
 
+from server.paths import BASE_DIR, FROZEN, STATIC_DIR, UPLOADS_DIR, VERSION
+
 PORT = 48291
-VERSION = "2.1.0"
 MAX_ICON_UPLOAD_BYTES = 2 * 1024 * 1024
 ICON_CONTENT_TYPES = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
     "image/webp": ".webp",
 }
-
-if getattr(sys, 'frozen', False):
-    BASE_DIR = sys._MEIPASS
-    STATIC_DIR = os.path.join(BASE_DIR, "static")
-    UPLOADS_DIR = os.path.join(os.path.expandvars(r"%APPDATA%\StreamDesk"), "uploads")
-else:
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    STATIC_DIR = os.path.join(BASE_DIR, "static")
-    UPLOADS_DIR = os.path.join(STATIC_DIR, "uploads")
 
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
@@ -92,22 +85,52 @@ class ConnectionManager:
 
 ws_manager = ConnectionManager()
 
+# pycaw talks to COM, which is touchy about concurrency, and slider drags must
+# apply in the order they were made. One worker thread gives both.
+_audio_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="audio")
+
+# Buttons whose action is still running, so a second tap does not queue a duplicate.
+_running_actions: Set[str] = set()
+_background_tasks: Set[asyncio.Task] = set()
+# Last known on/off state of toggle buttons (OBS recording and streaming).
+button_states: Dict[str, bool] = {}
+
+
+async def run_audio(fn, *args):
+    return await asyncio.get_running_loop().run_in_executor(_audio_pool, fn, *args)
+
+
+def read_audio_state() -> Dict[str, Any]:
+    return {
+        "master": audio_controller.get_master_volume(),
+        "sessions": audio_controller.get_audio_sessions(),
+    }
+
+
+def audio_signature(state: Dict[str, Any]) -> tuple:
+    master = state["master"]
+    sessions = tuple(sorted(
+        (s["process_name"], s["volume"], s["muted"]) for s in state["sessions"]
+    ))
+    return master.get("volume"), master.get("muted"), sessions
+
+
 async def audio_sync_loop():
-    last_master = None
+    """Push master and per-app volume/mute changes made on the PC to every phone."""
+    last_signature = None
     while True:
         try:
-            curr_master = audio_controller.get_master_volume()
-            if curr_master != last_master:
-                last_master = curr_master
-                sessions = audio_controller.get_audio_sessions()
-                await ws_manager.broadcast({
-                    "type": "audio_state",
-                    "master": curr_master,
-                    "sessions": sessions
-                })
+            if ws_manager.active_connections:
+                state = await run_audio(read_audio_state)
+                signature = audio_signature(state)
+                if signature != last_signature:
+                    last_signature = signature
+                    await ws_manager.broadcast({"type": "audio_state", **state})
+            else:
+                last_signature = None
         except Exception:
             pass
-        await asyncio.sleep(1.2)
+        await asyncio.sleep(1.0)
 
 async def telemetry_sync_loop():
     import psutil
@@ -178,8 +201,11 @@ async def serve_manifest():
 
 # --- REST API Endpoints ---
 
+# Handlers below that touch the network, COM, the registry or subprocesses are
+# plain `def`, so FastAPI runs them in its thread pool instead of the event loop.
+
 @app.get("/api/info")
-async def get_system_info(_: None = Depends(require_local_request)):
+def get_system_info(_: None = Depends(require_local_request)):
     ip = auth_manager.get_local_ip()
     return {
         "version": VERSION,
@@ -190,7 +216,7 @@ async def get_system_info(_: None = Depends(require_local_request)):
     }
 
 @app.get("/api/auth/pin")
-async def get_pairing_pin(_: None = Depends(require_local_request)):
+def get_pairing_pin(_: None = Depends(require_local_request)):
     return {
         "pin": auth_manager.get_current_pin(),
         "qr_code": auth_manager.generate_qr_base64(PORT),
@@ -199,7 +225,7 @@ async def get_pairing_pin(_: None = Depends(require_local_request)):
     }
 
 @app.post("/api/auth/regenerate-pin")
-async def regenerate_pin(_: None = Depends(require_local_request)):
+def regenerate_pin(_: None = Depends(require_local_request)):
     new_pin = auth_manager.refresh_pin()
     return {
         "pin": new_pin,
@@ -286,13 +312,10 @@ async def delete_deck_page(page_index: int = Body(..., embed=True), _: None = De
 
 @app.get("/api/audio/sessions")
 async def get_audio_sessions(_: None = Depends(require_local_request)):
-    return {
-        "master": audio_controller.get_master_volume(),
-        "sessions": audio_controller.get_audio_sessions()
-    }
+    return await run_audio(read_audio_state)
 
 @app.get("/api/system/apps")
-async def get_system_apps(_: None = Depends(require_local_request)):
+def get_system_apps(_: None = Depends(require_local_request)):
     return {
         "apps": system_scanner.get_detected_apps()
     }
@@ -320,52 +343,103 @@ async def upload_button_image(file: UploadFile = File(...), _: None = Depends(re
 
 # --- GitHub Auto-Update Endpoints ---
 
-@app.get("/api/system/check-update")
-async def check_github_update(_: None = Depends(require_local_request)):
-    """Checks github repository for new commits/updates."""
-    repo_url = "https://api.github.com/repos/Zak208/streamdeck/commits/main"
-    try:
-        # Get local commit hash
-        local_hash = ""
-        try:
-            res = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=BASE_DIR)
-            local_hash = res.stdout.strip()
-        except Exception:
-            pass
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-        req = urllib.request.Request(repo_url, headers={"User-Agent": "StreamDesk-Updater"})
+
+def _git(*args: str, timeout: int = 15) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", *args], capture_output=True, text=True, cwd=BASE_DIR,
+        timeout=timeout, creationflags=NO_WINDOW,
+    )
+
+
+def _is_git_checkout() -> bool:
+    return not FROZEN and os.path.isdir(os.path.join(BASE_DIR, ".git"))
+
+
+@app.get("/api/system/check-update")
+def check_github_update(_: None = Depends(require_local_request)):
+    """Compares this checkout with the latest commit on GitHub."""
+    status_info: Dict[str, Any] = {"current_version": VERSION, "update_available": False, "can_update": _is_git_checkout()}
+    if not status_info["can_update"]:
+        # An installed build has no git history, so there is nothing to pull.
+        status_info["status"] = "not_a_git_checkout"
+        return status_info
+
+    try:
+        local_hash = _git("rev-parse", "HEAD").stdout.strip()
+        req = urllib.request.Request(
+            "https://api.github.com/repos/Zak208/streamdeck/commits/main",
+            headers={"User-Agent": "StreamDesk-Updater"},
+        )
         with urllib.request.urlopen(req, timeout=4) as response:
-            if response.status == 200:
-                data = json.loads(response.read().decode())
-                remote_hash = data.get("sha", "")
-                commit_msg = data.get("commit", {}).get("message", "")
-                has_update = bool(local_hash and remote_hash and local_hash != remote_hash)
-                return {
-                    "current_version": VERSION,
-                    "local_hash": local_hash[:7] if local_hash else "local",
-                    "remote_hash": remote_hash[:7] if remote_hash else "latest",
-                    "update_available": has_update,
-                    "commit_message": commit_msg.split("\n")[0]
-                }
+            data = json.loads(response.read().decode())
+        remote_hash = data.get("sha", "")
+        # If the remote commit is already part of our history we are ahead or equal, not behind.
+        already_have_it = bool(remote_hash) and _git("merge-base", "--is-ancestor", remote_hash, "HEAD").returncode == 0
+        status_info.update({
+            "local_hash": local_hash[:7] or "local",
+            "remote_hash": remote_hash[:7] or "latest",
+            "update_available": bool(local_hash and remote_hash and not already_have_it),
+            "commit_message": data.get("commit", {}).get("message", "").split("\n")[0],
+        })
     except Exception as e:
-        return {
-            "current_version": VERSION,
-            "update_available": False,
-            "status": "up_to_date_or_offline",
-            "info": str(e)
-        }
+        status_info.update({"status": "offline", "info": str(e)})
+    return status_info
+
 
 @app.post("/api/system/apply-update")
-async def apply_github_update(_: None = Depends(require_local_request)):
-    """Executes git pull to update to latest commit."""
+def apply_github_update(_: None = Depends(require_local_request)):
+    """Fast-forwards this checkout to the latest commit on GitHub."""
+    if not _is_git_checkout():
+        return {
+            "success": False,
+            "output": "Esta instalación no se actualiza desde Git. Descarga el instalador nuevo desde GitHub.",
+        }
     try:
-        res = subprocess.run(["git", "pull", "origin", "main"], capture_output=True, text=True, cwd=BASE_DIR)
-        output = res.stdout + res.stderr
-        return {"success": res.returncode == 0, "output": output}
+        res = _git("pull", "--ff-only", "origin", "main", timeout=60)
+        return {"success": res.returncode == 0, "output": res.stdout + res.stderr}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- WebSocket Channel ---
+
+TOGGLE_ACTIONS = {"obs_record_toggle", "obs_stream_toggle"}
+
+
+async def run_button_action(websocket: WebSocket, slot: Dict[str, Any]) -> None:
+    """Execute a button off the event loop and tell every phone how it went."""
+    btn_id = slot.get("id")
+    _running_actions.add(btn_id)
+    try:
+        try:
+            result = await asyncio.to_thread(
+                execute_action, slot.get("action_type"), slot.get("target"), slot.get("extra")
+            )
+        except Exception as exc:
+            result = {"success": False, "error": str(exc)}
+
+        success = bool(result.get("success"))
+        payload: Dict[str, Any] = {
+            "type": "action_result",
+            "id": btn_id,
+            "slot_id": btn_id,
+            "success": success,
+            "result": result,
+        }
+        if not success:
+            payload["message"] = result.get("error") or "No se pudo ejecutar la acción"
+        try:
+            await websocket.send_text(json.dumps(payload))
+        except Exception:
+            pass  # the phone went away while the action was running
+
+        if success and result.get("action") in TOGGLE_ACTIONS and "outputActive" in result:
+            button_states[btn_id] = bool(result["outputActive"])
+            await ws_manager.broadcast({"type": "button_state", "id": btn_id, "active": button_states[btn_id]})
+    finally:
+        _running_actions.discard(btn_id)
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=None)):
@@ -379,11 +453,13 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
     await ws_manager.connect(websocket)
 
     try:
+        audio_state = await run_audio(read_audio_state)
         init_state = {
             "type": "init_state",
             "config": config_manager.get_config(),
-            "master": audio_controller.get_master_volume(),
-            "sessions": audio_controller.get_audio_sessions()
+            "master": audio_state["master"],
+            "sessions": audio_state["sessions"],
+            "button_states": button_states,
         }
         await websocket.send_text(json.dumps(init_state))
 
@@ -406,18 +482,17 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                     config = config_manager.get_config()
                     slots = config.get("slots", [])
                     slot = next((s for s in slots if s.get("id") == btn_id), None)
-                    if slot and slot.get("type") == "button":
-                        result = execute_action(slot.get("action_type"), slot.get("target"), slot.get("extra"))
-                        await websocket.send_text(json.dumps({
-                            "type": "action_result",
-                            "id": btn_id,
-                            "result": result
-                        }))
+                    if slot and slot.get("type") == "button" and btn_id not in _running_actions:
+                        # Run it as its own task: a macro or a slow OBS call must not
+                        # hold up this phone's faders or anyone else's messages.
+                        task = asyncio.create_task(run_button_action(websocket, slot))
+                        _background_tasks.add(task)
+                        task.add_done_callback(_background_tasks.discard)
 
                 elif msg_type == "set_master_volume":
                     vol = int(data.get("volume", 0))
                     vol = max(0, min(100, vol))
-                    res = audio_controller.set_master_volume(vol)
+                    res = await run_audio(audio_controller.set_master_volume, vol)
                     await ws_manager.broadcast({
                         "type": "master_volume_updated",
                         "volume": vol,
@@ -425,7 +500,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                     }, exclude=websocket)
 
                 elif msg_type == "toggle_master_mute":
-                    res = audio_controller.toggle_master_mute()
+                    res = await run_audio(audio_controller.toggle_master_mute)
                     await ws_manager.broadcast({
                         "type": "master_mute_updated",
                         "muted": res.get("muted", False)
@@ -436,7 +511,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                     vol = int(data.get("volume", 0))
                     vol = max(0, min(100, vol))
                     if proc:
-                        audio_controller.set_app_volume(proc, vol)
+                        await run_audio(audio_controller.set_app_volume, proc, vol)
                         await ws_manager.broadcast({
                             "type": "app_volume_updated",
                             "process": proc,
@@ -446,7 +521,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                 elif msg_type == "toggle_app_mute":
                     proc = data.get("process")
                     if proc:
-                        res = audio_controller.toggle_app_mute(proc)
+                        res = await run_audio(audio_controller.toggle_app_mute, proc)
                         await ws_manager.broadcast({
                             "type": "app_mute_updated",
                             "process": proc,
@@ -454,7 +529,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                         })
 
                 elif msg_type == "refresh_sessions":
-                    sessions = audio_controller.get_audio_sessions()
+                    sessions = (await run_audio(read_audio_state))["sessions"]
                     await websocket.send_text(json.dumps({
                         "type": "sessions_update",
                         "sessions": sessions

@@ -3,14 +3,8 @@ import sys
 import json
 from typing import Dict, Any, List
 from server.action_catalog import validate_deck_config
+from server.paths import CONFIG_DIR
 
-# If running frozen (PyInstaller), store config in %APPDATA%\StreamDesk or app dir
-if getattr(sys, 'frozen', False):
-    USER_DATA = os.path.expandvars(r"%APPDATA%\StreamDesk")
-else:
-    USER_DATA = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-CONFIG_DIR = os.path.join(USER_DATA, "config")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "deck_config.json")
 
 def generate_default_pages() -> List[Dict[str, Any]]:

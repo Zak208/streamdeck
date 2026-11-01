@@ -6,6 +6,8 @@ let currentConfig = null;
 let currentSessions = [];
 let targetAppMap = {}; // sliderId -> process_name
 let isDraggingMap = {}; // sliderId -> boolean
+let masterSliderIds = new Set(); // every master fader on the current page (ids differ per page)
+let buttonStates = {}; // button id -> last known on/off state (OBS recording / streaming)
 let deferredInstallPrompt = null;
 
 const statusDot = document.getElementById("status-dot");
@@ -262,10 +264,23 @@ function handleServerMessage(data) {
     case "init_state":
       currentConfig = data.config;
       currentSessions = data.audio_sessions || data.sessions || [];
+      buttonStates = data.button_states || {};
       renderDeck(currentConfig);
       renderPageNav(currentConfig);
       if (data.master) updateMasterVolume(data.master.volume, data.master.muted);
       updateAppVolumes();
+      break;
+
+    case "audio_state":
+      // Pushed by the PC whenever master or any app volume/mute changes there.
+      currentSessions = data.sessions || [];
+      if (data.master) updateMasterVolume(data.master.volume, data.master.muted);
+      updateAppVolumes();
+      break;
+
+    case "button_state":
+      buttonStates[data.id] = Boolean(data.active);
+      applyButtonState(data.id);
       break;
 
     case "telemetry_update":
@@ -292,7 +307,7 @@ function handleServerMessage(data) {
       updateAppMuteState(data.process, data.muted);
       break;
 
-        case "action_result":
+    case "action_result":
       if (data.status === "error" || data.success === false) {
         haptic([40, 60, 40]);
         showMobileToast(data.message || data.error || "Error al ejecutar acción", true);
@@ -339,6 +354,7 @@ function updateTelemetryWidgets(data) {
 function renderDeck(config) {
   if (!config) return;
   deckGrid.innerHTML = "";
+  masterSliderIds = new Set();
 
   const slots = config.slots || [];
 
@@ -373,10 +389,16 @@ function renderDeck(config) {
   }
 }
 
+function applyButtonState(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle("is-active", Boolean(buttonStates[id]));
+}
+
 function createButtonElement(btn) {
   const keycap = document.createElement("div");
   keycap.className = "deck-btn";
   keycap.id = btn.id || `slot_btn_${btn.index}`;
+  if (buttonStates[keycap.id]) keycap.classList.add("is-active");
 
   const inner = document.createElement("div");
   inner.className = "deck-btn-inner";
@@ -445,6 +467,7 @@ function createFaderElement(slider) {
   let targetProcess = slider.target_app || (currentSessions[0] ? currentSessions[0].process_name : "Spotify.exe");
   targetAppMap[slider.id] = targetProcess;
   isDraggingMap[slider.id] = false;
+  if (isMaster) masterSliderIds.add(slider.id);
 
   const headerIcon = slider.image 
     ? `<img src="${slider.image}" class="fader-header-icon" alt="">` 
@@ -559,9 +582,10 @@ function attachFaderDrag(trackEl, sliderId, isMaster) {
   const stopDrag = (e) => {
     if (isDraggingMap[sliderId]) {
       handleCoord(e.clientY, true);
+      // Keep ignoring server echoes briefly so the thumb does not snap back to an older value.
       setTimeout(() => {
         isDraggingMap[sliderId] = false;
-      }, 100);
+      }, 400);
     }
   };
 
@@ -573,24 +597,29 @@ function attachFaderDrag(trackEl, sliderId, isMaster) {
 // Volume UI Updates from Server
 function updateMasterVolume(vol, muted) {
   if (vol === undefined) return;
-  if (isDraggingMap["slider_master"]) return;
 
-  const fill = document.getElementById("fill-slider_master");
-  const val = document.getElementById("val-slider_master");
-  const muteBtn = document.getElementById("mute-slider_master");
+  masterSliderIds.forEach((sliderId) => {
+    if (isDraggingMap[sliderId]) return;
 
-  if (fill) fill.style.height = `${vol}%`;
-  if (val) val.textContent = `${vol}%`;
-  if (muteBtn) {
-    setMuteBtnVisual(muteBtn, muted);
-  }
+    const fill = document.getElementById(`fill-${sliderId}`);
+    const val = document.getElementById(`val-${sliderId}`);
+    const muteBtn = document.getElementById(`mute-${sliderId}`);
+
+    if (fill) fill.style.height = `${vol}%`;
+    if (val) val.textContent = `${vol}%`;
+    if (muteBtn) {
+      setMuteBtnVisual(muteBtn, muted);
+    }
+  });
 }
 
 function updateMasterMute(muted) {
-  const muteBtn = document.getElementById("mute-slider_master");
-  if (muteBtn) {
-    setMuteBtnVisual(muteBtn, muted);
-  }
+  masterSliderIds.forEach((sliderId) => {
+    const muteBtn = document.getElementById(`mute-${sliderId}`);
+    if (muteBtn) {
+      setMuteBtnVisual(muteBtn, muted);
+    }
+  });
 }
 
 function updateAppVolumes() {

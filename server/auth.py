@@ -9,13 +9,8 @@ import socket
 from typing import Dict, Any, Set
 import qrcode
 
-# Persistent tokens location
-if getattr(sys, 'frozen', False):
-    USER_DATA = os.path.expandvars(r"%APPDATA%\StreamDesk")
-else:
-    USER_DATA = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from server.paths import CONFIG_DIR
 
-CONFIG_DIR = os.path.join(USER_DATA, "config")
 TOKENS_FILE = os.path.join(CONFIG_DIR, "auth_tokens.json")
 PIN_TTL_SECONDS = 5 * 60
 MAX_PIN_ATTEMPTS = 5

@@ -1,12 +1,9 @@
 import copy
-import json
-import os
 import unittest
 
+import support  # noqa: F401  (isolates the data directory)
 from server.action_catalog import normalize_spotify_uri, validate_action, validate_deck_config, validate_hotkey
-
-
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from server.config_manager import DEFAULT_CONFIG
 
 
 class ActionCatalogTests(unittest.TestCase):
@@ -23,20 +20,14 @@ class ActionCatalogTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_action("command", "Remove-Item C:\\")
 
-    def test_current_profile_is_normalized(self):
-        config_path = os.path.join(PROJECT_ROOT, "config", "deck_config.json")
-        with open(config_path, "r", encoding="utf-8") as config_file:
-            profile = json.load(config_file)
-        normalized = validate_deck_config(profile)
+    def test_default_profile_is_valid(self):
+        normalized = validate_deck_config(copy.deepcopy(DEFAULT_CONFIG))
         self.assertEqual(normalized["schema_version"], 2)
-        self.assertEqual(len(normalized["pages"]), 3)
+        self.assertEqual(len(normalized["pages"]), len(DEFAULT_CONFIG["pages"]))
         self.assertEqual(len(normalized["pages"][0]["slots"]), 12)
 
     def test_rejects_unsafe_profile_action(self):
-        config_path = os.path.join(PROJECT_ROOT, "config", "deck_config.json")
-        with open(config_path, "r", encoding="utf-8") as config_file:
-            profile = json.load(config_file)
-        unsafe_profile = copy.deepcopy(profile)
+        unsafe_profile = copy.deepcopy(DEFAULT_CONFIG)
         unsafe_profile["pages"][0]["slots"][0].update({"action_type": "script", "target": "whoami"})
         with self.assertRaises(ValueError):
             validate_deck_config(unsafe_profile)

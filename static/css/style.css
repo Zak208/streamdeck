@@ -748,6 +748,16 @@ header {
   animation: shakeError 0.35s ease-in-out !important;
 }
 
+/* Toggle buttons (OBS recording / streaming) that are currently on. */
+.deck-btn.is-active {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.35), 0 0 14px rgba(239, 68, 68, 0.45);
+}
+.deck-btn.is-active .deck-btn-sub::before {
+  content: "● ";
+  color: #ef4444;
+}
+
 /* Mobile UI refresh: clear hierarchy and deliberate touch surfaces. */
 :root {
   --chassis-bg: #0b0f14;
