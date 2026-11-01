@@ -43,7 +43,7 @@ from server.audio_controller import audio_controller
 from server.com_worker import com_worker
 from server.actions import execute_action
 from server.auth import auth_manager
-from server import firewall, templates
+from server import diagnostics, firewall, templates
 from server.config_manager import config_manager
 from server.connectors import spotify, windows
 from server.settings_store import settings
@@ -266,9 +266,12 @@ async def verify_pin(payload: Dict[str, Any] = Body(...), request: Request = Non
     pin = str(payload.get("pin", ""))
     device_name = payload.get("device_name", "Smartphone")
     client_ip = request.client.host if request and request.client else ""
+    user_agent = request.headers.get("user-agent") if request else None
     result = auth_manager.verify_pin_and_issue_token(pin, device_name, client_ip)
     if result.get("valid") or result.get("success"):
+        diagnostics.record("ok", "Emparejado correctamente", client_ip, user_agent)
         return result
+    diagnostics.record("error", result.get("error", "PIN inválido"), client_ip, user_agent)
     raise HTTPException(status_code=401, detail=result.get("error", "PIN inválido"))
 
 @app.get("/api/auth/check")
@@ -293,6 +296,11 @@ def firewall_status(_: None = Depends(require_local_request)):
 def firewall_allow(_: None = Depends(require_local_request)):
     """Opens Windows' own permission prompt; nothing changes unless the user accepts it."""
     return firewall.request_rule()
+
+
+@app.get("/api/diagnostics")
+def connection_diagnostics(_: None = Depends(require_local_request)):
+    return {"events": diagnostics.recent()}
 
 
 @app.get("/api/ui")
@@ -605,12 +613,16 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
     client_ip = websocket.client.host if websocket.client else ""
     is_localhost = _is_loopback(client_ip)
 
+    user_agent = websocket.headers.get("user-agent")
     if not is_localhost and not auth_manager.is_token_authorized(token):
+        diagnostics.record("error", "Conexión rechazada: el móvil no está emparejado (código 1008)", client_ip, user_agent)
         await websocket.close(code=1008, reason="No autorizado. Empareja primero con el PIN.")
         return
 
     await ws_manager.connect(websocket)
     websocket.state.token = token
+    if not is_localhost:
+        diagnostics.record("ok", "Móvil conectado", client_ip, user_agent)
 
     try:
         audio_state = await run_audio(read_audio_state)
@@ -701,8 +713,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                 pass
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
-    except Exception:
+        if not is_localhost:
+            diagnostics.record("info", "Móvil desconectado", client_ip, user_agent)
+    except Exception as exc:
         ws_manager.disconnect(websocket)
+        if not is_localhost:
+            diagnostics.record("error", f"La conexión del móvil falló en el PC: {type(exc).__name__}", client_ip, user_agent)
 
 # --- Static Web Pages ---
 

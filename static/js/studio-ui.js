@@ -159,6 +159,11 @@ function openSettings() {
         <div id="settings-devices"><span class="integration-hint">Cargando...</span></div>
       </section>
       <section class="settings-section">
+        <h3>Conexión del móvil</h3>
+        <p>Lo último que ha intentado un móvil. Si algo falla, aquí se ve en qué punto.</p>
+        <div id="settings-diagnostics"><span class="integration-hint">Cargando...</span></div>
+      </section>
+      <section class="settings-section">
         <h3>Versión</h3>
         <p id="settings-version">Comprobando...</p>
         <button class="btn-secondary" id="settings-check-update">Buscar actualizaciones</button>
@@ -182,6 +187,7 @@ function openSettings() {
       });
       m.el.querySelector("#settings-version").textContent = updateStatusText.textContent;
       renderSettingsDevices(m.el.querySelector("#settings-devices"));
+      renderSettingsDiagnostics(m.el.querySelector("#settings-diagnostics"));
     },
   });
   return modal;
@@ -215,6 +221,22 @@ async function renderSettingsDevices(container) {
         showToast(err.message);
       }
     }));
+  } catch (err) {
+    container.innerHTML = `<span class="integration-hint">${escapeHtml(err.message)}</span>`;
+  }
+}
+
+async function renderSettingsDiagnostics(container) {
+  try {
+    const { events } = await apiJson("/api/diagnostics");
+    if (!events.length) {
+      container.innerHTML = `<span class="integration-hint">Todavía no ha intentado conectarse ningún móvil.</span>`;
+      return;
+    }
+    container.innerHTML = events.slice(0, 8).map(e => `
+      <div class="device-row">
+        <div><strong>${escapeHtml(e.message)}</strong><span>${escapeHtml(e.time)} · ${escapeHtml(e.device)} · ${escapeHtml(e.ip)}</span></div>
+      </div>`).join("");
   } catch (err) {
     container.innerHTML = `<span class="integration-hint">${escapeHtml(err.message)}</span>`;
   }

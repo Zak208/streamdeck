@@ -14,7 +14,7 @@ import support
 import websockets
 from PIL import Image
 
-from server import templates
+from server import diagnostics, templates
 from server.action_catalog import validate_deck_config
 from server.auth import auth_manager
 from server.config_manager import DEFAULT_CONFIG
@@ -133,6 +133,56 @@ class StudioApiTests(unittest.TestCase):
         self.assertFalse(auth_manager.is_token_authorized(token))
         self.assertNotIn("Pixel de prueba", json.dumps(self.call("/api/auth/devices")[1]))
         self.assertEqual(self.call("/api/auth/devices/revoke", {"id": device["id"]})[0], 404)
+
+
+class DiagnosticsTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.live = support.LiveServer().__enter__()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.live.__exit__(None, None, None)
+
+    def verify(self, pin, agent):
+        request = urllib.request.Request(
+            self.live.base_url + "/api/auth/verify", data=json.dumps({"pin": pin, "device_name": "x"}).encode(),
+            headers={"Content-Type": "application/json", "User-Agent": agent}, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return json.loads(response.read().decode())
+        except urllib.error.HTTPError as error:
+            return json.loads(error.read().decode())
+
+    def log(self):
+        with urllib.request.urlopen(self.live.base_url + "/api/diagnostics", timeout=10) as response:
+            return json.loads(response.read().decode())["events"]
+
+    def test_pairing_attempts_are_logged_without_secrets(self):
+        diagnostics.clear()
+        android = "Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/120 Mobile"
+        self.verify("000000", android)
+        result = self.verify(auth_manager.current_pin, android)
+        events = self.log()
+        self.assertEqual([e["kind"] for e in events], ["ok", "error"])  # newest first
+        self.assertEqual({e["device"] for e in events}, {"Android"})
+        self.assertIn("caducado", events[1]["message"])
+        text = json.dumps(events)
+        self.assertNotIn(result["token"], text)
+        self.assertNotIn(auth_manager.current_pin, text)
+        self.assertNotIn("Pixel 8", text)  # only a coarse device label is kept
+
+    def test_device_labels(self):
+        self.assertEqual(diagnostics.device_label("Mozilla/5.0 (iPhone; CPU iPhone OS 17)"), "iPhone/iPad")
+        self.assertEqual(diagnostics.device_label("Mozilla/5.0 (Windows NT 10.0)"), "Navegador")
+        self.assertEqual(diagnostics.device_label(None), "Navegador")
+
+    def test_log_keeps_only_the_latest_events(self):
+        diagnostics.clear()
+        for number in range(60):
+            diagnostics.record("info", f"evento {number}")
+        self.assertEqual(len(diagnostics.recent()), 40)
+        self.assertEqual(diagnostics.recent()[0]["message"], "evento 59")
 
 
 class AssetTests(unittest.TestCase):

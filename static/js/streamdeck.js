@@ -864,6 +864,7 @@ document.getElementById("btn-verify-pin")?.addEventListener("click", async () =>
       try {
         window.history.replaceState({}, document.title, window.location.pathname);
       } catch (e) {}
+      showMobileToast("Vinculado con tu PC");
       connectWebSocket();
     } else {
       if (pinError) {
