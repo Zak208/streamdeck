@@ -16,8 +16,8 @@
           <img src="/static/icons/power.svg" alt="StreamDesk Logo" style="width: 18px; height: 18px; filter: brightness(0) invert(1);">
         </div>
         <div>
-          <h1>STREAMDESK <span class="highlight">PRO</span></h1>
-          <p class="sidebar-subtitle">Studio & Centro de Control</p>
+          <h1>STREAMDESK <span class="highlight">STUDIO</span></h1>
+          <p class="sidebar-subtitle">Tu control, simplificado</p>
         </div>
       </div>
     </div>
@@ -26,7 +26,7 @@
       <!-- QR and PIN Pairing Panel -->
       <div class="panel-card panel-pairing">
         <div class="panel-title">
-          <span>📱 Enlace Móvil (Wi-Fi)</span>
+          <span>Enlace móvil</span>
           <span class="badge-live-dot" title="Servidor Activo"></span>
         </div>
         <div class="qr-container">
@@ -36,7 +36,7 @@
           <div class="pin-display">
             <span class="pin-label">PIN:</span>
             <span class="pin-code" id="pin-code">------</span>
-            <button class="refresh-pin-btn" id="btn-refresh-pin" title="Generar nuevo PIN y QR">🔄</button>
+            <button class="refresh-pin-btn" id="btn-refresh-pin" title="Generar nuevo PIN y QR">↻</button>
           </div>
           <div class="info-url" id="server-url">Cargando IP...</div>
         </div>
@@ -45,10 +45,10 @@
       <!-- Drag & Drop Palette Box -->
       <div class="panel-card">
         <div class="panel-title">
-          <span>📦 Elementos Rápidos</span>
+          <span>Crear controles</span>
         </div>
         <p style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 8px;">
-          Arrastra a cualquier casilla del móvil:
+          Arrastra un control o pulsa una casilla vacía:
         </p>
         <div class="drag-palette-box">
           <div class="palette-item" draggable="true" id="palette-new-btn">
@@ -87,7 +87,7 @@
       <!-- Active Audio Sessions Panel -->
       <div class="panel-card">
         <div class="panel-title">
-          <span>🔊 Audio en Tu PC</span>
+          <span>Audio activo</span>
         </div>
         <div id="audio-sessions-list" class="audio-sessions-list">
           <!-- Populated by studio.js -->
@@ -99,6 +99,10 @@
   <!-- Center Workspace -->
   <main>
     <div class="studio-topbar">
+      <div class="workspace-heading">
+        <span class="eyebrow">PERFIL ACTIVO</span>
+        <h2>Diseña tu panel</h2>
+      </div>
       <!-- Multi-Page Tabs Switcher -->
       <div class="page-tabs-container">
         <div class="page-tabs" id="page-tabs"></div>
@@ -108,36 +112,33 @@
 
       <!-- Keyboard Shortcuts Badge -->
       <div class="kbd-shortcuts-badge" title="Atajos de teclado">
-        <span>⌨️ <kbd>Supr</kbd> Vaciar · <kbd>Esc</kbd> Deseleccionar · <kbd>Ctrl+C/V</kbd> Copiar/Pegar</span>
+        <span><kbd>Supr</kbd> Vaciar · <kbd>Esc</kbd> Cerrar · <kbd>Ctrl+C/V</kbd> Copiar/Pegar</span>
       </div>
 
       <!-- GitHub Auto-Update Status Cylinder / Pill -->
       <div class="update-cylinder" id="update-cylinder" title="Estado de actualizaciones con GitHub">
-        <span id="update-status-icon">🟢</span>
+        <span id="update-status-icon">●</span>
         <span id="update-status-text">StreamDesk v2.2.0 (Al día)</span>
-        <button class="update-btn-action" id="btn-apply-update" style="display: none;">Actualizar 🚀</button>
+        <button class="update-btn-action" id="btn-apply-update" style="display: none;">Actualizar</button>
       </div>
 
       <div style="display: flex; align-items: center; gap: 10px;">
         <button class="btn-primary" id="btn-save-all">
-          💾 Guardar y Sincronizar en Móvil
+          Guardar cambios
         </button>
       </div>
     </div>
 
     <div class="canvas-body">
-      <!-- Phone Mockup Preview Frame (Landscape) -->
+      <!-- Live mobile preview -->
       <div class="preview-container">
         <div class="phone-mockup">
-          <!-- Realistic Top Speaker Notch / Dynamic Island -->
-          <div class="phone-notch"></div>
-          
-          <!-- Inner Phone Screen with 6x2 Grid (12 slots) -->
+          <div class="preview-label">Vista móvil en directo</div>
           <div class="phone-screen-wrapper">
             <div class="phone-status-bar">
               <span>StreamDesk Mobile</span>
               <span id="phone-preview-page-name">Página 1</span>
-              <span>Wi-Fi 📶 100% 🔋</span>
+              <span>Conectado</span>
             </div>
             <div class="phone-screen" id="phone-screen">
               <!-- Populated by studio.js (2 rows x 6 columns) -->
@@ -148,13 +149,13 @@
 
       <!-- Inspector / Editor Drawer (Right) -->
       <div class="editor-drawer" id="editor-drawer">
-        <div class="editor-title" id="inspector-title">Configuración del Elemento</div>
+        <div class="editor-title" id="inspector-title">Configura una casilla</div>
 
         <div id="inspector-content">
           <div class="empty-inspector-tip">
             <img src="/static/icons/sliders.svg" style="width: 38px; height: 38px; opacity: 0.3; margin-bottom: 12px;" alt="">
             <p style="color: var(--text-muted); font-size: 0.85rem; text-align: center; line-height: 1.5;">
-              Haz clic en cualquier casilla de la pantalla del móvil para personalizarla o vincularla a una app en 1 clic.
+              Selecciona una casilla para asignar una acción, conectar una app y ajustar su aspecto.
             </p>
           </div>
         </div>

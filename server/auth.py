@@ -4,7 +4,6 @@ import json
 import time
 import io
 import base64
-import random
 import secrets
 import socket
 from typing import Dict, Any, Set
@@ -18,6 +17,9 @@ else:
 
 CONFIG_DIR = os.path.join(USER_DATA, "config")
 TOKENS_FILE = os.path.join(CONFIG_DIR, "auth_tokens.json")
+PIN_TTL_SECONDS = 5 * 60
+MAX_PIN_ATTEMPTS = 5
+PIN_ATTEMPT_WINDOW_SECONDS = 10 * 60
 
 
 class AuthManager:
@@ -25,16 +27,36 @@ class AuthManager:
 
     def __init__(self):
         self.current_pin = self._generate_pin()
+        self.pin_issued_at = time.monotonic()
+        self.pin_attempts: Dict[str, list[float]] = {}
         self.authorized_tokens: Set[str] = set()
         self.paired_devices: Dict[str, Dict[str, Any]] = {}
         self._load_tokens()
 
     def _generate_pin(self) -> str:
-        return f"{random.randint(100000, 999999)}"
+        return f"{secrets.randbelow(900000) + 100000}"
 
     def refresh_pin(self) -> str:
         self.current_pin = self._generate_pin()
+        self.pin_issued_at = time.monotonic()
         return self.current_pin
+
+    def get_current_pin(self) -> str:
+        """Return a short-lived pairing code, rotating it when it expires."""
+        if time.monotonic() - self.pin_issued_at >= PIN_TTL_SECONDS:
+            self.refresh_pin()
+        return self.current_pin
+
+    def _rate_limit_allows_attempt(self, client_ip: str) -> bool:
+        now = time.monotonic()
+        key = client_ip or "unknown"
+        attempts = [attempt for attempt in self.pin_attempts.get(key, []) if now - attempt < PIN_ATTEMPT_WINDOW_SECONDS]
+        if len(attempts) >= MAX_PIN_ATTEMPTS:
+            self.pin_attempts[key] = attempts
+            return False
+        attempts.append(now)
+        self.pin_attempts[key] = attempts
+        return True
 
     def _load_tokens(self):
         """Loads previously authorized tokens from persistent disk storage."""
@@ -95,21 +117,24 @@ class AuthManager:
 
         return "127.0.0.1"
 
-    def verify_pin_and_issue_token(self, pin: str, device_name: str = "Mobile Device") -> Dict[str, Any]:
+    def verify_pin_and_issue_token(self, pin: str, device_name: str = "Mobile Device", client_ip: str = "") -> Dict[str, Any]:
         """Validates pairing PIN and returns permanent token for the mobile client."""
+        if not self._rate_limit_allows_attempt(client_ip):
+            return {"valid": False, "success": False, "error": "Demasiados intentos. Espera unos minutos y genera un PIN nuevo."}
         clean_pin = str(pin).strip()
-        if clean_pin and clean_pin == self.current_pin.strip():
+        active_pin = self.get_current_pin()
+        if clean_pin and secrets.compare_digest(clean_pin, active_pin.strip()):
             new_token = secrets.token_hex(20)
             self.authorized_tokens.add(new_token)
             self.paired_devices[new_token] = {
-                "name": device_name,
-                "token": new_token,
+                "name": str(device_name).strip()[:48] or "Dispositivo móvil",
                 "token_preview": new_token[:6] + "...",
                 "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
             }
             self._save_tokens()
             # Optional: Rotate PIN after successful pairing for extra security
             self.refresh_pin()
+            self.pin_attempts.pop(client_ip or "unknown", None)
             return {"valid": True, "success": True, "token": new_token}
         return {"valid": False, "success": False, "error": "Código PIN incorrecto"}
 
@@ -130,7 +155,7 @@ class AuthManager:
     def generate_qr_base64(self, port: int) -> str:
         """Generates a QR code image as Base64 Data URL for instant mobile pairing."""
         ip = self.get_local_ip()
-        url = f"http://{ip}:{port}/?pin={self.current_pin}"
+        url = f"http://{ip}:{port}/?pin={self.get_current_pin()}"
 
         qr = qrcode.QRCode(
             version=1,

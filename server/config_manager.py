@@ -2,6 +2,7 @@ import os
 import sys
 import json
 from typing import Dict, Any, List
+from server.action_catalog import validate_deck_config
 
 # If running frozen (PyInstaller), store config in %APPDATA%\StreamDesk or app dir
 if getattr(sys, 'frozen', False):
@@ -82,6 +83,7 @@ def generate_default_pages() -> List[Dict[str, Any]]:
 PAGES = generate_default_pages()
 
 DEFAULT_CONFIG: Dict[str, Any] = {
+    "schema_version": 2,
     "deck_name": "StreamDesk Pro Elite",
     "layout": {
         "rows": 2,
@@ -98,6 +100,7 @@ class ConfigManager:
 
     def __init__(self):
         os.makedirs(CONFIG_DIR, exist_ok=True)
+        self.last_error = ""
         self.config = self.load_config()
 
     def load_config(self) -> Dict[str, Any]:
@@ -105,19 +108,17 @@ class ConfigManager:
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    # If config has pages structure
+                    # If config has pages structure, normalise it before exposing it
+                    # to the mobile client. Profiles are also received over HTTP, so
+                    # this is an important security boundary.
                     if "pages" in data and len(data.get("pages", [])) > 0:
-                        cur_idx = data.get("current_page", 0)
-                        if cur_idx < 0 or cur_idx >= len(data["pages"]):
-                            cur_idx = 0
-                            data["current_page"] = 0
-                        data["slots"] = data["pages"][cur_idx]["slots"]
-                        return data
+                        return validate_deck_config(data)
                     elif "slots" in data and len(data.get("slots", [])) == 12:
                         # Migrate single page to multi-page format
                         migrated = dict(DEFAULT_CONFIG)
                         migrated["pages"][0]["slots"] = data["slots"]
                         migrated["slots"] = data["slots"]
+                        migrated = validate_deck_config(migrated)
                         self.save_config(migrated)
                         return migrated
             except Exception as e:
@@ -127,19 +128,16 @@ class ConfigManager:
 
     def save_config(self, new_config: Dict[str, Any]) -> bool:
         try:
+            new_config = validate_deck_config(new_config)
             os.makedirs(CONFIG_DIR, exist_ok=True)
-            # Ensure slots array mirrors active page slots
-            cur_idx = new_config.get("current_page", 0)
-            pages = new_config.get("pages", [])
-            if pages and 0 <= cur_idx < len(pages):
-                new_config["slots"] = pages[cur_idx]["slots"]
-
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(new_config, f, indent=2, ensure_ascii=False)
             self.config = new_config
+            self.last_error = ""
             return True
         except Exception as e:
             print(f"Error saving config: {e}")
+            self.last_error = str(e)
             return False
 
     def set_active_page(self, page_index: int) -> bool:

@@ -747,3 +747,32 @@ header {
 .btn-shake-error {
   animation: shakeError 0.35s ease-in-out !important;
 }
+
+/* Mobile UI refresh: clear hierarchy and deliberate touch surfaces. */
+:root {
+  --chassis-bg: #0b0f14;
+  --surface-card: #151d28;
+  --surface-inner: #0e141d;
+  --surface-hover: #1a2533;
+  --border-subtle: #283444;
+  --border-focus: #51a7ff;
+  --accent-blue: #51a7ff;
+  --accent-cyan: #68c7ff;
+  --accent-purple: #9b8afb;
+  --text-main: #f4f7fb;
+  --text-muted: #aebaca;
+}
+header { background: #10161f; padding-inline: 14px; }
+.page-nav, .status-badge { background: #0e141d; border-color: var(--border-subtle); border-radius: 10px; }
+.page-dot.active { background: var(--accent-blue); }
+.icon-btn { background: #151d28; border-color: var(--border-subtle); border-radius: 9px; }
+#deck-container { padding: 10px; }
+#deck-grid { gap: 10px; }
+.deck-btn, .deck-fader-card { border-color: var(--border-subtle); box-shadow: none; }
+.deck-btn { border-radius: 12px; }
+.deck-btn-inner { border-radius: 9px; background: var(--surface-inner); }
+.deck-btn:active, .deck-btn.triggered { border-color: var(--accent-blue); box-shadow: none; }
+.deck-fader-card { border-radius: 12px; }
+.fader-track-container { background: #0a0f15; border-color: var(--border-subtle); }
+.fader-thumb { box-shadow: none; }
+.mobile-toast { background: #172233; border-color: var(--border-subtle); box-shadow: none; }

@@ -8,7 +8,7 @@ import subprocess
 import urllib.request
 from contextlib import asynccontextmanager
 from typing import Set, Dict, Any, Optional
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Body, UploadFile, File
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Body, UploadFile, File, Request, Depends, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,6 +44,12 @@ from server.system_scanner import system_scanner
 
 PORT = 48291
 VERSION = "2.1.0"
+MAX_ICON_UPLOAD_BYTES = 2 * 1024 * 1024
+ICON_CONTENT_TYPES = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+}
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = sys._MEIPASS
@@ -133,11 +139,27 @@ app = FastAPI(title="StreamDesk Pro Server", version=VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # The desktop Studio is intentionally a localhost-only administration
+    # surface. The paired PWA communicates over its authenticated WebSocket.
+    allow_origins=[f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
+
+
+def _is_loopback(host: str) -> bool:
+    return host in {"127.0.0.1", "::1", "localhost"}
+
+
+async def require_local_request(request: Request) -> None:
+    """Keep configuration and system administration on the desktop computer."""
+    client_host = request.client.host if request.client else ""
+    if not _is_loopback(client_host):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta operación solo está disponible desde StreamDesk Studio en el PC.",
+        )
 
 # --- Service Worker at Root Scope ---
 @app.get("/service-worker.js")
@@ -157,7 +179,7 @@ async def serve_manifest():
 # --- REST API Endpoints ---
 
 @app.get("/api/info")
-async def get_system_info():
+async def get_system_info(_: None = Depends(require_local_request)):
     ip = auth_manager.get_local_ip()
     return {
         "version": VERSION,
@@ -168,16 +190,16 @@ async def get_system_info():
     }
 
 @app.get("/api/auth/pin")
-async def get_pairing_pin():
+async def get_pairing_pin(_: None = Depends(require_local_request)):
     return {
-        "pin": auth_manager.current_pin,
+        "pin": auth_manager.get_current_pin(),
         "qr_code": auth_manager.generate_qr_base64(PORT),
         "ip": auth_manager.get_local_ip(),
         "port": PORT
     }
 
 @app.post("/api/auth/regenerate-pin")
-async def regenerate_pin():
+async def regenerate_pin(_: None = Depends(require_local_request)):
     new_pin = auth_manager.refresh_pin()
     return {
         "pin": new_pin,
@@ -187,27 +209,28 @@ async def regenerate_pin():
     }
 
 @app.post("/api/auth/verify")
-async def verify_pin(payload: Dict[str, Any] = Body(...)):
+async def verify_pin(payload: Dict[str, Any] = Body(...), request: Request = None):
     pin = str(payload.get("pin", ""))
     device_name = payload.get("device_name", "Smartphone")
-    result = auth_manager.verify_pin_and_issue_token(pin, device_name)
+    client_ip = request.client.host if request and request.client else ""
+    result = auth_manager.verify_pin_and_issue_token(pin, device_name, client_ip)
     if result.get("valid") or result.get("success"):
         return result
     raise HTTPException(status_code=401, detail=result.get("error", "PIN inválido"))
 
 @app.get("/api/auth/check")
-async def check_token(token: str = Query(default=None)):
+async def check_token(token: str = Query(default=None), _: None = Depends(require_local_request)):
     authorized = auth_manager.is_token_authorized(token)
     return {"authorized": authorized, "valid": authorized}
 
 @app.get("/api/config")
 @app.get("/api/deck/config")
-async def get_configuration():
+async def get_configuration(_: None = Depends(require_local_request)):
     return config_manager.get_config()
 
 @app.post("/api/config")
 @app.post("/api/deck/config")
-async def update_configuration(new_config: Dict[str, Any] = Body(...)):
+async def update_configuration(new_config: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
     success = config_manager.save_config(new_config)
     if success:
         await ws_manager.broadcast({
@@ -215,10 +238,10 @@ async def update_configuration(new_config: Dict[str, Any] = Body(...)):
             "config": new_config
         })
         return {"success": True, "config": new_config}
-    raise HTTPException(status_code=500, detail="No se pudo guardar la configuración")
+    raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo guardar la configuración")
 
 @app.post("/api/deck/page/switch")
-async def switch_deck_page(page_index: int = Body(..., embed=True)):
+async def switch_deck_page(page_index: int = Body(..., embed=True), _: None = Depends(require_local_request)):
     success = config_manager.set_active_page(page_index)
     if success:
         await ws_manager.broadcast({
@@ -228,7 +251,7 @@ async def switch_deck_page(page_index: int = Body(..., embed=True)):
     return {"success": success, "current_page": config_manager.get_config().get("current_page", 0)}
 
 @app.post("/api/deck/page/add")
-async def add_deck_page(name: str = Body(default="Nueva Página", embed=True)):
+async def add_deck_page(name: str = Body(default="Nueva Página", embed=True), _: None = Depends(require_local_request)):
     cfg = config_manager.get_config()
     pages = cfg.setdefault("pages", [])
     page_name = name or f"Página {len(pages) + 1}"
@@ -238,7 +261,8 @@ async def add_deck_page(name: str = Body(default="Nueva Página", embed=True)):
     new_slots[10] = {"index": 10, "type": "occupied_by_slider", "id": f"slot_10_{uuid.uuid4().hex[:4]}", "parent_slot": 4}
     new_slots[11] = {"index": 11, "type": "occupied_by_slider", "id": f"slot_11_{uuid.uuid4().hex[:4]}", "parent_slot": 5}
     pages.append({"id": f"page_{uuid.uuid4().hex[:6]}", "name": page_name, "slots": new_slots})
-    config_manager.save_config(cfg)
+    if not config_manager.save_config(cfg):
+        raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo crear la página")
     await ws_manager.broadcast({
         "type": "config_sync",
         "config": config_manager.get_config()
@@ -246,7 +270,7 @@ async def add_deck_page(name: str = Body(default="Nueva Página", embed=True)):
     return {"success": True, "pages": pages}
 
 @app.post("/api/deck/page/delete")
-async def delete_deck_page(page_index: int = Body(..., embed=True)):
+async def delete_deck_page(page_index: int = Body(..., embed=True), _: None = Depends(require_local_request)):
     cfg = config_manager.get_config()
     pages = cfg.get("pages", [])
     if len(pages) > 1 and 0 <= page_index < len(pages):
@@ -261,36 +285,43 @@ async def delete_deck_page(page_index: int = Body(..., embed=True)):
     return {"success": False, "error": "No se puede borrar la única página"}
 
 @app.get("/api/audio/sessions")
-async def get_audio_sessions():
+async def get_audio_sessions(_: None = Depends(require_local_request)):
     return {
         "master": audio_controller.get_master_volume(),
         "sessions": audio_controller.get_audio_sessions()
     }
 
 @app.get("/api/system/apps")
-async def get_system_apps():
+async def get_system_apps(_: None = Depends(require_local_request)):
     return {
         "apps": system_scanner.get_detected_apps()
     }
 
 @app.post("/api/upload")
-async def upload_button_image(file: UploadFile = File(...)):
+async def upload_button_image(file: UploadFile = File(...), _: None = Depends(require_local_request)):
     try:
-        ext = os.path.splitext(file.filename)[1].lower()
-        if ext not in (".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif"):
-            ext = ".png"
+        ext = ICON_CONTENT_TYPES.get((file.content_type or "").lower())
+        if not ext:
+            raise HTTPException(status_code=415, detail="El icono debe ser PNG, JPG o WEBP")
+        content = await file.read(MAX_ICON_UPLOAD_BYTES + 1)
+        if len(content) > MAX_ICON_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="El icono no puede superar 2 MB")
         filename = f"btn_{uuid.uuid4().hex[:10]}{ext}"
         filepath = os.path.join(UPLOADS_DIR, filename)
         with open(filepath, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        return {"success": True, "url": f"/static/uploads/{filename}"}
+            buffer.write(content)
+        return {"success": True, "url": f"/uploads/{filename}"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await file.close()
 
 # --- GitHub Auto-Update Endpoints ---
 
 @app.get("/api/system/check-update")
-async def check_github_update():
+async def check_github_update(_: None = Depends(require_local_request)):
     """Checks github repository for new commits/updates."""
     repo_url = "https://api.github.com/repos/Zak208/streamdeck/commits/main"
     try:
@@ -325,7 +356,7 @@ async def check_github_update():
         }
 
 @app.post("/api/system/apply-update")
-async def apply_github_update():
+async def apply_github_update(_: None = Depends(require_local_request)):
     """Executes git pull to update to latest commit."""
     try:
         res = subprocess.run(["git", "pull", "origin", "main"], capture_output=True, text=True, cwd=BASE_DIR)
@@ -339,7 +370,7 @@ async def apply_github_update():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=None)):
     client_ip = websocket.client.host if websocket.client else ""
-    is_localhost = client_ip in ("127.0.0.1", "::1", "localhost")
+    is_localhost = _is_loopback(client_ip)
 
     if not is_localhost and not auth_manager.is_token_authorized(token):
         await websocket.close(code=1008, reason="No autorizado. Empareja primero con el PIN.")
@@ -439,12 +470,13 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
 # --- Static Web Pages ---
 
 @app.get("/studio", response_class=HTMLResponse)
-async def serve_studio():
+async def serve_studio(_: None = Depends(require_local_request)):
     studio_path = os.path.join(STATIC_DIR, "studio.html")
     if os.path.exists(studio_path):
         return FileResponse(studio_path)
     return "<h1>Studio not found</h1>"
 
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/", response_class=HTMLResponse)

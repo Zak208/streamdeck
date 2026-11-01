@@ -6,7 +6,7 @@ let audioSessions = [];
 let detectedSystemApps = [];
 let dragSourceType = null; // 'palette_btn' | 'palette_slider' | 'slot'
 let draggedSlotIndex = null;
-let activeInspectorTab = "apps"; // 'apps' | 'media' | 'obs' | 'telemetry' | 'design'
+let activeInspectorTab = "apps"; // apps | media | obs | telemetry | integrations | design
 
 const phoneScreen = document.getElementById("phone-screen");
 const inspectorTitle = document.getElementById("inspector-title");
@@ -104,12 +104,12 @@ async function checkGitHubUpdates() {
     const data = await res.json();
     if (data.update_available) {
       updateCylinder.className = "update-cylinder update-ready";
-      updateStatusIcon.textContent = "🟡";
+      updateStatusIcon.textContent = "●";
       updateStatusText.textContent = `¡Actualización en GitHub! (${data.commit_message || 'Nueva versión'})`;
       btnApplyUpdate.style.display = "inline-block";
     } else {
       updateCylinder.className = "update-cylinder";
-      updateStatusIcon.textContent = "🟢";
+      updateStatusIcon.textContent = "●";
       updateStatusText.textContent = `StreamDesk v${data.current_version || '2.2.0'} (Al día)`;
       btnApplyUpdate.style.display = "none";
     }
@@ -900,11 +900,12 @@ function renderButtonInspector(btn, index) {
 
     <!-- Inspector Tabs -->
     <div class="inspector-tabs">
-      <button class="inspector-tab-btn ${activeInspectorTab === 'apps' ? 'active' : ''}" data-tab="apps">🚀 Apps PC</button>
-      <button class="inspector-tab-btn ${activeInspectorTab === 'media' ? 'active' : ''}" data-tab="media">🎵 Media</button>
-      <button class="inspector-tab-btn ${activeInspectorTab === 'obs' ? 'active' : ''}" data-tab="obs">🔴 OBS</button>
-      <button class="inspector-tab-btn ${activeInspectorTab === 'telemetry' ? 'active' : ''}" data-tab="telemetry">📊 Monitores</button>
-      <button class="inspector-tab-btn ${activeInspectorTab === 'design' ? 'active' : ''}" data-tab="design">🎨 Aspecto</button>
+      <button class="inspector-tab-btn ${activeInspectorTab === 'apps' ? 'active' : ''}" data-tab="apps">Apps</button>
+      <button class="inspector-tab-btn ${activeInspectorTab === 'media' ? 'active' : ''}" data-tab="media">Media</button>
+      <button class="inspector-tab-btn ${activeInspectorTab === 'obs' ? 'active' : ''}" data-tab="obs">OBS</button>
+      <button class="inspector-tab-btn ${activeInspectorTab === 'telemetry' ? 'active' : ''}" data-tab="telemetry">Sistema</button>
+      <button class="inspector-tab-btn ${activeInspectorTab === 'integrations' ? 'active' : ''}" data-tab="integrations">Servicios</button>
+      <button class="inspector-tab-btn ${activeInspectorTab === 'design' ? 'active' : ''}" data-tab="design">Aspecto</button>
     </div>
 
     <!-- Tab Content Container -->
@@ -933,6 +934,8 @@ function renderButtonInspector(btn, index) {
     renderTabObs(tabContainer, btn, index);
   } else if (activeInspectorTab === "telemetry") {
     renderTabTelemetry(tabContainer, btn, index);
+  } else if (activeInspectorTab === "integrations") {
+    renderTabIntegrations(tabContainer, btn, index);
   } else if (activeInspectorTab === "design") {
     renderTabDesign(tabContainer, btn, index);
   }
@@ -1129,7 +1132,92 @@ function renderTabTelemetry(container, btn, index) {
   });
 }
 
-// 5. Tab Design: Titles, Colors & Vector SVG Gallery
+// 5. Tab Integrations: Spotify URIs and Discord user-configured key bindings
+function renderTabIntegrations(container, btn, index) {
+  const currentSpotifyUri = btn.action_type === "spotify_uri" ? (btn.target || "") : "";
+  const currentHotkey = btn.action_type === "discord_hotkey" ? (btn.extra?.hotkey || "CTRL+SHIFT+M") : "CTRL+SHIFT+M";
+  const safeSpotifyUri = currentSpotifyUri.replace(/"/g, "&quot;");
+  const safeHotkey = currentHotkey.replace(/"/g, "&quot;");
+
+  container.innerHTML = `
+    <div class="integration-intro">
+      <strong>Conecta servicios sin scripts ni comandos.</strong>
+      <span>Las acciones se validan antes de sincronizarse con el móvil.</span>
+    </div>
+    <section class="integration-card">
+      <div class="integration-card-head">
+        <img src="/static/icons/spotify.svg" alt="Spotify">
+        <div><strong>Spotify</strong><span>Abre una playlist, álbum, artista o pista</span></div>
+      </div>
+      <label for="spotify-uri-input">Enlace o URI de Spotify</label>
+      <input id="spotify-uri-input" type="url" value="${safeSpotifyUri}" placeholder="https://open.spotify.com/playlist/...">
+      <button class="btn-primary" id="btn-set-spotify-uri">Asignar a esta casilla</button>
+      <p class="integration-hint">Para reproducir directamente con Spotify Connect deberás conectar tu cuenta de Spotify.</p>
+    </section>
+    <section class="integration-card">
+      <div class="integration-card-head">
+        <img src="/static/icons/discord.svg" alt="Discord">
+        <div><strong>Discord</strong><span>Usa tus atajos globales configurados en Discord</span></div>
+      </div>
+      <label for="discord-hotkey-input">Atajo configurado en Discord</label>
+      <input id="discord-hotkey-input" type="text" value="${safeHotkey}" placeholder="CTRL+SHIFT+M" maxlength="80">
+      <div class="integration-actions">
+        <button class="btn-secondary" id="btn-set-discord-mute">Silenciar micrófono</button>
+        <button class="btn-secondary" id="btn-set-discord-deafen">Ensordecer</button>
+      </div>
+      <p class="integration-hint">Crea el mismo atajo en Discord → Ajustes → Atajos de teclado. StreamDesk no guarda credenciales de Discord.</p>
+    </section>
+  `;
+
+  document.getElementById("btn-set-spotify-uri")?.addEventListener("click", () => {
+    const rawValue = document.getElementById("spotify-uri-input")?.value.trim() || "";
+    const match = rawValue.match(/^spotify:(playlist|album|artist|track):([A-Za-z0-9]{10,64})$/)
+      || rawValue.match(/^https:\/\/(?:www\.)?open\.spotify\.com\/(playlist|album|artist|track)\/([A-Za-z0-9]{10,64})/);
+    if (!match) {
+      showToast("Pega un enlace válido de Spotify");
+      return;
+    }
+    const spotifyUri = `spotify:${match[1]}:${match[2]}`;
+    const labels = { playlist: "Playlist", album: "Álbum", artist: "Artista", track: "Pista" };
+    btn.label = labels[match[1]] || "Spotify";
+    btn.sublabel = "Spotify";
+    btn.image = "/static/icons/spotify.svg";
+    btn.icon = "";
+    btn.color = "#1db954";
+    btn.action_type = "spotify_uri";
+    btn.target = spotifyUri;
+    btn.extra = {};
+    renderPhoneScreen();
+    renderButtonInspector(btn, index);
+    saveConfigToServer();
+    showToast("Acción de Spotify asignada");
+  });
+
+  function assignDiscordAction(target, label) {
+    const hotkey = (document.getElementById("discord-hotkey-input")?.value || "").trim().toUpperCase();
+    if (!/^(?=.*(?:CTRL|ALT|SHIFT|WIN)\b)(?=.*(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|SPACE|TAB|ENTER|ESC|BACKSPACE|DELETE|HOME|END|UP|DOWN|LEFT|RIGHT)\b)[A-Z0-9+ ]{3,80}$/.test(hotkey)) {
+      showToast("Usa un atajo como CTRL+SHIFT+M");
+      return;
+    }
+    btn.label = label;
+    btn.sublabel = "Discord";
+    btn.image = "/static/icons/discord.svg";
+    btn.icon = "";
+    btn.color = "#5865f2";
+    btn.action_type = "discord_hotkey";
+    btn.target = target;
+    btn.extra = { hotkey };
+    renderPhoneScreen();
+    renderButtonInspector(btn, index);
+    saveConfigToServer();
+    showToast(`Discord: ${label} asignado`);
+  }
+
+  document.getElementById("btn-set-discord-mute")?.addEventListener("click", () => assignDiscordAction("mute", "Silenciar"));
+  document.getElementById("btn-set-discord-deafen")?.addEventListener("click", () => assignDiscordAction("deafen", "Ensordecer"));
+}
+
+// 6. Tab Design: Titles, Colors & Vector SVG Gallery
 function renderTabDesign(container, btn, index) {
   let swatchesHtml = COLOR_SWATCHES.map(c => `
     <button class="color-swatch-btn ${btn.color === c ? 'active' : ''}" data-color="${c}" style="background: ${c};"></button>
@@ -1402,26 +1490,62 @@ function renderSliderInspector(slider, index) {
   });
 }
 
-// Save Configuration to Server
-async function saveConfigToServer() {
-  if (!config) return;
+// Save Configuration to Server. Small edits are batched so typing a title does
+// not produce a network request for every character.
+let saveTimer = null;
+let pendingSave = null;
+let resolvePendingSave = null;
+
+async function persistConfig() {
+  if (!config) return false;
   try {
     if (config.pages && config.pages[activePageIndex]) {
       config.slots = config.pages[activePageIndex].slots;
     }
-    await fetch("/api/deck/config", {
+    const response = await fetch("/api/deck/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(config)
     });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      showToast(error.detail || "No se pudieron guardar los cambios");
+      return false;
+    }
+    return true;
   } catch (e) {
     console.error("Error saving config", e);
+    showToast("No se pudo conectar para guardar");
+    return false;
   }
 }
 
+function saveConfigToServer(options = {}) {
+  if (!config) return Promise.resolve(false);
+  if (saveTimer) clearTimeout(saveTimer);
+  if (options.immediate === true) {
+    if (resolvePendingSave) resolvePendingSave(false);
+    pendingSave = null;
+    resolvePendingSave = null;
+    return persistConfig();
+  }
+  if (!pendingSave) {
+    pendingSave = new Promise(resolve => { resolvePendingSave = resolve; });
+  }
+  saveTimer = setTimeout(async () => {
+    const result = await persistConfig();
+    const resolve = resolvePendingSave;
+    pendingSave = null;
+    resolvePendingSave = null;
+    resolve?.(result);
+  }, 350);
+  return pendingSave;
+}
+
 document.getElementById("btn-save-all")?.addEventListener("click", async () => {
-  await saveConfigToServer();
-  showToast("¡Configuración guardada y sincronizada en el móvil!");
+  if (await saveConfigToServer({ immediate: true })) {
+    showToast("Configuración guardada y sincronizada");
+  }
 });
 
 function showToast(msg) {

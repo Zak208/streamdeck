@@ -1,11 +1,22 @@
+"""The allow-listed actions that a paired mobile device may trigger."""
+
+import ctypes
 import os
 import time
-import subprocess
 import webbrowser
-import ctypes
 import winsound
-from typing import Dict, Any, List
+from typing import Any, Dict
+from urllib.parse import urlparse
+
+from server.action_catalog import (
+    DISCORD_TARGETS,
+    MEDIA_TARGETS,
+    normalize_spotify_uri,
+    validate_action,
+    validate_hotkey,
+)
 from server.system_scanner import system_scanner
+
 
 VK_MEDIA_NEXT_TRACK = 0xB0
 VK_MEDIA_PREV_TRACK = 0xB1
@@ -14,144 +25,166 @@ VK_MEDIA_PLAY_PAUSE = 0xB3
 VK_VOLUME_MUTE = 0xAD
 KEYEVENTF_KEYUP = 0x0002
 
-def send_vk_key(vk_code: int):
-    """Simulates a media key press and release in Windows."""
+HOTKEY_VK = {
+    "CTRL": 0x11, "ALT": 0x12, "SHIFT": 0x10, "WIN": 0x5B,
+    "SPACE": 0x20, "TAB": 0x09, "ENTER": 0x0D, "ESC": 0x1B,
+    "BACKSPACE": 0x08, "DELETE": 0x2E, "HOME": 0x24, "END": 0x23,
+    "UP": 0x26, "DOWN": 0x28, "LEFT": 0x25, "RIGHT": 0x27,
+}
+HOTKEY_VK.update({chr(code): code for code in range(ord("A"), ord("Z") + 1)})
+HOTKEY_VK.update({str(number): ord(str(number)) for number in range(10)})
+HOTKEY_VK.update({f"F{number}": 0x6F + number for number in range(1, 25)})
+
+
+def send_vk_key(vk_code: int) -> bool:
+    """Simulate a dedicated media key press and release in Windows."""
     try:
         user32 = ctypes.windll.user32
         user32.keybd_event(vk_code, 0, 0, 0)
         user32.keybd_event(vk_code, 0, KEYEVENTF_KEYUP, 0)
         return True
-    except Exception as e:
-        print(f"Error sending virtual key {vk_code}: {e}")
+    except Exception as exc:
+        print(f"Error sending virtual key {vk_code}: {exc}")
         return False
 
-def launch_smart_app(app_id_or_path: str) -> bool:
-    """Launches an application intelligently using detected system paths, protocols, or direct execution."""
-    app_key = (app_id_or_path or "").lower().strip()
 
-    # Check detected apps from scanner first
-    detected_apps = system_scanner.get_detected_apps()
-    for app in detected_apps:
-        if app["id"] == app_key or app["exe_name"].lower() == app_key or app_key in app["name"].lower():
-            target_path = app["path"]
-            try:
-                if " " in target_path and not os.path.exists(target_path):
-                    subprocess.Popen(target_path, shell=True)
-                else:
-                    os.startfile(target_path)
-                return True
-            except Exception:
-                subprocess.Popen(target_path, shell=True)
-                return True
-
-    # Standard Windows App Aliases & Protocols
-    known_aliases = {
-        "discord": os.path.expandvars(r"%LOCALAPPDATA%\Discord\Update.exe --processStart Discord.exe"),
-        "spotify": "spotify:",
-        "steam": "steam:",
-        "obs": r"C:\Program Files\obs-studio\bin\64bit\obs64.exe",
-        "chrome": "chrome",
-        "calc": "calc",
-        "calculator": "calc",
-        "notepad": "notepad",
-        "valorant": r"C:\Riot Games\Riot Client\RiotClientServices.exe",
-        "riot": r"C:\Riot Games\Riot Client\RiotClientServices.exe"
-    }
-
-    cmd = known_aliases.get(app_key, app_id_or_path)
+def send_hotkey(hotkey: str) -> bool:
+    """Send a validated user-configured Discord global key binding."""
+    keys = validate_hotkey(hotkey).split("+")
     try:
-        if cmd.startswith("http://") or cmd.startswith("https://"):
-            webbrowser.open(cmd)
-            return True
-        if ":" in cmd and "\\" not in cmd and "/" not in cmd:
-            # Protocol like spotify: or steam:
-            os.system(f"start {cmd}")
-            return True
-        if " " in cmd and not os.path.exists(cmd):
-            subprocess.Popen(cmd, shell=True)
-        else:
-            os.startfile(cmd)
+        user32 = ctypes.windll.user32
+        virtual_keys = [HOTKEY_VK[key] for key in keys]
+        for virtual_key in virtual_keys:
+            user32.keybd_event(virtual_key, 0, 0, 0)
+        for virtual_key in reversed(virtual_keys):
+            user32.keybd_event(virtual_key, 0, KEYEVENTF_KEYUP, 0)
         return True
-    except Exception:
+    except Exception as exc:
+        print(f"Error sending hotkey {hotkey}: {exc}")
+        return False
+
+
+def launch_smart_app(app_id: str) -> bool:
+    """Launch only an installed app selected by StreamDesk's own scanner."""
+    app_key = (app_id or "").lower().strip()
+    if not app_key:
+        return False
+
+    for app in system_scanner.get_detected_apps():
+        if app["id"].lower() != app_key:
+            continue
+        path = app["path"]
         try:
-            subprocess.Popen(cmd, shell=True)
+            # Discord's updater needs its documented process argument. It is
+            # constructed here, never taken from the remotely editable profile.
+            if app_key == "discord" and "Update.exe" in path:
+                import subprocess
+                updater = path.split(" --", 1)[0]
+                subprocess.Popen([updater, "--processStart", "Discord.exe"])
+            else:
+                os.startfile(path)
             return True
-        except Exception as e:
-            print(f"Failed to launch {cmd}: {e}")
+        except OSError as exc:
+            print(f"Failed to launch {app_key}: {exc}")
             return False
 
-def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] = None) -> Dict[str, Any]:
-    extra = extra or {}
-    action_type = (action_type or "").lower().strip()
-    target_str = (target or "").strip()
+    known_protocols = {"spotify": "spotify:", "steam": "steam:"}
+    if app_key in known_protocols:
+        try:
+            os.startfile(known_protocols[app_key])
+            return True
+        except OSError:
+            return False
+    return False
+
+
+def open_spotify_uri(value: str) -> bool:
+    try:
+        os.startfile(normalize_spotify_uri(value))
+        return True
+    except OSError as exc:
+        print(f"Failed to open Spotify URI: {exc}")
+        return False
+
+
+def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Validate then execute one safe action. Custom shell commands are intentionally unsupported."""
+    try:
+        action = validate_action(action_type, target, extra, allow_multi=False)
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+
+    action_type = action["action_type"]
+    target = action["target"]
+    extra = action["extra"]
+    try:
+        if action_type in {"launch", "preset_app"}:
+            return {"success": launch_smart_app(target), "action": action_type, "target": target}
+
+        if action_type == "spotify_uri":
+            return {"success": open_spotify_uri(target), "action": action_type, "target": target}
+
+        if action_type == "discord_hotkey":
+            if target not in DISCORD_TARGETS:
+                return {"success": False, "error": "Acción de Discord no válida"}
+            return {"success": send_hotkey(extra["hotkey"]), "action": action_type, "target": target}
+
+        if action_type == "media":
+            media_key = target.lower()
+            media_map = {
+                "play_pause": VK_MEDIA_PLAY_PAUSE, "play": VK_MEDIA_PLAY_PAUSE,
+                "next": VK_MEDIA_NEXT_TRACK, "next_track": VK_MEDIA_NEXT_TRACK,
+                "prev": VK_MEDIA_PREV_TRACK, "previous": VK_MEDIA_PREV_TRACK,
+                "prev_track": VK_MEDIA_PREV_TRACK, "stop": VK_MEDIA_STOP, "mute": VK_VOLUME_MUTE,
+            }
+            if media_key not in MEDIA_TARGETS:
+                return {"success": False, "error": "Comando multimedia desconocido"}
+            return {"success": send_vk_key(media_map[media_key]), "action": action_type, "target": target}
+
+        if action_type == "url":
+            parsed = urlparse(target)
+            if parsed.scheme not in {"http", "https"}:
+                return {"success": False, "error": "Enlace no permitido"}
+            webbrowser.open(target)
+            return {"success": True, "action": action_type, "target": target}
+
+        if action_type == "obs_action":
+            from server.obs_client import obs_client
+            return obs_client.execute_obs_action(target, extra)
+
+        if action_type == "hardware_monitor":
+            # These actions render live data on the deck. They do not open or
+            # execute anything on the computer when a user taps them.
+            return {"success": True, "action": action_type, "target": target, "read_only": True}
+
+        if action_type == "sound":
+            if target == "beep":
+                winsound.Beep(1000, 200)
+            elif target == "asterisk":
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            else:
+                winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+            return {"success": True, "action": action_type, "target": target}
+
+        return {"success": False, "error": "Tipo de acción no soportado"}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+def execute_action(action_type: str, target: str, extra: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Run either one action or a small, fully allow-listed macro."""
+    if (action_type or "").lower().strip() != "multi":
+        return execute_single_action(action_type, target, extra)
 
     try:
-        if action_type in ("launch", "preset_app", "app"):
-            success = launch_smart_app(target_str)
-            return {"success": success, "action": action_type, "target": target_str}
+        macro = validate_action(action_type, target, extra)
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
 
-        elif action_type == "media":
-            media_cmd = target_str.lower()
-            if media_cmd in ("play_pause", "playpause", "play"):
-                send_vk_key(VK_MEDIA_PLAY_PAUSE)
-            elif media_cmd in ("next", "next_track"):
-                send_vk_key(VK_MEDIA_NEXT_TRACK)
-            elif media_cmd in ("prev", "previous", "prev_track"):
-                send_vk_key(VK_MEDIA_PREV_TRACK)
-            elif media_cmd in ("stop",):
-                send_vk_key(VK_MEDIA_STOP)
-            elif media_cmd in ("mute",):
-                send_vk_key(VK_VOLUME_MUTE)
-            else:
-                return {"success": False, "error": f"Comando multimedia desconocido: {media_cmd}"}
-            return {"success": True, "action": action_type, "target": target_str}
-
-        elif action_type == "url":
-            webbrowser.open(target_str)
-            return {"success": True, "action": action_type, "target": target_str}
-
-        elif action_type in ("command", "script"):
-            subprocess.Popen(["powershell.exe", "-NoProfile", "-Command", target_str], shell=True)
-            return {"success": True, "action": action_type, "target": target_str}
-
-        elif action_type == "obs_action":
-            from server.obs_client import obs_client
-            return obs_client.execute_obs_action(target_str, extra)
-
-        elif action_type == "hardware_monitor":
-            subprocess.Popen("taskmgr.exe")
-            return {"success": True, "action": "open_taskmgr"}
-
-        elif action_type == "sound":
-            sound_type = target_str.lower()
-            if sound_type == "beep":
-                winsound.Beep(1000, 200)
-            elif sound_type == "asterisk":
-                winsound.MessageBeep(winsound.MB_ICONASTERISK)
-            elif sound_type == "exclamation":
-                winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
-            else:
-                winsound.MessageBeep(winsound.MB_OK)
-            return {"success": True, "action": action_type, "target": target_str}
-
-        return {"success": False, "error": f"Tipo no soportado: {action_type}"}
-
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-def execute_action(action_type: str, target: str, extra: Dict[str, Any] = None) -> Dict[str, Any]:
-    extra = extra or {}
-    action_type = (action_type or "").lower().strip()
-
-    if action_type == "multi":
-        actions_list = extra.get("actions", [])
-        results = []
-        for act in actions_list:
-            res = execute_single_action(act.get("action_type"), act.get("target"), act.get("extra"))
-            results.append(res)
-            delay = act.get("delay_ms", 150) / 1000.0
-            if delay > 0:
-                time.sleep(delay)
-        return {"success": True, "type": "multi", "results": results}
-
-    return execute_single_action(action_type, target, extra)
+    results = []
+    for child in macro["extra"]["actions"]:
+        results.append(execute_single_action(child["action_type"], child["target"], child["extra"]))
+        delay = child.get("delay_ms", 150) / 1000.0
+        if delay:
+            time.sleep(delay)
+    return {"success": all(result.get("success") for result in results), "type": "multi", "results": results}
