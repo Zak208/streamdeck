@@ -9,3 +9,9 @@ StreamDesk.spec
 config/auth_tokens.json
 
 
+
+# Build output and per-user data (never versioned)
+dist/
+instalador_streamdeck.exe
+config/deck_config.json
+config/auth_tokens.json
