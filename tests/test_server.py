@@ -14,7 +14,7 @@ from server.paths import STATIC_DIR, VERSION
 
 STATIC_ENDPOINTS = [
     ("/api/info", ["version", "server_ip", "port", "direct_url", "studio_url"]),
-    ("/api/auth/pin", ["pin", "qr_code", "ip", "port"]),
+    ("/api/auth/pin", ["pin", "qr_code", "ip", "port", "expires_in"]),
     ("/api/config", ["deck_name", "layout", "slots", "pages"]),
     ("/api/deck/config", ["deck_name", "layout", "slots", "pages"]),
     ("/api/audio/sessions", ["master", "sessions"]),

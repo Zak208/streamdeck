@@ -13,7 +13,10 @@ import qrcode
 from server.paths import CONFIG_DIR
 
 TOKENS_FILE = os.path.join(CONFIG_DIR, "auth_tokens.json")
-PIN_TTL_SECONDS = 5 * 60
+PIN_TTL_SECONDS = 10 * 60
+# After a rotation the previous PIN still works briefly, so someone who was typing it
+# while Studio refreshed the code is not told they got it wrong.
+PIN_GRACE_SECONDS = 60
 MAX_PIN_ATTEMPTS = 5
 PIN_ATTEMPT_WINDOW_SECONDS = 10 * 60
 
@@ -24,6 +27,8 @@ class AuthManager:
     def __init__(self):
         self.current_pin = self._generate_pin()
         self.pin_issued_at = time.monotonic()
+        self.previous_pin = ""
+        self.previous_pin_until = 0.0
         self.pin_attempts: Dict[str, list[float]] = {}
         self.authorized_tokens: Set[str] = set()
         self.paired_devices: Dict[str, Dict[str, Any]] = {}
@@ -33,6 +38,8 @@ class AuthManager:
         return f"{secrets.randbelow(900000) + 100000}"
 
     def refresh_pin(self) -> str:
+        self.previous_pin = self.current_pin
+        self.previous_pin_until = time.monotonic() + PIN_GRACE_SECONDS
         self.current_pin = self._generate_pin()
         self.pin_issued_at = time.monotonic()
         return self.current_pin
@@ -42,6 +49,17 @@ class AuthManager:
         if time.monotonic() - self.pin_issued_at >= PIN_TTL_SECONDS:
             self.refresh_pin()
         return self.current_pin
+
+    def pin_expires_in(self) -> int:
+        """Seconds until the PIN shown in Studio rotates."""
+        self.get_current_pin()
+        return max(0, int(PIN_TTL_SECONDS - (time.monotonic() - self.pin_issued_at)))
+
+    def _pin_matches(self, entered: str) -> bool:
+        if secrets.compare_digest(entered, self.get_current_pin().strip()):
+            return True
+        return bool(self.previous_pin) and time.monotonic() < self.previous_pin_until \
+            and secrets.compare_digest(entered, self.previous_pin.strip())
 
     def _rate_limit_allows_attempt(self, client_ip: str) -> bool:
         now = time.monotonic()
@@ -118,8 +136,7 @@ class AuthManager:
         if not self._rate_limit_allows_attempt(client_ip):
             return {"valid": False, "success": False, "error": "Demasiados intentos. Espera unos minutos y genera un PIN nuevo."}
         clean_pin = str(pin).strip()
-        active_pin = self.get_current_pin()
-        if clean_pin and secrets.compare_digest(clean_pin, active_pin.strip()):
+        if clean_pin and self._pin_matches(clean_pin):
             new_token = secrets.token_hex(20)
             self.authorized_tokens.add(new_token)
             self.paired_devices[new_token] = {
@@ -132,7 +149,8 @@ class AuthManager:
             self.refresh_pin()
             self.pin_attempts.pop(client_ip or "unknown", None)
             return {"valid": True, "success": True, "token": new_token}
-        return {"valid": False, "success": False, "error": "Código PIN incorrecto"}
+        return {"valid": False, "success": False,
+                "error": "PIN incorrecto o caducado. Escribe el que StreamDesk Studio muestra ahora."}
 
     def is_token_authorized(self, token: str) -> bool:
         if not token or not isinstance(token, str):

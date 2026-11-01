@@ -161,6 +161,15 @@ class AssetTests(unittest.TestCase):
                 with self.subTest(script=script, element=name):
                     self.assertIn(f'id="{name}"', html)
 
+    def test_studio_keeps_the_pin_on_screen_in_step_with_the_server(self):
+        # The server rotates the PIN; a Studio that only read it once showed a dead code.
+        self.assertIn("setInterval(loadAuthInfo", read("js/studio.js"))
+        self.assertIn('id="pin-expiry"', read("studio.html"))
+
+    def test_phone_shows_the_pin_error_above_the_button(self):
+        html = read("index.html")
+        self.assertLess(html.index('id="pin-error"'), html.index('id="btn-verify-pin"'))
+
     def test_both_apps_load_the_shared_tokens(self):
         for page in ("studio.html", "index.html"):
             self.assertIn("/static/css/tokens.css", read(page))

@@ -157,6 +157,7 @@ aside {
   background: var(--surface-2);
 }
 .refresh-pin-btn:hover { border-color: var(--accent); color: var(--accent); }
+.pin-expiry { color: var(--text-3); font-size: 11px; }
 .info-url { font: 11px var(--mono); color: var(--text-3); overflow-wrap: anywhere; text-align: center; }
 
 .drag-palette-box { display: grid; gap: 8px; }

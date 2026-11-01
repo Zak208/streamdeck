@@ -58,26 +58,46 @@ const TELEMETRY_PRESETS = [
 ];
 
 // Load Pairing Info & QR
+let pinExpiresAt = 0;
+
+function showPairingInfo(data) {
+  const pinEl = document.getElementById("pin-code");
+  const qrEl = document.getElementById("qr-image");
+  if (pinEl.textContent !== data.pin) pinEl.textContent = data.pin;
+  // Re-assigning the same image makes the QR flicker, so only touch it when the PIN changed.
+  if (qrEl.dataset.pin !== data.pin) {
+    qrEl.src = data.qr_code;
+    qrEl.dataset.pin = data.pin;
+  }
+  document.getElementById("server-url").textContent = `http://${data.ip}:${data.port}`;
+  pinExpiresAt = Date.now() + (data.expires_in || 0) * 1000;
+  renderPinCountdown();
+}
+
+function renderPinCountdown() {
+  const el = document.getElementById("pin-expiry");
+  if (!el || !pinExpiresAt) return;
+  const left = Math.max(0, Math.round((pinExpiresAt - Date.now()) / 1000));
+  el.textContent = `Se renueva en ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+}
+
+// The server rotates the PIN every few minutes and after each pairing: keep the screen in step with it.
 async function loadAuthInfo() {
   try {
     const res = await fetch("/api/auth/pin");
-    const data = await res.json();
-    document.getElementById("pin-code").textContent = data.pin;
-    document.getElementById("qr-image").src = data.qr_code;
-    document.getElementById("server-url").textContent = `http://${data.ip}:${data.port}`;
+    showPairingInfo(await res.json());
   } catch (e) {
     console.error("Error loading PIN", e);
   }
 }
+setInterval(loadAuthInfo, 10000);
+setInterval(renderPinCountdown, 1000);
 
 async function regenerateAuthPin() {
   try {
     const res = await fetch("/api/auth/regenerate-pin", { method: "POST" });
-    const data = await res.json();
-    document.getElementById("pin-code").textContent = data.pin;
-    document.getElementById("qr-image").src = data.qr_code;
-    document.getElementById("server-url").textContent = `http://${data.ip}:${data.port}`;
-    showToast("¡Nuevo PIN y código QR generados!");
+    showPairingInfo(await res.json());
+    showToast("PIN y código QR nuevos");
   } catch (e) {
     console.error("Error regenerating PIN", e);
   }

@@ -1,4 +1,5 @@
 import copy
+import os
 import unittest
 
 import support  # noqa: F401  (isolates the data directory)
@@ -31,6 +32,27 @@ class ActionCatalogTests(unittest.TestCase):
         unsafe_profile["pages"][0]["slots"][0].update({"action_type": "script", "target": "whoami"})
         with self.assertRaises(ValueError):
             validate_deck_config(unsafe_profile)
+
+
+class ProfileSafetyTests(unittest.TestCase):
+    def test_an_unreadable_profile_is_set_aside_not_overwritten(self):
+        import tempfile
+        from unittest import mock
+        from server import config_manager
+
+        folder = tempfile.mkdtemp()
+        path = os.path.join(folder, "deck_config.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write('{"pages": [{"id": "x", "name": "Mi página", "slots": "roto"}]}')
+
+        with mock.patch.object(config_manager, "CONFIG_DIR", folder), mock.patch.object(config_manager, "CONFIG_FILE", path):
+            manager = config_manager.ConfigManager()
+
+        kept = [name for name in os.listdir(folder) if name.startswith("deck_config.json.invalid-")]
+        self.assertEqual(len(kept), 1, "the broken profile must survive next to the new one")
+        with open(os.path.join(folder, kept[0]), encoding="utf-8") as handle:
+            self.assertIn("Mi página", handle.read())
+        self.assertEqual(len(manager.get_config()["pages"]), len(DEFAULT_CONFIG["pages"]))
 
 
 if __name__ == "__main__":

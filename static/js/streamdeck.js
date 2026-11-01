@@ -832,8 +832,9 @@ document.getElementById("btn-verify-pin")?.addEventListener("click", async () =>
 
   if (enteredPin.length < 4) {
     if (pinError) {
-      pinError.textContent = "El PIN debe tener al menos 6 dígitos";
+      pinError.textContent = "Escribe el PIN de 6 dígitos que muestra StreamDesk Studio.";
       pinError.style.display = "block";
+      pinError.scrollIntoView({ block: "nearest" });
     }
     return;
   }
@@ -868,12 +869,15 @@ document.getElementById("btn-verify-pin")?.addEventListener("click", async () =>
       if (pinError) {
         pinError.textContent = data.detail || data.error || "PIN incorrecto. Revisa el código en tu PC.";
         pinError.style.display = "block";
+        pinError.scrollIntoView({ block: "nearest" });
       }
+      haptic([40, 60, 40]);
     }
   } catch (err) {
     if (pinError) {
-      pinError.textContent = "Error de conexión con el PC. Verifica que estás en la misma Wi-Fi.";
+      pinError.textContent = "No se pudo contactar con el PC. Comprueba que estáis en la misma Wi-Fi y que StreamDesk está abierto.";
       pinError.style.display = "block";
+      pinError.scrollIntoView({ block: "nearest" });
     }
   } finally {
     if (btnVerify) {

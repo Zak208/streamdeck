@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import time
 from typing import Dict, Any, List
 from server.action_catalog import validate_deck_config
 from server.paths import CONFIG_DIR
@@ -117,6 +118,11 @@ class ConfigManager:
                         return migrated
             except Exception as e:
                 print(f"Error loading deck_config.json: {e}")
+                # Never overwrite a profile we could not read: set it aside so the user can recover it.
+                try:
+                    os.replace(CONFIG_FILE, f"{CONFIG_FILE}.invalid-{int(time.time())}")
+                except OSError:
+                    pass
         self.save_config(DEFAULT_CONFIG)
         return DEFAULT_CONFIG
 

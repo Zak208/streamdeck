@@ -136,7 +136,18 @@ header {
 .pin-input { width: 100%; padding: 14px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--radius-md); color: var(--text); font: 700 28px var(--mono); letter-spacing: 0.4em; text-align: center; outline: none; user-select: text; -webkit-user-select: text; }
 .pin-input:focus { border-color: var(--accent); }
 .modal-card .btn-primary, .modal-card .btn-secondary { width: 100%; min-height: 46px; }
-.pin-error { min-height: 18px; margin-top: 12px; color: var(--danger); font-size: 13px; }
+.pin-error { display: none; margin: 0 0 12px; padding: 9px 12px; border: 1px solid var(--danger); border-radius: var(--radius-sm); background: rgba(255, 97, 89, 0.1); color: var(--danger); font-size: 13px; font-weight: 600; line-height: 1.4; }
+.pin-error:empty { display: none !important; }
+/* Landscape phones are short: keep the whole PIN form on screen above the keyboard. */
+@media (max-height: 520px) {
+  .modal-overlay { align-items: flex-start; padding: 8px; }
+  .modal-card { padding: 14px 18px; max-height: calc(100vh - 16px); }
+  .modal-title { margin-bottom: 4px; font-size: 16px; }
+  .modal-desc { margin-bottom: 10px; font-size: 12px; }
+  .pin-inputs { margin-bottom: 10px; }
+  .pin-input { padding: 8px; font-size: 22px; }
+  .modal-card .btn-primary, .modal-card .btn-secondary { min-height: 40px; }
+}
 
 /* ---------- App picker ---------- */
 .app-modal { position: fixed; inset: 0; z-index: 90; display: none; align-items: flex-end; justify-content: center; background: rgba(0, 0, 0, 0.66); }

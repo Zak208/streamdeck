@@ -244,6 +244,7 @@ def get_system_info(_: None = Depends(require_local_request)):
 def get_pairing_pin(_: None = Depends(require_local_request)):
     return {
         "pin": auth_manager.get_current_pin(),
+        "expires_in": auth_manager.pin_expires_in(),
         "qr_code": auth_manager.generate_qr_base64(PORT),
         "ip": auth_manager.get_local_ip(),
         "port": PORT
@@ -254,6 +255,7 @@ def regenerate_pin(_: None = Depends(require_local_request)):
     new_pin = auth_manager.refresh_pin()
     return {
         "pin": new_pin,
+        "expires_in": auth_manager.pin_expires_in(),
         "qr_code": auth_manager.generate_qr_base64(PORT),
         "ip": auth_manager.get_local_ip(),
         "port": PORT
