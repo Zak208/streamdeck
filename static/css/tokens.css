@@ -1,0 +1,150 @@
+/* StreamDesk design system: tokens, themes and the components Studio and the phone share. */
+
+:root,
+:root[data-theme="ctma"] {
+  color-scheme: dark;
+  /* Corporate palette: black, white, gray #555555 and yellow #F8C700. The other grays are tints between them. */
+  --bg: #0a0a0a;
+  --bg-raised: #111111;
+  --surface: #171717;
+  --surface-2: #202020;
+  --surface-3: #2b2b2b;
+  --line: #2b2b2b;
+  --line-strong: #555555;
+  --text: #ffffff;
+  --text-2: #c4c4c4;
+  --text-3: #8c8c8c;
+  --accent: #f8c700;
+  --accent-hover: #ffd633;
+  --accent-ink: #0a0a0a;
+  --accent-soft: rgba(248, 199, 0, 0.14);
+  --ok: #4ade80;
+  --danger: #ff6159;
+}
+
+:root[data-theme="cian"] {
+  --bg: #080a10;
+  --bg-raised: #0e121b;
+  --surface: #131824;
+  --surface-2: #1a2233;
+  --surface-3: #243049;
+  --line: #222b3d;
+  --line-strong: #41536a;
+  --text: #f4f7fb;
+  --text-2: #aebaca;
+  --text-3: #7b899a;
+  --accent: #38bdf8;
+  --accent-hover: #7dd3fc;
+  --accent-ink: #04121c;
+  --accent-soft: rgba(56, 189, 248, 0.14);
+  --ok: #34d399;
+  --danger: #f87171;
+}
+
+:root {
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 10px 30px rgba(0, 0, 0, 0.5);
+  --icon-filter: brightness(0) invert(1);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--font); -webkit-font-smoothing: antialiased; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/*
+ * The monochrome icons use currentColor, which an <img> resolves to black, so on a
+ * dark UI they vanish. Paint them white. Brand logos (their own colours) and
+ * uploaded images are left alone. Set --icon-filter on a parent to change it.
+ */
+img[src^="/static/icons/"]:not([src*="/discord."]):not([src*="/spotify."]):not([src*="/obs."]):not([src*="/steam."]):not([src*="/chrome."]):not([src*="/icon-"]) {
+  filter: var(--icon-filter);
+}
+
+/* Buttons */
+.btn-primary, .btn-secondary, .btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-weight: 700;
+  font-size: 13px;
+  transition: background 0.12s, border-color 0.12s, transform 0.06s;
+}
+.btn-primary { background: var(--accent); color: var(--accent-ink); --icon-filter: brightness(0); }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary { background: var(--surface-2); border-color: var(--line); color: var(--text); }
+.btn-secondary:hover { border-color: var(--line-strong); background: var(--surface-3); }
+.btn-danger { background: transparent; border-color: var(--line-strong); color: var(--danger); --icon-filter: none; }
+.btn-danger:hover { background: rgba(255, 97, 89, 0.1); border-color: var(--danger); }
+.btn-primary:active, .btn-secondary:active, .btn-danger:active { transform: translateY(1px); }
+.btn-primary:disabled, .btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Form controls */
+input[type="text"], input[type="url"], input[type="password"], input[type="number"], input[type="search"], select {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.12s;
+}
+input:focus, select:focus { border-color: var(--accent); }
+input::placeholder { color: var(--text-3); }
+
+/* Status pill */
+.status-pill {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+.status-pill.status-ready { background: rgba(74, 222, 128, 0.14); color: var(--ok); }
+.status-pill.status-needs_setup, .status-pill.status-limited { background: var(--accent-soft); color: var(--accent); }
+
+/* Modal (Studio dialogs and the phone's PIN screen) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.68);
+  backdrop-filter: blur(4px);
+}
+.modal-card {
+  width: min(100%, 520px);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+.modal-title { margin: 0 0 10px; font-size: 18px; font-weight: 700; }
+.modal-desc { margin: 0 0 18px; color: var(--text-2); font-size: 13px; line-height: 1.55; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

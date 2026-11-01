@@ -1,14 +1,19 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="ctma">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>StreamDesk Mobile Pro</title>
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#090c12">
+  <meta name="theme-color" content="#0a0a0a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <script>
+    // Same theme as Studio, remembered from the last connection, applied before first paint.
+    try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -16,7 +21,6 @@
   <header>
     <div class="brand">
       <span>STREAMDESK</span>
-      <span class="badge-pro">PRO</span>
     </div>
 
     <!-- Multi-Page Navigation Bar -->
@@ -30,7 +34,7 @@
     <div class="header-actions">
       <!-- PWA Install Button -->
       <button class="btn-install" id="btn-install-pwa" style="display: none;">
-        📲 Instalar App
+        Instalar app
       </button>
 
       <div class="status-badge" id="btn-status-badge" title="Toca para ver estado de enlace">
@@ -39,7 +43,7 @@
       </div>
 
       <button class="icon-btn" id="btn-open-settings" title="Ajustes y Vinculación PIN">
-        <img src="/static/icons/gear.svg" alt="Ajustes" style="width: 16px; height: 16px; filter: invert(0.85);">
+        <img src="/static/icons/gear.svg" alt="Ajustes">
       </button>
 
       <button class="icon-btn" id="btn-fullscreen" title="Pantalla Completa">
@@ -47,6 +51,8 @@
       </button>
     </div>
   </header>
+
+  <div class="rotate-hint">Gira el móvil en horizontal para ver todo el panel</div>
 
   <!-- Reconnection Alert Banner -->
   <div id="reconnect-banner" class="reconnect-banner" style="display: none;">
@@ -80,7 +86,7 @@
   <!-- iOS PWA Install Instructions Modal -->
   <div class="modal-overlay" id="ios-install-modal" style="display: none;">
     <div class="modal-card">
-      <div class="modal-title">📲 Instalar en tu Móvil</div>
+      <div class="modal-title">Instalar en tu móvil</div>
       <div class="modal-desc" style="text-align: left; font-size: 0.85rem; line-height: 1.6;">
         Para instalar StreamDesk a pantalla completa como una app real:<br><br>
         1. Pulsa el botón <strong>Compartir (⎋)</strong> en la barra de tu navegador (Safari/Chrome).<br>

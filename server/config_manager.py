@@ -19,15 +19,15 @@ def generate_default_pages() -> List[Dict[str, Any]]:
         # Col 3
         {"index": 3, "type": "button", "id": "btn_steam", "label": "Steam", "sublabel": "Juegos", "icon": "", "image": "/static/icons/steam.svg", "color": "#171a21", "action_type": "preset_app", "target": "steam"},
         # Col 4 (Vertical Slider Master - 2 vertical spaces)
-        {"index": 4, "type": "slider", "id": "slider_master", "label": "Master", "sublabel": "PC", "slider_type": "master", "target_app": None, "color": "#0ea5e9", "row_span": 2, "icon": "/static/icons/volume_up.svg", "image": "/static/icons/volume_up.svg"},
+        {"index": 4, "type": "slider", "id": "slider_master", "label": "Master", "sublabel": "PC", "slider_type": "master", "target_app": None, "color": "#f8c700", "row_span": 2, "icon": "/static/icons/volume_up.svg", "image": "/static/icons/volume_up.svg"},
         # Col 5 (Vertical Slider App - 2 vertical spaces)
-        {"index": 5, "type": "slider", "id": "slider_app", "label": "Spotify", "sublabel": "App", "slider_type": "app_dynamic", "target_app": "Spotify.exe", "color": "#a855f7", "row_span": 2, "icon": "/static/icons/spotify.svg", "image": "/static/icons/spotify.svg"},
+        {"index": 5, "type": "slider", "id": "slider_app", "label": "Spotify", "sublabel": "App", "slider_type": "app_dynamic", "target_app": "Spotify.exe", "color": "#1db954", "row_span": 2, "icon": "/static/icons/spotify.svg", "image": "/static/icons/spotify.svg"},
         # Row 1, Col 0
-        {"index": 6, "type": "button", "id": "btn_play", "label": "Play/Pausa", "sublabel": "Media", "icon": "", "image": "/static/icons/play_pause.svg", "color": "#22c55e", "action_type": "media", "target": "play_pause"},
+        {"index": 6, "type": "button", "id": "btn_play", "label": "Play/Pausa", "sublabel": "Media", "icon": "", "image": "/static/icons/play_pause.svg", "color": "#f8c700", "action_type": "media", "target": "play_pause"},
         # Row 1, Col 1
-        {"index": 7, "type": "button", "id": "btn_next", "label": "Siguiente", "sublabel": "Pista", "icon": "", "image": "/static/icons/next.svg", "color": "#38bdf8", "action_type": "media", "target": "next"},
+        {"index": 7, "type": "button", "id": "btn_next", "label": "Siguiente", "sublabel": "Pista", "icon": "", "image": "/static/icons/next.svg", "color": "#f8c700", "action_type": "media", "target": "next"},
         # Row 1, Col 2
-        {"index": 8, "type": "button", "id": "btn_prev", "label": "Anterior", "sublabel": "Pista", "icon": "", "image": "/static/icons/prev.svg", "color": "#38bdf8", "action_type": "media", "target": "prev"},
+        {"index": 8, "type": "button", "id": "btn_prev", "label": "Anterior", "sublabel": "Pista", "icon": "", "image": "/static/icons/prev.svg", "color": "#f8c700", "action_type": "media", "target": "prev"},
         # Row 1, Col 3
         {"index": 9, "type": "button", "id": "btn_mute", "label": "Mute", "sublabel": "Audio", "icon": "", "image": "/static/icons/mute.svg", "color": "#ef4444", "action_type": "media", "target": "mute"},
         # Row 1, Col 4 (Occupied by Master Slider)
@@ -41,12 +41,12 @@ def generate_default_pages() -> List[Dict[str, Any]]:
         {"index": 0, "type": "button", "id": "btn_obs_rec", "label": "Grabar", "sublabel": "OBS", "icon": "", "image": "/static/icons/video.svg", "color": "#ef4444", "action_type": "obs_action", "target": "record_toggle"},
         {"index": 1, "type": "button", "id": "btn_obs_stream", "label": "Transmitir", "sublabel": "En Vivo", "icon": "", "image": "/static/icons/broadcast.svg", "color": "#8b5cf6", "action_type": "obs_action", "target": "stream_toggle"},
         {"index": 2, "type": "button", "id": "btn_obs_scene1", "label": "Juego", "sublabel": "Escena", "icon": "", "image": "/static/icons/gamepad.svg", "color": "#10b981", "action_type": "obs_action", "target": "scene_juego", "extra": {"scene_name": "Juego"}},
-        {"index": 3, "type": "button", "id": "btn_stream_macro", "label": "Setup Live", "sublabel": "Macro", "icon": "", "image": "/static/icons/macro.svg", "color": "#a855f7", "action_type": "multi", "target": "stream", "extra": {"actions": [{"action_type": "preset_app", "target": "obs", "delay_ms": 200}, {"action_type": "preset_app", "target": "discord", "delay_ms": 200}]}},
-        {"index": 4, "type": "slider", "id": "slider_master_p2", "label": "Master", "sublabel": "PC", "slider_type": "master", "target_app": None, "color": "#0ea5e9", "row_span": 2, "icon": "/static/icons/volume_up.svg", "image": "/static/icons/volume_up.svg"},
+        {"index": 3, "type": "button", "id": "btn_stream_macro", "label": "Setup Live", "sublabel": "Macro", "icon": "", "image": "/static/icons/macro.svg", "color": "#f8c700", "action_type": "multi", "target": "stream", "extra": {"actions": [{"action_type": "preset_app", "target": "obs", "delay_ms": 200}, {"action_type": "preset_app", "target": "discord", "delay_ms": 200}]}},
+        {"index": 4, "type": "slider", "id": "slider_master_p2", "label": "Master", "sublabel": "PC", "slider_type": "master", "target_app": None, "color": "#f8c700", "row_span": 2, "icon": "/static/icons/volume_up.svg", "image": "/static/icons/volume_up.svg"},
         {"index": 5, "type": "slider", "id": "slider_discord_p2", "label": "Discord", "sublabel": "Voz", "slider_type": "app_dynamic", "target_app": "Discord.exe", "color": "#5865f2", "row_span": 2, "icon": "/static/icons/discord.svg", "image": "/static/icons/discord.svg"},
         {"index": 6, "type": "button", "id": "btn_obs_pause", "label": "Pausa Rec", "sublabel": "OBS", "icon": "", "image": "/static/icons/pause.svg", "color": "#f59e0b", "action_type": "obs_action", "target": "record_pause"},
-        {"index": 7, "type": "button", "id": "btn_obs_next_scene", "label": "Escena +", "sublabel": "Siguiente", "icon": "", "image": "/static/icons/next.svg", "color": "#38bdf8", "action_type": "obs_action", "target": "next_scene"},
-        {"index": 8, "type": "button", "id": "btn_obs_scene2", "label": "Charla", "sublabel": "Escena", "icon": "", "image": "/static/icons/notes.svg", "color": "#06b6d4", "action_type": "obs_action", "target": "scene_charla", "extra": {"scene_name": "Charla"}},
+        {"index": 7, "type": "button", "id": "btn_obs_next_scene", "label": "Escena +", "sublabel": "Siguiente", "icon": "", "image": "/static/icons/next.svg", "color": "#f8c700", "action_type": "obs_action", "target": "next_scene"},
+        {"index": 8, "type": "button", "id": "btn_obs_scene2", "label": "Charla", "sublabel": "Escena", "icon": "", "image": "/static/icons/notes.svg", "color": "#f8c700", "action_type": "obs_action", "target": "scene_charla", "extra": {"scene_name": "Charla"}},
         {"index": 9, "type": "button", "id": "btn_obs_mute_mic", "label": "Mute Mic", "sublabel": "OBS", "icon": "", "image": "/static/icons/mute.svg", "color": "#ef4444", "action_type": "obs_action", "target": "mute_mic"},
         {"index": 10, "type": "occupied_by_slider", "id": "slot_10_p2", "parent_slot": 4},
         {"index": 11, "type": "occupied_by_slider", "id": "slot_11_p2", "parent_slot": 5}
@@ -54,15 +54,15 @@ def generate_default_pages() -> List[Dict[str, Any]]:
 
     # Page 3: Sistema & Telemetría
     page_system_slots = [
-        {"index": 0, "type": "button", "id": "widget_cpu", "label": "CPU", "sublabel": "Carga", "icon": "", "image": "/static/icons/cpu.svg", "color": "#0ea5e9", "action_type": "hardware_monitor", "target": "cpu"},
+        {"index": 0, "type": "button", "id": "widget_cpu", "label": "CPU", "sublabel": "Carga", "icon": "", "image": "/static/icons/cpu.svg", "color": "#f8c700", "action_type": "hardware_monitor", "target": "cpu"},
         {"index": 1, "type": "button", "id": "widget_disk", "label": "SSD C:", "sublabel": "Espacio", "icon": "", "image": "/static/icons/disk.svg", "color": "#10b981", "action_type": "hardware_monitor", "target": "disk"},
         {"index": 2, "type": "button", "id": "btn_calc_p3", "label": "Calc", "sublabel": "Utilidad", "icon": "", "image": "/static/icons/calc.svg", "color": "#f59e0b", "action_type": "launch", "target": "calc"},
         {"index": 3, "type": "button", "id": "btn_chrome_p3", "label": "Chrome", "sublabel": "Web", "icon": "", "image": "/static/icons/chrome.svg", "color": "#ea4335", "action_type": "preset_app", "target": "chrome"},
-        {"index": 4, "type": "slider", "id": "slider_master_p3", "label": "Master", "sublabel": "PC", "slider_type": "master", "target_app": None, "color": "#0ea5e9", "row_span": 2, "icon": "/static/icons/volume_up.svg", "image": "/static/icons/volume_up.svg"},
+        {"index": 4, "type": "slider", "id": "slider_master_p3", "label": "Master", "sublabel": "PC", "slider_type": "master", "target_app": None, "color": "#f8c700", "row_span": 2, "icon": "/static/icons/volume_up.svg", "image": "/static/icons/volume_up.svg"},
         {"index": 5, "type": "slider", "id": "slider_chrome_p3", "label": "Chrome", "sublabel": "Web", "slider_type": "app_dynamic", "target_app": "chrome.exe", "color": "#ea4335", "row_span": 2, "icon": "/static/icons/chrome.svg", "image": "/static/icons/chrome.svg"},
         {"index": 6, "type": "button", "id": "widget_ram", "label": "RAM", "sublabel": "Memoria", "icon": "", "image": "/static/icons/ram.svg", "color": "#8b5cf6", "action_type": "hardware_monitor", "target": "ram"},
         {"index": 7, "type": "button", "id": "btn_taskmgr", "label": "Tareas", "sublabel": "Monitor", "icon": "", "image": "/static/icons/sliders.svg", "color": "#f59e0b", "action_type": "launch", "target": "taskmgr"},
-        {"index": 8, "type": "button", "id": "btn_notes_p3", "label": "Notas", "sublabel": "Editor", "icon": "", "image": "/static/icons/notes.svg", "color": "#06b6d4", "action_type": "launch", "target": "notepad"},
+        {"index": 8, "type": "button", "id": "btn_notes_p3", "label": "Notas", "sublabel": "Editor", "icon": "", "image": "/static/icons/notes.svg", "color": "#f8c700", "action_type": "launch", "target": "notepad"},
         {"index": 9, "type": "button", "id": "btn_yt_p3", "label": "YouTube", "sublabel": "Vídeo", "icon": "", "image": "/static/icons/youtube.svg", "color": "#e11d48", "action_type": "url", "target": "https://www.youtube.com"},
         {"index": 10, "type": "occupied_by_slider", "id": "slot_10_p3", "parent_slot": 4},
         {"index": 11, "type": "occupied_by_slider", "id": "slot_11_p3", "parent_slot": 5}

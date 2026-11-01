@@ -1,5 +1,8 @@
 import asyncio
 import json
+import os
+import subprocess
+import sys
 import threading
 import unittest
 import urllib.error
@@ -339,6 +342,33 @@ class WindowsAndDiscordTests(unittest.TestCase):
             discord.configure({"mute_hotkey": "CTRL+ALT+F7", "deafen_hotkey": "CTRL+ALT+F7"})
         with self.assertRaises(ValueError):
             discord.configure({"mute_hotkey": "M"})
+
+
+class ComSafetyTests(unittest.TestCase):
+    """A bad COM pointer takes the whole process down with no Python traceback, so guard it twice."""
+
+    def test_server_code_never_uses_ctypes_cast_on_com_pointers(self):
+        import glob
+        for path in glob.glob(os.path.join(support.PROJECT_ROOT, "server", "**", "*.py"), recursive=True):
+            with self.subTest(file=os.path.relpath(path, support.PROJECT_ROOT)):
+                code = "".join(line.split("#")[0] for line in open(path, encoding="utf-8"))
+                self.assertNotRegex(code, r"(?<![A-Za-z_])cast\(", "use QueryInterface: cast releases the same pointer twice")
+
+    def test_microphone_and_device_list_in_a_loop_do_not_crash_the_process(self):
+        # With ctypes.cast this loop died with an access violation within seconds.
+        script = "\n".join([
+            "import gc, sys, time",
+            f"sys.path.insert(0, {support.PROJECT_ROOT!r})",
+            "from server.connectors import windows",
+            "end = time.time() + 12",
+            "while time.time() < end:",
+            "    for call in (windows._get_mic_muted, windows._list_output_devices):",
+            "        try: call()",
+            "        except Exception: pass",
+            "    gc.collect(1)",
+        ])
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr[-500:])
 
 
 class ConnectorEndpointTests(unittest.TestCase):

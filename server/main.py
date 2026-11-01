@@ -1,3 +1,4 @@
+import copy
 import faulthandler
 import os
 import sys
@@ -42,8 +43,10 @@ from server.audio_controller import audio_controller
 from server.com_worker import com_worker
 from server.actions import execute_action
 from server.auth import auth_manager
+from server import templates
 from server.config_manager import config_manager
 from server.connectors import spotify, windows
+from server.settings_store import settings
 from server.system_scanner import system_scanner
 
 from server.paths import BASE_DIR, CONFIG_DIR, FROZEN, PORT, STATIC_DIR, UPLOADS_DIR, VERSION
@@ -270,6 +273,69 @@ async def verify_pin(payload: Dict[str, Any] = Body(...), request: Request = Non
 async def check_token(token: str = Query(default=None), _: None = Depends(require_local_request)):
     authorized = auth_manager.is_token_authorized(token)
     return {"authorized": authorized, "valid": authorized}
+
+THEMES = ("ctma", "cian")
+
+
+def current_theme() -> str:
+    theme = settings.get("ui").get("theme")
+    return theme if theme in THEMES else "ctma"
+
+
+@app.get("/api/ui")
+def get_ui_settings(_: None = Depends(require_local_request)):
+    return {"theme": current_theme()}
+
+
+@app.post("/api/ui")
+async def set_ui_settings(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    theme = values.get("theme")
+    if theme not in THEMES:
+        raise HTTPException(status_code=422, detail="Tema no válido")
+    settings.update("ui", {"theme": theme})
+    await ws_manager.broadcast({"type": "theme", "theme": theme})
+    return {"theme": theme}
+
+
+@app.get("/api/auth/devices")
+def list_paired_devices(_: None = Depends(require_local_request)):
+    return {"devices": auth_manager.list_devices()}
+
+
+@app.post("/api/auth/devices/revoke")
+async def revoke_paired_device(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    token = auth_manager.token_for_device(str(values.get("id", "")))
+    if not token or not auth_manager.revoke_token(token):
+        raise HTTPException(status_code=404, detail="Ese móvil ya no está emparejado")
+    # Cut the phone off now, not the next time it reconnects.
+    for connection in list(ws_manager.active_connections):
+        if getattr(connection.state, "token", None) == token:
+            try:
+                await connection.close(code=1008, reason="Dispositivo desvinculado")
+            except Exception:
+                pass
+            ws_manager.disconnect(connection)
+    return {"success": True}
+
+
+@app.get("/api/templates")
+def list_templates(_: None = Depends(require_local_request)):
+    return {"templates": templates.TEMPLATES}
+
+
+@app.post("/api/templates/apply")
+async def apply_template(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    try:
+        page = templates.build_page(str(values.get("template_id", "")), str(values.get("name") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    cfg = copy.deepcopy(config_manager.get_config())
+    cfg["pages"].append(page)
+    if not config_manager.save_config(cfg):
+        raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo crear la página")
+    await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+    return {"success": True, "index": len(config_manager.get_config()["pages"]) - 1}
+
 
 @app.get("/api/config")
 @app.get("/api/deck/config")
@@ -531,6 +597,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
         return
 
     await ws_manager.connect(websocket)
+    websocket.state.token = token
 
     try:
         audio_state = await run_audio(read_audio_state)
@@ -540,6 +607,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
             "master": audio_state["master"],
             "sessions": audio_state["sessions"],
             "mic": audio_state["mic"],
+            "theme": current_theme(),
             "button_states": button_states,
         }
         await websocket.send_text(json.dumps(init_state))

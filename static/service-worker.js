@@ -1,7 +1,8 @@
 // StreamDesk Service Worker for PWA installation & caching
-const CACHE_NAME = 'streamdesk-v2.2';
+const CACHE_NAME = 'streamdesk-v2.3';
 const ASSETS_TO_CACHE = [
   '/',
+  '/static/css/tokens.css',
   '/static/css/style.css',
   '/static/js/streamdeck.js',
   '/static/manifest.json',
@@ -49,7 +50,9 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    fetch(event.request)
+    // no-cache makes the browser ask the PC whether the file changed, so an update reaches
+    // phones that had cached the old page. Offline, the copy saved below is used instead.
+    fetch(event.request, { cache: 'no-cache' })
       .then((response) => {
         if (response && response.status === 200) {
           const responseClone = response.clone();

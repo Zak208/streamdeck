@@ -1,170 +1,138 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="ctma">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>StreamDesk Studio — PC Control Center Pro</title>
+  <title>StreamDesk Studio</title>
+  <script>
+    // Apply the saved theme before first paint so the window does not flash the wrong colours.
+    try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/studio.css">
 </head>
 <body>
 
-  <!-- Left Sidebar -->
-  <aside>
-    <div class="sidebar-header">
-      <div class="sidebar-brand">
-        <div class="brand-logo-icon">
-          <img src="/static/icons/power.svg" alt="StreamDesk Logo" style="width: 18px; height: 18px; filter: brightness(0) invert(1);">
-        </div>
-        <div>
-          <h1>STREAMDESK <span class="highlight">STUDIO</span></h1>
-          <p class="sidebar-subtitle">Tu control, simplificado</p>
-        </div>
+  <header class="studio-topbar">
+    <div class="sidebar-brand">
+      <div class="brand-logo-icon">
+        <img src="/static/icons/power.svg" alt="">
       </div>
+      <h1>STREAMDESK <span class="highlight">STUDIO</span></h1>
     </div>
 
-    <div class="sidebar-scroll">
-      <!-- QR and PIN Pairing Panel -->
-      <div class="panel-card panel-pairing">
-        <div class="panel-title">
-          <span>Enlace móvil</span>
-          <span class="badge-live-dot" title="Servidor Activo"></span>
-        </div>
-        <div class="qr-container">
-          <div class="qr-wrapper">
-            <img id="qr-image" class="qr-image" alt="Escanea con la cámara de tu móvil">
-          </div>
-          <div class="pin-display">
-            <span class="pin-label">PIN:</span>
-            <span class="pin-code" id="pin-code">------</span>
-            <button class="refresh-pin-btn" id="btn-refresh-pin" title="Generar nuevo PIN y QR">↻</button>
-          </div>
-          <div class="info-url" id="server-url">Cargando IP...</div>
-        </div>
-      </div>
-
-      <!-- Drag & Drop Palette Box -->
-      <div class="panel-card">
-        <div class="panel-title">
-          <span>Crear controles</span>
-        </div>
-        <p style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 8px;">
-          Arrastra un control o pulsa una casilla vacía:
-        </p>
-        <div class="drag-palette-box">
-          <div class="palette-item" draggable="true" id="palette-new-btn">
-            <span class="palette-item-icon">
-              <img src="/static/icons/power.svg" class="palette-svg-icon" alt="Btn">
-            </span>
-            <div>
-              <div class="palette-item-title">Botón de Acción</div>
-              <div class="palette-item-desc">Apps, multimedia o macros (1 casilla)</div>
-            </div>
-          </div>
-
-          <div class="palette-item palette-slider" draggable="true" id="palette-new-slider">
-            <span class="palette-item-icon">
-              <img src="/static/icons/fader.svg" class="palette-svg-icon" alt="Fader">
-            </span>
-            <div>
-              <div class="palette-item-title">Fader de Volumen</div>
-              <div class="palette-item-desc">Control vertical Master o App (2 casillas)</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Interactive Drag to Delete / Trash Dropzone -->
-      <div class="panel-card trash-dropzone" id="trash-dropzone">
-        <div class="trash-dropzone-content">
-          <img src="/static/icons/trash.svg" class="trash-drop-icon" alt="Papelera">
-          <div>
-            <div class="trash-drop-title">Papelera de Casillas</div>
-            <div class="trash-drop-desc" id="trash-drop-desc">Arrastra aquí para vaciar o borrar</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Active Audio Sessions Panel -->
-      <div class="panel-card">
-        <div class="panel-title">
-          <span>Audio activo</span>
-        </div>
-        <div id="audio-sessions-list" class="audio-sessions-list">
-          <!-- Populated by studio.js -->
-        </div>
-      </div>
+    <div class="page-tabs-container">
+      <div class="page-tabs" id="page-tabs"></div>
+      <button class="btn-page-add" id="btn-add-page" title="Crear una página nueva">+ Página</button>
+      <button class="btn-page-del" id="btn-delete-page" title="Eliminar la página activa" style="display: none;">
+        <img src="/static/icons/trash.svg" alt="Eliminar página">
+      </button>
     </div>
-  </aside>
 
-  <!-- Center Workspace -->
-  <main>
-    <div class="studio-topbar">
-      <div class="workspace-heading">
-        <span class="eyebrow">PERFIL ACTIVO</span>
-        <h2>Diseña tu panel</h2>
-      </div>
-      <!-- Multi-Page Tabs Switcher -->
-      <div class="page-tabs-container">
-        <div class="page-tabs" id="page-tabs"></div>
-        <button class="btn-page-add" id="btn-add-page" title="Crear nueva página">+ Página</button>
-        <button class="btn-page-del" id="btn-delete-page" title="Eliminar página activa" style="display: none;">🗑️</button>
-      </div>
-
-      <!-- Keyboard Shortcuts Badge -->
-      <div class="kbd-shortcuts-badge" title="Atajos de teclado">
-        <span><kbd>Supr</kbd> Vaciar · <kbd>Esc</kbd> Cerrar · <kbd>Ctrl+C/V</kbd> Copiar/Pegar</span>
-      </div>
-
-      <!-- GitHub Auto-Update Status Cylinder / Pill -->
-      <div class="update-cylinder" id="update-cylinder" title="Estado de actualizaciones con GitHub">
-        <span id="update-status-icon">●</span>
+    <div class="topbar-right">
+      <span class="save-status" id="save-status" data-state="saved"><span id="save-status-text">Guardado</span></span>
+      <div class="update-cylinder" id="update-cylinder" title="Estado de las actualizaciones">
         <span id="update-status-text">Comprobando versión...</span>
         <button class="update-btn-action" id="btn-apply-update" style="display: none;">Actualizar</button>
       </div>
-
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <button class="btn-primary" id="btn-save-all">
-          Guardar cambios
-        </button>
-      </div>
+      <button class="icon-button" id="btn-settings" title="Ajustes">
+        <img src="/static/icons/gear.svg" alt="Ajustes">
+      </button>
     </div>
+  </header>
 
-    <div class="canvas-body">
-      <!-- Live mobile preview -->
+  <div class="studio-shell">
+    <aside>
+      <div class="sidebar-scroll">
+        <div class="panel-card panel-pairing">
+          <div class="panel-title">
+            <span>Enlazar móvil</span>
+            <span class="badge-live-dot" title="Servidor activo"></span>
+          </div>
+          <div class="qr-container">
+            <div class="qr-wrapper">
+              <img id="qr-image" class="qr-image" alt="Escanea con la cámara de tu móvil">
+            </div>
+            <div class="pin-display">
+              <span class="pin-label">PIN</span>
+              <span class="pin-code" id="pin-code">------</span>
+              <button class="refresh-pin-btn" id="btn-refresh-pin" title="Generar un PIN y un QR nuevos">↻</button>
+            </div>
+            <div class="info-url" id="server-url">Cargando IP...</div>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <div class="panel-title"><span>Añadir</span></div>
+          <p class="panel-hint">Arrastra un control a la pantalla o pulsa una casilla vacía.</p>
+          <div class="drag-palette-box">
+            <div class="palette-item" draggable="true" id="palette-new-btn">
+              <span class="palette-item-icon"><img src="/static/icons/power.svg" class="palette-svg-icon" alt=""></span>
+              <div>
+                <div class="palette-item-title">Botón</div>
+                <div class="palette-item-desc">Una app, una acción o un servicio</div>
+              </div>
+            </div>
+            <div class="palette-item palette-slider" draggable="true" id="palette-new-slider">
+              <span class="palette-item-icon"><img src="/static/icons/fader.svg" class="palette-svg-icon" alt=""></span>
+              <div>
+                <div class="palette-item-title">Fader de volumen</div>
+                <div class="palette-item-desc">Master o una app, ocupa 2 casillas</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-card trash-dropzone" id="trash-dropzone">
+          <div class="trash-dropzone-content">
+            <img src="/static/icons/trash.svg" class="trash-drop-icon" alt="">
+            <div>
+              <div class="trash-drop-title">Papelera</div>
+              <div class="trash-drop-desc" id="trash-drop-desc">Arrastra aquí para vaciar una casilla</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <div class="panel-title"><span>Audio activo</span></div>
+          <div id="audio-sessions-list" class="audio-sessions-list"></div>
+        </div>
+      </div>
+    </aside>
+
+    <main>
       <div class="preview-container">
         <div class="phone-mockup">
-          <div class="preview-label">Vista móvil en directo</div>
+          <div class="preview-label">Así se verá en tu móvil</div>
           <div class="phone-screen-wrapper">
             <div class="phone-status-bar">
-              <span>StreamDesk Mobile</span>
+              <span>StreamDesk</span>
               <span id="phone-preview-page-name">Página 1</span>
               <span>Conectado</span>
             </div>
-            <div class="phone-screen" id="phone-screen">
-              <!-- Populated by studio.js (2 rows x 6 columns) -->
-            </div>
+            <div class="phone-screen" id="phone-screen"></div>
+          </div>
+          <div class="kbd-shortcuts-badge">
+            <kbd>Supr</kbd> vaciar · <kbd>Esc</kbd> cerrar · <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd> copiar y pegar
           </div>
         </div>
       </div>
+    </main>
 
-      <!-- Inspector / Editor Drawer (Right) -->
-      <div class="editor-drawer" id="editor-drawer">
-        <div class="editor-title" id="inspector-title">Configura una casilla</div>
-
-        <div id="inspector-content">
-          <div class="empty-inspector-tip">
-            <img src="/static/icons/sliders.svg" style="width: 38px; height: 38px; opacity: 0.3; margin-bottom: 12px;" alt="">
-            <p style="color: var(--text-muted); font-size: 0.85rem; text-align: center; line-height: 1.5;">
-              Selecciona una casilla para asignar una acción, conectar una app y ajustar su aspecto.
-            </p>
-          </div>
+    <section class="editor-drawer" id="editor-drawer">
+      <div class="editor-title" id="inspector-title">Configura una casilla</div>
+      <div id="inspector-content">
+        <div class="empty-inspector-tip">
+          <img src="/static/icons/sliders.svg" alt="">
+          <p>Selecciona una casilla de la pantalla para asignarle una acción, conectar una app y cambiar su aspecto.</p>
         </div>
       </div>
-    </div>
-  </main>
+    </section>
+  </div>
 
-  <div class="toast" id="toast">¡Configuración guardada y sincronizada!</div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="/static/js/studio.js"></script>
+  <script src="/static/js/studio-ui.js"></script>
 </body>
 </html>

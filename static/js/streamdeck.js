@@ -265,11 +265,16 @@ function handleServerMessage(data) {
       currentConfig = data.config;
       currentSessions = data.audio_sessions || data.sessions || [];
       buttonStates = data.button_states || {};
+      applyTheme(data.theme);
       renderDeck(currentConfig);
       renderPageNav(currentConfig);
       if (data.master) updateMasterVolume(data.master.volume, data.master.muted);
       updateAppVolumes();
       applyMicState(data.mic);
+      break;
+
+    case "theme":
+      applyTheme(data.theme);
       break;
 
     case "audio_state":
@@ -400,6 +405,13 @@ function applyMicState(mic) {
       applyButtonState(slot.id);
     }
   });
+}
+
+// Studio owns the theme. The phone follows it and remembers it for the next load.
+function applyTheme(theme) {
+  if (theme !== "ctma" && theme !== "cian") return;
+  document.documentElement.dataset.theme = theme;
+  try { localStorage.setItem("streamdesk_theme", theme); } catch (e) {}
 }
 
 function applyButtonState(id) {

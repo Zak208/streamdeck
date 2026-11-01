@@ -4,6 +4,7 @@ import json
 import time
 import io
 import base64
+import hashlib
 import secrets
 import socket
 from typing import Dict, Any, Set
@@ -147,6 +148,21 @@ class AuthManager:
             return True
         return False
 
+    @staticmethod
+    def device_id(token: str) -> str:
+        """A stable public id for a paired device. The token itself never leaves the PC."""
+        return hashlib.sha256(token.encode()).hexdigest()[:12]
+
+    def list_devices(self) -> list:
+        devices = [
+            {"id": self.device_id(token), "name": info.get("name", "Dispositivo móvil"), "created_at": info.get("created_at", "")}
+            for token, info in self.paired_devices.items() if token in self.authorized_tokens
+        ]
+        return sorted(devices, key=lambda d: d["created_at"], reverse=True)
+
+    def token_for_device(self, device_id: str) -> str:
+        return next((t for t in self.authorized_tokens if self.device_id(t) == device_id), "")
+
     def generate_qr_base64(self, port: int) -> str:
         """Generates a QR code image as Base64 Data URL for instant mobile pairing."""
         ip = self.get_local_ip()
@@ -160,7 +176,8 @@ class AuthManager:
         )
         qr.add_data(url)
         qr.make(fit=True)
-        img = qr.make_image(fill_color="#00ffcc", back_color="#12151f")
+        # Dark modules on a light background: it scans on more cameras than light on dark.
+        img = qr.make_image(fill_color="#000000", back_color="#ffffff")
 
         buffered = io.BytesIO()
         img.save(buffered, format="PNG")

@@ -1,7 +1,6 @@
 """Windows audio controls that work with any app, no setup needed."""
 
 import re
-from ctypes import POINTER, cast
 from typing import Any, Dict, List, Optional
 
 import comtypes
@@ -32,7 +31,10 @@ def _com() -> None:
 def _mic_endpoint():
     mic = AudioUtilities.GetMicrophone()
     interface = mic.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-    return cast(interface, POINTER(IAudioEndpointVolume))
+    # QueryInterface, never ctypes.cast: cast wraps the same COM pointer a second time without
+    # adding a reference, so both wrappers release it and Windows crashes the whole process
+    # (reproduced: microphone + device list in a loop, access violation within seconds).
+    return interface.QueryInterface(IAudioEndpointVolume)
 
 
 def _get_mic_muted() -> Optional[bool]:

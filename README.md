@@ -31,7 +31,7 @@ Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollad
 
 ### 4. 🔄 Auto-Actualizador Integrado con GitHub
 - En la barra superior del PC Studio se encuentra el **cilindro indicador de estado de versión**:
-  - `🟢 StreamDesk v2.2.0 (Al día)`: Tu instalación coincide con el último commit del repositorio oficial.
+  - `🟢 v2.3.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
   - `🟡 ¡Actualización en GitHub! [Actualizar 🚀]`: El sistema detecta automáticamente nuevos commits en `https://github.com/Zak208/streamdeck`.
 - Al pulsar el botón de actualizar, el sistema ejecuta `/api/system/apply-update` sincronizando el código automáticamente sin necesidad de reinstalar manualmente.
 
@@ -71,6 +71,14 @@ Si prefieres ejecutar el proyecto desde el código fuente o los scripts auxiliar
      👉 `http://localhost:48291/studio`
 
 ---
+
+## 🎨 Interfaz y primeros pasos
+
+- **Dos temas:** negro y amarillo (por defecto) o azul noche y cian. Se cambia en Ajustes y se aplica también en el móvil al instante.
+- **Plantillas:** `+ Página` ofrece Streamer, Gamer, Trabajo o una página en blanco. Cada plantilla usa tus atajos de Discord guardados.
+- **Guardado automático:** no hay botón de guardar; el indicador de la barra superior muestra "Guardando", "Guardado" o el error.
+- **Ajustes:** tema, móviles emparejados (se pueden quitar, y el móvil se desconecta en el acto), versión y la guía de bienvenida.
+- **Móvil en vertical:** funciona, pero el panel de 6x2 se ve mejor en horizontal; la app avisa.
 
 ## 🔌 Conectores (OBS, Spotify, Discord y Windows)
 
