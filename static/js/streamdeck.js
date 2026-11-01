@@ -171,7 +171,16 @@ deckContainer?.addEventListener("touchend", (e) => {
 }, { passive: true });
 
 // WebSocket Connection
+let reconnectTimer = null;
+
+// One pending reconnect at a time, however many things ask for it.
+function scheduleReconnect() {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(connectWebSocket, 2000);
+}
+
 function connectWebSocket() {
+  clearTimeout(reconnectTimer);
   const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 
   if (!token && !isLocalhost) {
@@ -192,20 +201,28 @@ function connectWebSocket() {
   statusDot.className = "dot connecting";
   statusText.textContent = "Conectando...";
 
+  // Replacing a socket must not look like a dropped connection. If the old socket kept its
+  // handlers, closing it here would schedule a reconnect that closes the new socket, which
+  // schedules another, forever (the phone connected and disconnected every second).
+  if (ws) {
+    const old = ws;
+    old.onopen = old.onmessage = old.onerror = old.onclose = null;
+    try { old.close(); } catch (e) {}
+  }
+
+  let socket;
   try {
-    if (ws) {
-      try { ws.close(); } catch (e) {}
-    }
-    ws = new WebSocket(wsUrl);
+    socket = new WebSocket(wsUrl);
   } catch (err) {
     console.error("WS error:", err);
     statusDot.className = "dot";
     statusText.textContent = "Error de red";
-    setTimeout(connectWebSocket, 2000);
+    scheduleReconnect();
     return;
   }
+  ws = socket;
 
-  ws.onopen = () => {
+  socket.onopen = () => {
     statusDot.className = "dot connected";
     statusText.textContent = "Conectado";
     const banner = document.getElementById("reconnect-banner");
@@ -214,7 +231,7 @@ function connectWebSocket() {
     initWakeLock();
   };
 
-  ws.onmessage = (event) => {
+  socket.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
       handleServerMessage(data);
@@ -223,7 +240,8 @@ function connectWebSocket() {
     }
   };
 
-  ws.onclose = (event) => {
+  socket.onclose = (event) => {
+    if (socket !== ws) return; // an old socket closing after it was replaced
     statusDot.className = "dot";
     statusText.textContent = "Desconectado";
     const banner = document.getElementById("reconnect-banner");
@@ -234,11 +252,11 @@ function connectWebSocket() {
       token = null;
       showPinModal(false);
     } else {
-      setTimeout(connectWebSocket, 2000);
+      scheduleReconnect();
     }
   };
 
-  ws.onerror = () => {
+  socket.onerror = () => {
     statusDot.className = "dot";
     statusText.textContent = "Error de red";
   };

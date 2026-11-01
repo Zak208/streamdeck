@@ -31,7 +31,7 @@ Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollad
 
 ### 4. 🔄 Auto-Actualizador Integrado con GitHub
 - En la barra superior del PC Studio se encuentra el **cilindro indicador de estado de versión**:
-  - `🟢 v2.3.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
+  - `🟢 v2.3.1 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
   - `🟡 ¡Actualización en GitHub! [Actualizar 🚀]`: El sistema detecta automáticamente nuevos commits en `https://github.com/Zak208/streamdeck`.
 - Al pulsar el botón de actualizar, el sistema ejecuta `/api/system/apply-update` sincronizando el código automáticamente sin necesidad de reinstalar manualmente.
 

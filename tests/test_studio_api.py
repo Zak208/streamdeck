@@ -220,6 +220,24 @@ class AssetTests(unittest.TestCase):
         html = read("index.html")
         self.assertLess(html.index('id="pin-error"'), html.index('id="btn-verify-pin"'))
 
+    def test_assets_are_versioned_so_phones_fetch_fixes_instead_of_cached_scripts(self):
+        from server.paths import VERSION
+        for page in ("studio.html", "index.html"):
+            html = read(page)
+            assets = re.findall(r'(?:href|src)="(/static/(?:css|js)/[^"]+)"', html)
+            self.assertTrue(assets)
+            for asset in assets:
+                with self.subTest(page=page, asset=asset):
+                    self.assertTrue(asset.endswith(f"?v={VERSION}"), "bump ?v= together with VERSION")
+
+    def test_phone_replacing_its_socket_cannot_start_a_reconnect_loop(self):
+        # Closing the old socket used to schedule a reconnect that closed the new one, forever.
+        code = read("js/streamdeck.js")
+        self.assertIn("old.onclose = null", code)
+        self.assertIn("if (socket !== ws) return;", code)
+        self.assertIn("function scheduleReconnect", code)
+        self.assertNotIn("setTimeout(connectWebSocket", code.replace("reconnectTimer = setTimeout(connectWebSocket", ""))
+
     def test_both_apps_load_the_shared_tokens(self):
         for page in ("studio.html", "index.html"):
             self.assertIn("/static/css/tokens.css", read(page))

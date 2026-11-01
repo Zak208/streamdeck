@@ -1,6 +1,6 @@
 ; Script de Instalación para StreamDesk Pro (Aplicación de Escritorio Nativa)
 #define MyAppName "StreamDesk Pro"
-#define MyAppVersion "2.3.0"
+#define MyAppVersion "2.3.1"
 #define MyAppPublisher "Zak208"
 #define MyAppURL "https://github.com/Zak208/streamdeck"
 #define MyAppExeName "StreamDesk.exe"
