@@ -22,7 +22,7 @@ MEDIA_TARGETS = frozenset({"play_pause", "play", "next", "next_track", "prev", "
 OBS_TARGETS = frozenset({"record_toggle", "toggle_record", "record", "record_pause", "pause_record", "stream_toggle", "toggle_stream", "stream", "next_scene", "prev_scene", "mute_mic", "toggle_mute_mic"})
 HARDWARE_TARGETS = frozenset({"cpu", "ram", "disk"})
 SOUND_TARGETS = frozenset({"beep", "asterisk", "exclamation"})
-DISCORD_TARGETS = frozenset({"mute", "deafen"})
+DISCORD_TARGETS = frozenset({"mute", "deafen", "sound"})
 SLOT_TYPES = frozenset({"button", "slider", "empty", "occupied_by_slider"})
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 SAFE_APP_TARGET = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
@@ -120,6 +120,9 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
             raise ValueError("Acción de Discord no válida")
         target_text = target_text.lower()
         clean_extra = {"hotkey": validate_hotkey(action_extra.get("hotkey", ""))}
+        if target_text == "sound" and action_extra.get("sound_name"):
+            # Only a label: StreamDesk cannot read Discord's sounds, the shortcut is what plays one.
+            clean_extra["sound_name"] = _text(action_extra["sound_name"], "nombre del sonido", 40, allow_empty=False)
     elif action_type == "windows":
         target_text = target_text.lower()
         if target_text not in WINDOWS_TARGETS:

@@ -111,10 +111,35 @@ async def run_audio(fn, *args):
     return await asyncio.wait_for(asyncio.wrap_future(com_worker.submit(fn, *args)), timeout=15)
 
 
+# Volumes asked for an app that makes no sound yet: Windows only has an audio session for an app
+# while it is playing, so the volume is remembered and applied the moment the app shows up.
+_pending_app_volumes: Dict[str, int] = {}
+
+
+def merge_sessions(sessions: list) -> list:
+    """One entry per program. Windows lists a session per audio stream, so Discord or Chrome
+    appear several times; the phone showed whichever came first, which looked like a bad sync."""
+    merged: Dict[str, Dict[str, Any]] = {}
+    for session in sessions:
+        entry = merged.get(session["process_name"].lower())
+        if entry is None:
+            merged[session["process_name"].lower()] = dict(session)
+        else:
+            entry["volume"] = max(entry["volume"], session["volume"])
+            entry["muted"] = entry["muted"] and session["muted"]
+    return list(merged.values())
+
+
 def read_audio_state() -> Dict[str, Any]:
+    sessions = audio_controller.get_audio_sessions()
+    for process, volume in list(_pending_app_volumes.items()):
+        if any(s["process_name"].lower() == process for s in sessions):
+            audio_controller.set_app_volume(process, volume)
+            _pending_app_volumes.pop(process, None)
+            sessions = audio_controller.get_audio_sessions()
     return {
         "master": audio_controller.get_master_volume(),
-        "sessions": audio_controller.get_audio_sessions(),
+        "sessions": merge_sessions(sessions),
         "mic": {"muted": windows.get_mic_muted()},
     }
 
@@ -142,7 +167,8 @@ async def audio_sync_loop():
                 last_signature = None
         except Exception:
             pass
-        await asyncio.sleep(1.0)
+        # Four checks a second keep a volume moved on the PC and on the phone within half a second.
+        await asyncio.sleep(0.4)
 
 async def telemetry_sync_loop():
     import psutil
@@ -299,6 +325,15 @@ def firewall_status(_: None = Depends(require_local_request)):
 def firewall_allow(_: None = Depends(require_local_request)):
     """Opens Windows' own permission prompt; nothing changes unless the user accepts it."""
     return firewall.request_rule()
+
+
+@app.post("/api/actions/test")
+async def test_action(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    """Run one button's action once from Studio, to check it works. Same allow-list as a real button."""
+    result = await asyncio.to_thread(
+        execute_action, str(values.get("action_type", "")), str(values.get("target", "")), values.get("extra")
+    )
+    return {"success": bool(result.get("success")), "error": result.get("error", "")}
 
 
 @app.get("/api/diagnostics")
@@ -579,7 +614,6 @@ def apply_github_update(_: None = Depends(require_local_request)):
 async def run_button_action(websocket: WebSocket, slot: Dict[str, Any]) -> None:
     """Execute a button off the event loop and tell every phone how it went."""
     btn_id = slot.get("id")
-    _running_actions.add(btn_id)
     try:
         try:
             result = await asyncio.to_thread(
@@ -660,6 +694,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                     slots = config.get("slots", [])
                     slot = next((s for s in slots if s.get("id") == btn_id), None)
                     if slot and slot.get("type") == "button" and btn_id not in _running_actions:
+                        # Mark it busy now, not when the task starts: two quick taps arrive before
+                        # the first task gets to run and would both pass the check.
+                        _running_actions.add(btn_id)
                         # Run it as its own task: a macro or a slow OBS call must not
                         # hold up this phone's faders or anyone else's messages.
                         task = asyncio.create_task(run_button_action(websocket, slot))
@@ -688,7 +725,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                     vol = int(data.get("volume", 0))
                     vol = max(0, min(100, vol))
                     if proc:
-                        await run_audio(audio_controller.set_app_volume, proc, vol)
+                        applied = await run_audio(audio_controller.set_app_volume, proc, vol)
+                        if applied.get("success"):
+                            _pending_app_volumes.pop(proc.lower(), None)
+                        else:
+                            _pending_app_volumes[proc.lower()] = vol
                         await ws_manager.broadcast({
                             "type": "app_volume_updated",
                             "process": proc,

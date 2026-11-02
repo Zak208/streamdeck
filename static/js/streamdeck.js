@@ -357,22 +357,8 @@ function handleServerMessage(data) {
 
 // Live Hardware Telemetry Updates
 function updateTelemetryWidgets(data) {
-  if (!currentConfig) return;
-  const slots = currentConfig.slots || [];
-
-  slots.forEach((s) => {
-    if (s.action_type === "hardware_monitor" || s.target === "cpu" || s.target === "ram" || s.target === "disk") {
-      const btnEl = document.getElementById(s.id || `slot_btn_${s.index}`);
-      if (!btnEl) return;
-
-      const subEl = btnEl.querySelector(".deck-btn-sub");
-      if (subEl) {
-        if (s.target === "cpu") subEl.textContent = `${data.cpu}% Uso`;
-        else if (s.target === "ram") subEl.textContent = `${data.ram}% RAM`;
-        else if (s.target === "disk") subEl.textContent = `${data.disk}% Usado`;
-      }
-    }
-  });
+  lastTelemetry = data;
+  document.querySelectorAll(".deck-monitor").forEach((el) => paintMonitor(el, data[el.dataset.monitor]));
 }
 
 // Render dynamic 6x2 grid (12 slots) with 2-height vertical faders
@@ -432,9 +418,54 @@ function applyTheme(theme) {
   try { localStorage.setItem("streamdesk_theme", theme); } catch (e) {}
 }
 
+// What a button says while it is on, so the state is readable at arm's length.
+const STATE_LABELS = {
+  "obs_action:record_toggle": "Grabando",
+  "obs_action:stream_toggle": "En directo",
+  "obs_action:mute_mic": "Silenciado",
+  "windows:mic_mute": "Silenciado",
+  "windows:app_mute": "Silenciado",
+};
+
+function subLabelFor(slot) {
+  if (buttonStates[slot.id]) return STATE_LABELS[`${slot.action_type}:${slot.target}`] || slot.sublabel || "";
+  return slot.sublabel || "";
+}
+
 function applyButtonState(id) {
   const el = document.getElementById(id);
-  if (el) el.classList.toggle("is-active", Boolean(buttonStates[id]));
+  if (!el) return;
+  el.classList.toggle("is-active", Boolean(buttonStates[id]));
+  const slot = (currentConfig?.slots || []).find(s => s.id === id);
+  const sub = el.querySelector(".deck-btn-sub");
+  if (slot && sub) sub.textContent = subLabelFor(slot);
+}
+
+// System gauges: a big number and a bar, because a small caption cannot be read on a phone.
+let lastTelemetry = null;
+const MONITOR_NAMES = { cpu: "CPU", ram: "RAM", disk: "Disco" };
+
+function paintMonitor(el, value) {
+  if (value === undefined || value === null) return;
+  el.querySelector(".deck-monitor-value span").textContent = value;
+  el.querySelector(".deck-monitor-bar i").style.width = `${Math.min(100, value)}%`;
+  el.dataset.level = value >= 85 ? "high" : value >= 60 ? "warn" : "ok";
+}
+
+function createMonitorElement(btn, keycap) {
+  keycap.classList.add("deck-monitor");
+  keycap.dataset.monitor = btn.target;
+  keycap.innerHTML = `
+    <div class="deck-btn-inner">
+      <div class="deck-btn-accent"></div>
+      <div class="deck-monitor-name"></div>
+      <div class="deck-monitor-value"><span>--</span><small>%</small></div>
+      <div class="deck-monitor-bar"><i></i></div>
+    </div>`;
+  keycap.querySelector(".deck-btn-accent").style.background = btn.color || "var(--accent)";
+  keycap.querySelector(".deck-monitor-name").textContent = btn.label || MONITOR_NAMES[btn.target] || "Sistema";
+  if (lastTelemetry) paintMonitor(keycap, lastTelemetry[btn.target]);
+  return keycap;
 }
 
 function createButtonElement(btn) {
@@ -442,6 +473,7 @@ function createButtonElement(btn) {
   keycap.className = "deck-btn";
   keycap.id = btn.id || `slot_btn_${btn.index}`;
   if (buttonStates[keycap.id]) keycap.classList.add("is-active");
+  if (btn.action_type === "hardware_monitor") return createMonitorElement(btn, keycap);
 
   const inner = document.createElement("div");
   inner.className = "deck-btn-inner";
@@ -474,7 +506,7 @@ function createButtonElement(btn) {
 
   const sub = document.createElement("div");
   sub.className = "deck-btn-sub";
-  sub.textContent = btn.sublabel || "";
+  sub.textContent = subLabelFor(btn);
   textWrap.appendChild(sub);
 
   inner.appendChild(textWrap);
@@ -508,7 +540,9 @@ function createFaderElement(slider) {
   card.id = `fader-card-${slider.id}`;
 
   let targetProcess = slider.target_app || (currentSessions[0] ? currentSessions[0].process_name : "Spotify.exe");
-  targetAppMap[slider.id] = targetProcess;
+  // Only app faders have a target app. A master fader listed here got the first session's
+  // volume painted over it on every audio update, which looked like a broken sync.
+  if (!isMaster) targetAppMap[slider.id] = targetProcess;
   isDraggingMap[slider.id] = false;
   if (isMaster) masterSliderIds.add(slider.id);
 
@@ -532,6 +566,7 @@ function createFaderElement(slider) {
       </div>
     </div>
     <div class="fader-footer">
+      ${!isMaster ? '<div class="fader-idle-note">Sin sonido</div>' : ''}
       <div class="fader-val" id="val-${slider.id}">50%</div>
       <button class="mute-btn" id="mute-${slider.id}">
         <img src="/static/icons/volume_up.svg" class="mute-svg-icon" alt="Vol">
@@ -667,10 +702,13 @@ function updateMasterMute(muted) {
 
 function updateAppVolumes() {
   Object.keys(targetAppMap).forEach((sliderId) => {
-    if (isDraggingMap[sliderId]) return;
+    if (isDraggingMap[sliderId] || masterSliderIds.has(sliderId)) return;
 
     const proc = targetAppMap[sliderId];
     const session = currentSessions.find(s => s.process_name?.toLowerCase() === proc?.toLowerCase());
+    // Windows only has an audio session for an app while it plays, so an app that is silent
+    // cannot be read. Say so instead of showing a stale value; a volume set meanwhile is applied later.
+    document.getElementById(`fader-card-${sliderId}`)?.classList.toggle("is-idle", !session);
     if (session) {
       const fill = document.getElementById(`fill-${sliderId}`);
       const val = document.getElementById(`val-${sliderId}`);

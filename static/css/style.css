@@ -107,6 +107,29 @@ header {
 .deck-btn-sub { max-width: 100%; overflow: hidden; color: var(--text-3); font-size: clamp(9px, 1.5vw, 11px); text-overflow: ellipsis; white-space: nowrap; }
 .deck-slot-empty { border: 1px dashed var(--line); border-radius: 16px; }
 
+/* Icons and titles grow with the button, so a big pad on a tablet is not full of tiny content. */
+.deck-btn { container-type: size; }
+@supports (width: 1cqmin) {
+  .deck-btn-img { width: clamp(28px, 34cqmin, 64px); height: clamp(28px, 34cqmin, 64px); }
+  .deck-btn-title { font-size: clamp(11px, 11cqmin, 17px); }
+  .deck-btn-sub { font-size: clamp(9px, 8.5cqmin, 13px); }
+}
+
+/* System gauges (CPU, RAM, disk): the number is the content. */
+.deck-monitor .deck-btn-inner { gap: 6px; padding: 14px 8px 12px; }
+.deck-monitor-name { color: var(--text-2); font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+.deck-monitor-value { display: flex; align-items: baseline; gap: 2px; font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+.deck-monitor-value small { color: var(--text-3); font-size: 0.45em; font-weight: 700; }
+.deck-monitor-bar { width: 78%; height: 7px; overflow: hidden; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+.deck-monitor-bar i { display: block; width: 0; height: 100%; background: var(--accent); border-radius: 4px; transition: width 0.4s ease, background 0.3s; }
+.deck-monitor[data-level="warn"] .deck-monitor-bar i { background: #ffb020; }
+.deck-monitor[data-level="high"] .deck-monitor-bar i { background: var(--danger); }
+.deck-monitor[data-level="high"] .deck-monitor-value { color: var(--danger); }
+@supports (width: 1cqmin) {
+  .deck-monitor-name { font-size: clamp(10px, 9cqmin, 15px); }
+  .deck-monitor-value { font-size: clamp(26px, 38cqmin, 64px); }
+}
+
 /* Toggles that are currently on (OBS recording or streaming, a muted microphone). */
 .deck-btn.is-active { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger), 0 0 16px rgba(255, 97, 89, 0.35); }
 .deck-btn.is-active .deck-btn-sub::before { content: "● "; color: var(--danger); }
@@ -129,6 +152,9 @@ header {
 .mute-btn:active { background: var(--surface-3); }
 .mute-btn.active { background: rgba(255, 97, 89, 0.16); border-color: var(--danger); }
 .mute-svg-icon { width: 16px; height: 16px; }
+.fader-idle-note { display: none; color: var(--text-3); font-size: 10px; font-weight: 600; text-align: center; }
+.deck-fader-card.is-idle { opacity: 0.6; }
+.deck-fader-card.is-idle .fader-idle-note { display: block; }
 
 /* ---------- PIN screen ---------- */
 .modal-card { text-align: center; }

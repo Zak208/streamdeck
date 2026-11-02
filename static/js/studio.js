@@ -20,6 +20,11 @@ const btnAddPage = document.getElementById("btn-add-page");
 const phonePreviewPageName = document.getElementById("phone-preview-page-name");
 const btnDeletePage = document.getElementById("btn-delete-page");
 let copiedSlotConfig = null;
+// What the PC is doing right now. Studio listens to the same live feed as the phone, so the
+// faders in the preview and the audio list follow the real volumes instead of showing fixed values.
+let liveAudio = { master: null };
+let liveTelemetry = null;
+let studioSocket = null;
 
 // Curated 8 Vibrant Color Swatches for instant styling
 const COLOR_SWATCHES = [
@@ -38,7 +43,7 @@ const SVG_ICONS = [
   "power", "play_pause", "play", "pause", "next", "prev", "mute", "volume_up",
   "spotify", "discord", "obs", "steam", "chrome", "gamepad", "video", "broadcast",
   "cpu", "ram", "disk", "sliders", "notes", "calc", "gear", "folder",
-  "link", "macro", "plus", "trash", "youtube", "fader"
+  "link", "macro", "plus", "trash", "youtube", "fader", "soundboard"
 ];
 
 // Multimedia Preset Actions
@@ -160,7 +165,9 @@ async function loadAudioSessions() {
     const res = await fetch("/api/audio/sessions");
     const data = await res.json();
     audioSessions = data.sessions || [];
+    liveAudio.master = data.master || liveAudio.master;
     renderAudioSessionsSidebar();
+    paintStudioFaders();
   } catch (e) {
     console.error("Error loading audio sessions", e);
   }
@@ -369,6 +376,85 @@ function renderPhoneScreen() {
 
     phoneScreen.appendChild(cell);
   }
+  paintStudioFaders();
+  paintStudioMonitors();
+}
+
+// Fader previews show the real volume of what they control (or "no sound" when the app is silent).
+function paintStudioFaders() {
+  document.querySelectorAll("#phone-screen .slot-fader").forEach((card) => {
+    let volume = null;
+    let muted = false;
+    if (card.dataset.sliderType === "master") {
+      if (liveAudio.master) ({ volume, muted } = liveAudio.master);
+    } else {
+      const wanted = (card.dataset.targetApp || "").toLowerCase();
+      const session = audioSessions.find(s => (s.process_name || "").toLowerCase() === wanted);
+      if (session) ({ volume, muted } = session);
+    }
+    card.classList.toggle("is-idle", volume === null);
+    card.classList.toggle("is-muted", Boolean(muted));
+    const val = card.querySelector(".slot-fader-val");
+    if (volume === null) {
+      val.textContent = "—";
+      return;
+    }
+    card.querySelector(".slot-fader-fill").style.height = `${volume}%`;
+    val.textContent = muted ? "Mute" : `${volume}%`;
+  });
+}
+
+function paintStudioMonitors() {
+  if (!liveTelemetry) return;
+  document.querySelectorAll("#phone-screen .slot-monitor").forEach((el) => {
+    const value = liveTelemetry[el.dataset.monitor];
+    if (value === undefined) return;
+    el.querySelector(".slot-monitor-value span").textContent = value;
+    el.querySelector(".slot-monitor-bar i").style.width = `${Math.min(100, value)}%`;
+    el.dataset.level = value >= 85 ? "high" : value >= 60 ? "warn" : "ok";
+  });
+}
+
+function handleStudioMessage(message) {
+  switch (message.type) {
+    case "init_state":
+    case "audio_state":
+      audioSessions = message.sessions || [];
+      liveAudio.master = message.master || liveAudio.master;
+      break;
+    case "master_volume_updated":
+      liveAudio.master = { volume: message.volume, muted: message.muted };
+      break;
+    case "master_mute_updated":
+      if (liveAudio.master) liveAudio.master.muted = message.muted;
+      break;
+    case "app_volume_updated":
+      audioSessions.forEach(s => { if (s.process_name?.toLowerCase() === message.process?.toLowerCase()) s.volume = message.volume; });
+      break;
+    case "app_mute_updated":
+      audioSessions.forEach(s => { if (s.process_name?.toLowerCase() === message.process?.toLowerCase()) s.muted = message.muted; });
+      break;
+    case "telemetry_update":
+      liveTelemetry = message;
+      paintStudioMonitors();
+      return;
+    default:
+      return;
+  }
+  renderAudioSessionsSidebar();
+  paintStudioFaders();
+}
+
+function connectStudioSocket() {
+  // Studio runs on this PC, so the server accepts it without a pairing token.
+  const socket = new WebSocket(`ws://${location.host}/ws`);
+  studioSocket = socket;
+  socket.onmessage = (event) => {
+    try { handleStudioMessage(JSON.parse(event.data)); } catch (e) { console.error("Studio feed", e); }
+  };
+  socket.onclose = () => {
+    if (socket === studioSocket) setTimeout(connectStudioSocket, 2000);
+  };
 }
 
 function isDraggingFader() {
@@ -499,6 +585,17 @@ function createStudioButtonKeycap(btn, index) {
     clearAllDragHighlights();
   });
 
+  if (btn.action_type === "hardware_monitor") {
+    wrap.innerHTML = `
+      <div class="slot-keycap-inner slot-monitor" data-monitor="${escapeHtml(btn.target)}">
+        <div class="slot-accent" style="background: ${escapeHtml(btn.color || 'var(--accent)')};"></div>
+        <div class="slot-monitor-name">${escapeHtml(btn.label || btn.target)}</div>
+        <div class="slot-monitor-value"><span>--</span><small>%</small></div>
+        <div class="slot-monitor-bar"><i></i></div>
+      </div>`;
+    return wrap;
+  }
+
   let iconSrc = btn.image || btn.icon || "/static/icons/power.svg";
 
   wrap.innerHTML = `
@@ -535,6 +632,8 @@ function createStudioFaderCard(slider, index) {
     clearAllDragHighlights();
   });
 
+  wrap.dataset.sliderType = isMaster ? "master" : "app";
+  wrap.dataset.targetApp = slider.target_app || "";
   const headerIcon = slider.image || (isMaster ? '/static/icons/volume_up.svg' : '/static/icons/spotify.svg');
   const accentColor = slider.color || 'var(--accent)';
 
@@ -1258,6 +1357,15 @@ function connectorBodySpotify(c, body, ctx) {
   }
 }
 
+// First of a few unlikely-to-clash shortcuts that no Discord button in the profile uses yet.
+function suggestSoundHotkey(settings) {
+  const used = new Set((config.pages || []).flatMap(p => p.slots)
+    .filter(s => s.action_type === "discord_hotkey").map(s => s.extra?.hotkey));
+  used.add(settings.mute_hotkey).add(settings.deafen_hotkey);
+  const candidates = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8"].map(k => `CTRL+ALT+${k}`);
+  return candidates.find(k => !used.has(k)) || "CTRL+ALT+F1";
+}
+
 function connectorBodyDiscord(c, body, ctx) {
   const s = c.settings || {};
   body.innerHTML = `
@@ -1272,8 +1380,22 @@ function connectorBodyDiscord(c, body, ctx) {
       <li>En Discord abre Ajustes de usuario &gt; Atajos de teclado y pulsa Añadir un atajo.</li>
       <li>Elige la acción "Alternar silenciar" (o "Alternar ensordecer") y pulsa la misma combinación que guardaste arriba.</li>
     </ol>
-    <p class="integration-hint">Sin configurar nada en Discord: el botón "Mute micrófono" de Windows silencia el micro para todas las apps.</p>
-    <p class="integration-hint">Sonidos del soundboard: todavía no disponibles, Discord no los permite sin un bot propio.</p>`;
+    <span class="section-label">Sonido del soundboard</span>
+    <p class="integration-hint">Discord no permite que otra app lea tus sonidos ni los reproduzca sin la contraseña de tu cuenta, y StreamDesk nunca la pide. Lo que sí funciona: dale a un sonido su propio atajo en Discord y el botón pulsará ese atajo.</p>
+    <label for="dc-sound-name">Nombre del sonido</label>
+    <input id="dc-sound-name" type="text" maxlength="32" placeholder="Ej. Aplausos">
+    <label for="dc-sound-key">Atajo de ese sonido en Discord</label>
+    <input id="dc-sound-key" type="text" maxlength="40" value="${escapeHtml(suggestSoundHotkey(s))}">
+    <div class="inline-row">
+      <button class="btn-primary" id="dc-sound-assign">Asignar a esta casilla</button>
+      <button class="btn-secondary" id="dc-sound-test">Probar</button>
+    </div>
+    <ol class="setup-steps">
+      <li>Entra en un canal de voz y abre el panel de sonidos (Soundboard).</li>
+      <li>Haz clic derecho sobre el sonido y busca la opción de asignarle un atajo (depende de tu versión de Discord) y pulsa la combinación de arriba.</li>
+      <li>Pulsa Probar con la voz conectada: el sonido debería sonar. Si tu Discord no ofrece atajo por sonido, este botón no podrá reproducirlo.</li>
+    </ol>
+    <p class="integration-hint">Sin configurar nada en Discord: el botón "Mute micrófono" de Windows silencia el micro para todas las apps.</p>`;
   wireTiles(body, c.actions, ctx);
   body.querySelector("#dc-save").addEventListener("click", () => withToast(async () => {
     await connectorApi("/discord/configure", {
@@ -1281,6 +1403,23 @@ function connectorBodyDiscord(c, body, ctx) {
     });
     await ctx.refresh();
   }, "Atajos guardados"));
+
+  const soundAction = () => {
+    const name = body.querySelector("#dc-sound-name").value.trim() || "Sonido";
+    const hotkey = body.querySelector("#dc-sound-key").value.trim();
+    return { action_type: "discord_hotkey", target: "sound", extra: { hotkey, sound_name: name }, name };
+  };
+  body.querySelector("#dc-sound-assign").addEventListener("click", () => {
+    const { name, ...action } = soundAction();
+    assignFromTemplate(ctx.btn, ctx.index, {
+      label: name, sublabel: "Soundboard", icon: "/static/icons/soundboard.svg", color: "#5865f2", ...action,
+    });
+  });
+  body.querySelector("#dc-sound-test").addEventListener("click", () => withToast(async () => {
+    const { name, ...action } = soundAction();
+    const result = await postJson("/api/actions/test", action);
+    if (!result.success) throw new Error(result.error || "No se pudo enviar el atajo");
+  }, "Atajo enviado. Con la voz conectada, el sonido debería sonar."));
 }
 
 const CONNECTOR_BODIES = { windows: connectorBodyWindows, obs: connectorBodyObs, spotify: connectorBodySpotify, discord: connectorBodyDiscord };
@@ -1645,5 +1784,6 @@ window.addEventListener("DOMContentLoaded", () => {
   loadAudioSessions();
   setupTrashDropZone();
   checkGitHubUpdates();
-  setInterval(loadAudioSessions, 3000);
+  connectStudioSocket();
+  setInterval(loadAudioSessions, 15000); // safety net: the live feed does the real work
 });

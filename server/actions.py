@@ -56,6 +56,8 @@ def send_hotkey(hotkey: str) -> bool:
         virtual_keys = [HOTKEY_VK[key] for key in keys]
         for virtual_key in virtual_keys:
             user32.keybd_event(virtual_key, 0, 0, 0)
+        # Hold the combination briefly: Discord's global shortcuts can miss a press that is released at once.
+        time.sleep(0.06)
         for virtual_key in reversed(virtual_keys):
             user32.keybd_event(virtual_key, 0, KEYEVENTF_KEYUP, 0)
         return True

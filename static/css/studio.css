@@ -228,6 +228,30 @@ kbd { padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 5px
 .slot-empty-add:hover { border-color: var(--accent); color: var(--accent); }
 
 .slot-keycap, .slot-fader { height: 100%; }
+
+/* Icons and titles grow with the button instead of staying tiny in a big cell. */
+.slot-cell, .preview-btn-mock { container-type: size; }
+@supports (width: 1cqmin) {
+  .slot-keycap-img { width: clamp(26px, 34cqmin, 56px); height: clamp(26px, 34cqmin, 56px); }
+  .slot-keycap-title { font-size: clamp(10px, 11cqmin, 15px); }
+}
+
+/* System gauges: the number is the content. */
+.slot-monitor { gap: 4px; }
+.slot-monitor-name { color: var(--text-2); font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+.slot-monitor-value { display: flex; align-items: baseline; gap: 1px; font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+.slot-monitor-value small { color: var(--text-3); font-size: 0.45em; font-weight: 700; }
+.slot-monitor-bar { width: 76%; height: 6px; overflow: hidden; background: var(--bg); border: 1px solid var(--line); border-radius: 3px; }
+.slot-monitor-bar i { display: block; width: 0; height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.4s ease; }
+.slot-monitor[data-level="warn"] .slot-monitor-bar i { background: #ffb020; }
+.slot-monitor[data-level="high"] .slot-monitor-bar i { background: var(--danger); }
+.slot-monitor[data-level="high"] .slot-monitor-value { color: var(--danger); }
+@supports (width: 1cqmin) {
+  .slot-monitor-name { font-size: clamp(9px, 9cqmin, 13px); }
+  .slot-monitor-value { font-size: clamp(22px, 36cqmin, 56px); }
+}
+.slot-fader.is-idle { opacity: 0.55; }
+.slot-fader.is-muted .slot-fader-fill { opacity: 0.35; }
 .slot-keycap.dragging, .slot-fader.dragging { opacity: 0.55; }
 .slot-keycap-inner {
   position: relative;
