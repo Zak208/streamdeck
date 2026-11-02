@@ -7,6 +7,8 @@ let currentSessions = [];
 let targetAppMap = {}; // sliderId -> process_name
 let isDraggingMap = {}; // sliderId -> boolean
 let masterSliderIds = new Set(); // every master fader on the current page (ids differ per page)
+let lastMaster = null; // last master volume received, to paint faders that are created later
+let lastMic = null;
 let buttonStates = {}; // button id -> last known on/off state (OBS recording / streaming)
 let deferredInstallPrompt = null;
 
@@ -286,6 +288,8 @@ function handleServerMessage(data) {
       applyTheme(data.theme);
       renderDeck(currentConfig);
       renderPageNav(currentConfig);
+      lastMaster = data.master || lastMaster;
+      lastMic = data.mic || lastMic;
       if (data.master) updateMasterVolume(data.master.volume, data.master.muted);
       updateAppVolumes();
       applyMicState(data.mic);
@@ -298,6 +302,8 @@ function handleServerMessage(data) {
     case "audio_state":
       // Pushed by the PC whenever master or any app volume/mute changes there.
       currentSessions = data.sessions || [];
+      lastMaster = data.master || lastMaster;
+      lastMic = data.mic || lastMic;
       if (data.master) updateMasterVolume(data.master.volume, data.master.muted);
       updateAppVolumes();
       applyMicState(data.mic);
@@ -314,11 +320,13 @@ function handleServerMessage(data) {
 
     case "master_volume_updated":
     case "master_volume_update":
+      lastMaster = { volume: data.volume, muted: data.muted };
       updateMasterVolume(data.volume, data.muted);
       break;
 
     case "master_mute_updated":
     case "master_mute_update":
+      if (lastMaster) lastMaster.muted = data.muted;
       updateMasterMute(data.muted);
       break;
 
@@ -398,6 +406,12 @@ function renderDeck(config) {
       deckGrid.appendChild(emptyEl);
     }
   }
+
+  // The faders were just created with placeholder values. Paint what the PC is doing now, otherwise
+  // changing page (or reconnecting) shows 50% everywhere until some volume happens to change.
+  if (lastMaster) updateMasterVolume(lastMaster.volume, lastMaster.muted);
+  updateAppVolumes();
+  applyMicState(lastMic);
 }
 
 // The Windows microphone can be muted outside StreamDesk, so its buttons follow the real state.

@@ -31,7 +31,7 @@ Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollad
 
 ### 4. 🔄 Auto-Actualizador Integrado con GitHub
 - En la barra superior del PC Studio se encuentra el **cilindro indicador de estado de versión**:
-  - `🟢 v2.3.1 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
+  - `🟢 v2.4.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
   - `🟡 ¡Actualización en GitHub! [Actualizar 🚀]`: El sistema detecta automáticamente nuevos commits en `https://github.com/Zak208/streamdeck`.
 - Al pulsar el botón de actualizar, el sistema ejecuta `/api/system/apply-update` sincronizando el código automáticamente sin necesidad de reinstalar manualmente.
 
@@ -87,7 +87,7 @@ En Studio, selecciona una casilla y abre la pestaña **Conectores**. Cada servic
 - **Windows:** mute del micrófono (funciona con Discord, juegos y cualquier app), mute de una app concreta y cambio de salida de audio. No necesita configuración.
 - **OBS Studio:** grabar, transmitir, cambiar de escena y mutear una fuente, con las escenas y fuentes reales de tu OBS. Soporta la contraseña del servidor WebSocket. Los botones de grabar y transmitir se marcan en rojo mientras están activos.
 - **Spotify:** elige una de tus playlists (o pega un enlace) y el botón la reproduce. Requiere crear una app gratuita en el panel de desarrolladores de Spotify, pegar su Client ID y una cuenta **Premium**. Sin conectar, o con cuenta gratuita, el botón abre la lista en la app de Spotify.
-- **Discord:** silenciar y ensordecer pulsando los atajos globales que tú defines una vez (por defecto `CTRL+ALT+F9` y `CTRL+ALT+F10`) y creas también en Discord. El soundboard no está disponible: Discord no lo permite sin un bot propio.
+- **Discord:** también hay un botón de **sonido del soundboard**: das al sonido un atajo en Discord y el botón lo pulsa (StreamDesk no puede leer tus sonidos: Discord no lo permite sin la contraseña de tu cuenta). Silenciar y ensordecer pulsando los atajos globales que tú defines una vez (por defecto `CTRL+ALT+F9` y `CTRL+ALT+F10`) y creas también en Discord. El soundboard no está disponible: Discord no lo permite sin un bot propio.
 
 Las contraseñas y tokens se guardan en `config/settings.json` dentro de tu carpeta de datos y nunca se envían al navegador ni al móvil.
 
