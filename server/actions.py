@@ -34,6 +34,10 @@ HOTKEY_VK = {
 HOTKEY_VK.update({chr(code): code for code in range(ord("A"), ord("Z") + 1)})
 HOTKEY_VK.update({str(number): ord(str(number)) for number in range(10)})
 HOTKEY_VK.update({f"F{number}": 0x6F + number for number in range(1, 25)})
+HOTKEY_VK.update({"INSERT": 0x2D, "PAGEUP": 0x21, "PAGEDOWN": 0x22, "PRINTSCREEN": 0x2C})
+# These share a scan code with a numpad key unless flagged as extended.
+EXTENDED_KEYS = {"UP", "DOWN", "LEFT", "RIGHT", "HOME", "END", "DELETE", "INSERT", "PAGEUP", "PAGEDOWN"}
+KEYEVENTF_EXTENDEDKEY = 0x0001
 
 
 def send_vk_key(vk_code: int) -> bool:
@@ -48,21 +52,85 @@ def send_vk_key(vk_code: int) -> bool:
         return False
 
 
-def send_hotkey(hotkey: str) -> bool:
-    """Send a validated user-configured Discord global key binding."""
-    keys = validate_hotkey(hotkey).split("+")
+def send_hotkey(hotkey: str, require_modifier: bool = True) -> bool:
+    """Press a validated key combination (a Discord global shortcut, or any hotkey button)."""
+    keys = validate_hotkey(hotkey, require_modifier=require_modifier).split("+")
     try:
         user32 = ctypes.windll.user32
-        virtual_keys = [HOTKEY_VK[key] for key in keys]
-        for virtual_key in virtual_keys:
-            user32.keybd_event(virtual_key, 0, 0, 0)
-        # Hold the combination briefly: Discord's global shortcuts can miss a press that is released at once.
+        presses = [(HOTKEY_VK[key], KEYEVENTF_EXTENDEDKEY if key in EXTENDED_KEYS else 0) for key in keys]
+        for virtual_key, flags in presses:
+            user32.keybd_event(virtual_key, 0, flags, 0)
+        # Hold the combination briefly: global shortcuts can miss a press that is released at once.
         time.sleep(0.06)
-        for virtual_key in reversed(virtual_keys):
-            user32.keybd_event(virtual_key, 0, KEYEVENTF_KEYUP, 0)
+        for virtual_key, flags in reversed(presses):
+            user32.keybd_event(virtual_key, 0, flags | KEYEVENTF_KEYUP, 0)
         return True
     except Exception as exc:
         print(f"Error sending hotkey {hotkey}: {exc}")
+        return False
+
+
+# ---- Typing text: SendInput with Unicode characters, so accents, emoji and any layout work ----
+
+INPUT_KEYBOARD = 1
+KEYEVENTF_UNICODE = 0x0004
+VK_RETURN = 0x0D
+VK_TAB = 0x09
+
+
+class _KeyboardInput(ctypes.Structure):
+    _fields_ = [("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort), ("dwFlags", ctypes.c_ulong),
+                ("time", ctypes.c_ulong), ("dwExtraInfo", ctypes.c_size_t)]
+
+
+class _MouseInput(ctypes.Structure):
+    _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long), ("mouseData", ctypes.c_ulong),
+                ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong), ("dwExtraInfo", ctypes.c_size_t)]
+
+
+class _HardwareInput(ctypes.Structure):
+    _fields_ = [("uMsg", ctypes.c_ulong), ("wParamL", ctypes.c_ushort), ("wParamH", ctypes.c_ushort)]
+
+
+class _InputUnion(ctypes.Union):
+    _fields_ = [("mi", _MouseInput), ("ki", _KeyboardInput), ("hi", _HardwareInput)]
+
+
+class _Input(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_ulong), ("union", _InputUnion)]
+
+
+def _key_event(virtual_key: int = 0, scan: int = 0, flags: int = 0) -> _Input:
+    return _Input(INPUT_KEYBOARD, _InputUnion(ki=_KeyboardInput(virtual_key, scan, flags, 0, 0)))
+
+
+def text_to_inputs(text: str, press_enter: bool = False) -> list:
+    """Key events that type `text`. Newline and tab are real keys; everything else is sent as Unicode."""
+    events = []
+    for char in text:
+        if char in "\n\t":
+            key = VK_RETURN if char == "\n" else VK_TAB
+            events += [_key_event(key), _key_event(key, flags=KEYEVENTF_KEYUP)]
+            continue
+        data = char.encode("utf-16-le")
+        for offset in range(0, len(data), 2):  # characters outside the BMP are two UTF-16 units
+            unit = int.from_bytes(data[offset:offset + 2], "little")
+            events += [_key_event(scan=unit, flags=KEYEVENTF_UNICODE),
+                       _key_event(scan=unit, flags=KEYEVENTF_UNICODE | KEYEVENTF_KEYUP)]
+    if press_enter:
+        events += [_key_event(VK_RETURN), _key_event(VK_RETURN, flags=KEYEVENTF_KEYUP)]
+    return events
+
+
+def type_text(text: str, press_enter: bool = False) -> bool:
+    events = text_to_inputs(text, press_enter)
+    if not events:
+        return False
+    try:
+        batch = (_Input * len(events))(*events)
+        return ctypes.windll.user32.SendInput(len(events), batch, ctypes.sizeof(_Input)) == len(events)
+    except Exception as exc:
+        print(f"Error typing text: {exc}")
         return False
 
 
@@ -119,6 +187,16 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
 
         if action_type == "windows":
             return windows.execute(target, extra)
+
+        if action_type == "hotkey":
+            return {"success": send_hotkey(target, require_modifier=False), "action": action_type, "target": target}
+
+        if action_type == "text":
+            return {"success": type_text(target, bool(extra.get("press_enter"))), "action": action_type}
+
+        if action_type == "page":
+            # Changing page needs the live phone connection; the server does it before reaching here.
+            return {"success": False, "error": "El cambio de página solo funciona desde un botón del móvil"}
 
         if action_type == "discord_hotkey":
             if target not in DISCORD_TARGETS:

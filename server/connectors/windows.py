@@ -1,5 +1,6 @@
 """Windows audio controls that work with any app, no setup needed."""
 
+import ctypes
 import re
 from typing import Any, Dict, List, Optional
 
@@ -106,6 +107,10 @@ def execute(target: str, extra: Dict[str, Any]) -> Dict[str, Any]:
         return result
     if target == "output_device":
         return set_output_device(extra.get("device_id", ""))
+    if target == "lock_pc":
+        # LockWorkStation returns 0 when Windows refuses (for example, when it is already locked).
+        locked = bool(ctypes.windll.user32.LockWorkStation())
+        return {"success": locked} if locked else {"success": False, "error": "Windows no pudo bloquear el PC"}
     return {"success": False, "error": "Acción de Windows no válida"}
 
 
@@ -118,9 +123,12 @@ def status() -> Dict[str, Any]:
 
 def actions() -> List[Dict[str, Any]]:
     return [
-        {"id": "mic_mute", "label": "Mute micrófono", "sublabel": "Windows", "icon": "/static/icons/mute.svg",
+        {"id": "mic_mute", "label": "Mute micrófono", "sublabel": "Windows", "icon": "/static/icons/mic.svg",
          "color": "#ef4444", "action_type": "windows", "target": "mic_mute", "extra": {},
          "description": "Silencia el micrófono de Windows. Sirve para Discord, juegos y cualquier app."},
+        {"id": "lock_pc", "label": "Bloquear PC", "sublabel": "Windows", "icon": "/static/icons/lock.svg",
+         "color": "#f8c700", "action_type": "windows", "target": "lock_pc", "extra": {},
+         "description": "Bloquea la sesión de Windows, como Win+L."},
     ]
 
 

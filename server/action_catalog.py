@@ -14,9 +14,19 @@ from urllib.parse import urlparse
 
 ACTION_TYPES = frozenset({
     "preset_app", "launch", "media", "url", "obs_action", "hardware_monitor",
-    "sound", "multi", "spotify_uri", "discord_hotkey", "windows",
+    "sound", "multi", "spotify_uri", "discord_hotkey", "windows", "hotkey", "text", "page",
 })
-WINDOWS_TARGETS = frozenset({"mic_mute", "app_mute", "output_device"})
+WINDOWS_TARGETS = frozenset({"mic_mute", "app_mute", "output_device", "lock_pc"})
+PAGE_KEYWORDS = frozenset({"next", "prev", "first"})
+MAX_TEXT_LENGTH = 300
+HOTKEY_MODIFIERS = frozenset({"CTRL", "ALT", "SHIFT", "WIN"})
+HOTKEY_KEYS = frozenset(
+    {"SPACE", "TAB", "ENTER", "ESC", "BACKSPACE", "DELETE", "HOME", "END", "UP", "DOWN", "LEFT", "RIGHT",
+     "INSERT", "PAGEUP", "PAGEDOWN", "PRINTSCREEN"}
+    | {chr(code) for code in range(ord("A"), ord("Z") + 1)}
+    | {str(number) for number in range(10)}
+    | {f"F{number}" for number in range(1, 25)}
+)
 WINDOWS_DEVICE_ID = re.compile(r"^\{[0-9A-Fa-f.]{1,40}\}\.\{[0-9A-Fa-f-]{36}\}$")
 MEDIA_TARGETS = frozenset({"play_pause", "play", "next", "next_track", "prev", "previous", "prev_track", "stop", "mute"})
 OBS_TARGETS = frozenset({"record_toggle", "toggle_record", "record", "record_pause", "pause_record", "stream_toggle", "toggle_stream", "stream", "next_scene", "prev_scene", "mute_mic", "toggle_mute_mic"})
@@ -62,23 +72,36 @@ def normalize_spotify_uri(value: Any) -> str:
     return f"spotify:{parts[0]}:{parts[1]}"
 
 
-def validate_hotkey(value: Any) -> str:
-    hotkey = _text(value, "atajo de Discord", 80, allow_empty=False).upper().replace(" ", "")
+def validate_hotkey(value: Any, *, require_modifier: bool = True) -> str:
+    """Normalise a key combination such as "ctrl + shift + m" to "CTRL+SHIFT+M".
+
+    Discord shortcuts must include a modifier (a bare letter would type into whatever has focus).
+    General hotkey buttons may be a single key such as F5 or a media-style key.
+    """
+    hotkey = _text(value, "atajo", 80, allow_empty=False).upper().replace(" ", "")
     aliases = {"CONTROL": "CTRL", "OPTION": "ALT", "CMD": "WIN", "COMMAND": "WIN"}
     keys = [aliases.get(part, part) for part in hotkey.split("+") if part]
-    valid_modifiers = {"CTRL", "ALT", "SHIFT", "WIN"}
-    valid_keys = {"SPACE", "TAB", "ENTER", "ESC", "BACKSPACE", "DELETE", "HOME", "END", "UP", "DOWN", "LEFT", "RIGHT"}
-    valid_keys.update(chr(code) for code in range(ord("A"), ord("Z") + 1))
-    valid_keys.update(str(number) for number in range(10))
-    valid_keys.update(f"F{number}" for number in range(1, 25))
 
-    if len(keys) < 2 or len(keys) > 4 or len(set(keys)) != len(keys):
-        raise ValueError("El atajo debe incluir modificador y tecla, por ejemplo CTRL+SHIFT+M")
-    if any(key not in valid_modifiers and key not in valid_keys for key in keys):
+    if not 1 <= len(keys) <= 4 or len(set(keys)) != len(keys):
+        raise ValueError("El atajo debe tener entre una y cuatro teclas distintas, por ejemplo CTRL+SHIFT+M")
+    if any(key not in HOTKEY_MODIFIERS and key not in HOTKEY_KEYS for key in keys):
         raise ValueError("El atajo contiene una tecla no compatible")
-    if not any(key in valid_modifiers for key in keys) or not any(key in valid_keys for key in keys):
-        raise ValueError("El atajo necesita un modificador y una tecla")
+    if not any(key in HOTKEY_KEYS for key in keys):
+        raise ValueError("El atajo necesita una tecla además de los modificadores")
+    if require_modifier and not any(key in HOTKEY_MODIFIERS for key in keys):
+        raise ValueError("El atajo debe incluir un modificador y una tecla, por ejemplo CTRL+SHIFT+M")
     return "+".join(keys)
+
+
+def _free_text(value: Any, field: str, maximum: int) -> str:
+    """Text that will be typed as is. Unlike labels it may contain < and >, and it keeps its spaces."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} no puede estar vacío")
+    if len(value) > maximum:
+        raise ValueError(f"{field} no puede superar {maximum} caracteres")
+    if any(ord(char) < 32 and char not in "\n\t" for char in value) or "\x7f" in value:
+        raise ValueError(f"{field} contiene caracteres de control no permitidos")
+    return value
 
 
 def _image_path(value: Any) -> str:
@@ -92,10 +115,17 @@ def _image_path(value: Any) -> str:
 
 def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_multi: bool = True) -> Dict[str, Any]:
     action_type = _text(action_type, "tipo de acción", 40, allow_empty=False).lower()
-    if action_type not in ACTION_TYPES or (action_type == "multi" and not allow_multi):
+    # A macro step cannot be another macro or a page jump (that one needs the live phone connection).
+    if action_type not in ACTION_TYPES or (action_type in {"multi", "page"} and not allow_multi):
         raise ValueError("Tipo de acción no permitido")
 
     action_extra = extra if isinstance(extra, dict) else {}
+    if action_type == "text":
+        return {
+            "action_type": "text",
+            "target": _free_text(target, "texto", MAX_TEXT_LENGTH),
+            "extra": {"press_enter": bool(action_extra.get("press_enter", False))},
+        }
     target_text = _text(target, "destino", 300)
 
     if action_type in {"preset_app", "launch"}:
@@ -123,6 +153,15 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
         if target_text == "sound" and action_extra.get("sound_name"):
             # Only a label: StreamDesk cannot read Discord's sounds, the shortcut is what plays one.
             clean_extra["sound_name"] = _text(action_extra["sound_name"], "nombre del sonido", 40, allow_empty=False)
+    elif action_type == "hotkey":
+        target_text = validate_hotkey(target_text, require_modifier=False)
+        clean_extra = {}
+    elif action_type == "page":
+        if target_text.lower() in PAGE_KEYWORDS:
+            target_text = target_text.lower()
+        elif not SAFE_ID.fullmatch(target_text):
+            raise ValueError("La página de destino no es válida")
+        clean_extra = {}
     elif action_type == "windows":
         target_text = target_text.lower()
         if target_text not in WINDOWS_TARGETS:
@@ -195,6 +234,11 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
         if not SAFE_ID.fullmatch(page_id):
             raise ValueError("El id de página no es válido")
         page_name = _text(page.get("name", f"Página {page_index + 1}"), "nombre de página", 40, allow_empty=False)
+        auto_app = ""
+        if page.get("auto_app"):
+            auto_app = _text(page["auto_app"], "aplicación de la página", 128, allow_empty=False)
+            if not SAFE_PROCESS.fullmatch(auto_app):
+                raise ValueError("La aplicación de la página no es válida")
         slots = page.get("slots")
         if not isinstance(slots, list) or len(slots) != 12:
             raise ValueError("Cada página debe tener exactamente doce casillas")
@@ -260,7 +304,10 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
                     raise ValueError("Cada fader debe ocupar las dos casillas de su columna")
             elif bottom["type"] == "occupied_by_slider":
                 raise ValueError("Una casilla ocupada necesita un fader encima")
-        clean_pages.append({"id": page_id, "name": page_name, "slots": clean_slots})
+        clean_page: Dict[str, Any] = {"id": page_id, "name": page_name, "slots": clean_slots}
+        if auto_app:
+            clean_page["auto_app"] = auto_app  # switch to this page when this program is in the foreground
+        clean_pages.append(clean_page)
 
     current_page = raw_config.get("current_page", 0)
     if not isinstance(current_page, int) or not 0 <= current_page < len(clean_pages):

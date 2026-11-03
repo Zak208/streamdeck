@@ -1,4 +1,5 @@
 import copy
+import ctypes
 import faulthandler
 import os
 import sys
@@ -7,6 +8,7 @@ import asyncio
 import json
 import uuid
 import subprocess
+import time
 import urllib.request
 from contextlib import asynccontextmanager
 from typing import Set, Dict, Any, Optional
@@ -44,7 +46,8 @@ from server.com_worker import com_worker
 from server.actions import execute_action
 from server.auth import auth_manager
 from server import diagnostics, firewall, templates
-from server.config_manager import config_manager
+from server.action_catalog import validate_deck_config
+from server.config_manager import CONFIG_FILE, config_manager
 from server.connectors import spotify, windows
 from server.settings_store import settings
 from server.system_scanner import system_scanner
@@ -188,13 +191,53 @@ async def telemetry_sync_loop():
             pass
         await asyncio.sleep(1.5)
 
+def foreground_process() -> str:
+    """Name of the program whose window has the focus, lower case, or "" when there is none."""
+    import psutil
+    user32 = ctypes.windll.user32
+    pid = ctypes.c_ulong(0)
+    user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), ctypes.byref(pid))
+    return psutil.Process(pid.value).name().lower() if pid.value else ""
+
+
+def page_for_app(pages: list, process_name: str):
+    """Index of the page set to open for this program, or None."""
+    wanted = (process_name or "").lower()
+    return next((i for i, page in enumerate(pages) if wanted and (page.get("auto_app") or "").lower() == wanted), None)
+
+
+async def smart_page_loop():
+    """Open the page of the program you are using, like Stream Deck's Smart Profiles.
+
+    It reacts when the foreground program changes, not on every tick, so moving the phone to
+    another page by hand is not undone a second later.
+    """
+    last = None
+    while True:
+        try:
+            pages = config_manager.get_config().get("pages", [])
+            if any(page.get("auto_app") for page in pages):
+                name = await asyncio.to_thread(foreground_process)
+                if name and name != last:
+                    last = name
+                    index = page_for_app(pages, name)
+                    if index is not None and index != config_manager.get_config().get("current_page", 0):
+                        if config_manager.set_active_page(index):
+                            await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+        except Exception:
+            pass
+        await asyncio.sleep(1.0)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     sync_task = asyncio.create_task(audio_sync_loop())
     telemetry_task = asyncio.create_task(telemetry_sync_loop())
+    smart_task = asyncio.create_task(smart_page_loop())
     yield
     sync_task.cancel()
     telemetry_task.cancel()
+    smart_task.cancel()
 
 app = FastAPI(title="StreamDesk Pro Server", version=VERSION, lifespan=lifespan)
 
@@ -396,6 +439,50 @@ async def apply_template(values: Dict[str, Any] = Body(...), _: None = Depends(r
     return {"success": True, "index": len(config_manager.get_config()["pages"]) - 1}
 
 
+@app.get("/api/profile/export")
+def export_profile(_: None = Depends(require_local_request)):
+    """The whole profile as a file. It holds layouts only: no passwords, tokens or paired phones."""
+    return JSONResponse(config_manager.get_config(), headers={
+        "Content-Disposition": 'attachment; filename="streamdesk-perfil.json"',
+    })
+
+
+@app.post("/api/profile/import")
+async def import_profile(profile: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    """Replace the profile with one from a file. The file is untrusted, so it goes through the same
+    validation as anything a phone could trigger, and the current profile is kept as a backup."""
+    try:
+        clean = validate_deck_config(profile)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"El archivo no es un perfil válido: {exc}")
+    backup = os.path.join(os.path.dirname(CONFIG_FILE), f"deck_config.backup-{int(time.time())}.json")
+    try:
+        shutil.copy2(CONFIG_FILE, backup)
+    except OSError:
+        backup = ""
+    if not config_manager.save_config(clean):
+        raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo importar el perfil")
+    await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+    return {"success": True, "pages": len(clean["pages"]), "backup": bool(backup)}
+
+
+@app.post("/api/deck/page/duplicate")
+async def duplicate_deck_page(page_index: int = Body(..., embed=True), _: None = Depends(require_local_request)):
+    cfg = copy.deepcopy(config_manager.get_config())
+    pages = cfg["pages"]
+    if not 0 <= page_index < len(pages):
+        raise HTTPException(status_code=404, detail="Esa página no existe")
+    clone = copy.deepcopy(pages[page_index])
+    clone["id"] = f"page_{uuid.uuid4().hex[:6]}"
+    clone["name"] = f"{clone['name']} (copia)"[:40]
+    clone.pop("auto_app", None)  # two pages for the same program would be ambiguous
+    pages.insert(page_index + 1, clone)
+    if not config_manager.save_config(cfg):
+        raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo duplicar la página")
+    await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+    return {"success": True, "index": page_index + 1}
+
+
 @app.get("/api/config")
 @app.get("/api/deck/config")
 async def get_configuration(_: None = Depends(require_local_request)):
@@ -500,6 +587,12 @@ def _connector(connector_id: str):
 @app.get("/api/connectors")
 def list_connectors(_: None = Depends(require_local_request)):
     return {"connectors": connectors.describe_all()}
+
+
+@app.get("/api/connectors/catalog")
+def connectors_catalog(_: None = Depends(require_local_request)):
+    """Ready-made buttons of every connector, without checking whether each service is running."""
+    return {"connectors": [{**module.INFO, "actions": module.actions()} for module in connectors.REGISTRY.values()]}
 
 
 @app.get("/api/connectors/{connector_id}/options/{name}")
@@ -611,14 +704,37 @@ def apply_github_update(_: None = Depends(require_local_request)):
 
 # --- WebSocket Channel ---
 
+async def navigate_pages(target: str) -> Dict[str, Any]:
+    """A button that moves the phone to another page: next, previous, first, or a specific page id."""
+    config = config_manager.get_config()
+    pages = config.get("pages", [])
+    current = config.get("current_page", 0)
+    if target == "next":
+        index = (current + 1) % len(pages)
+    elif target == "prev":
+        index = (current - 1) % len(pages)
+    elif target == "first":
+        index = 0
+    else:
+        index = next((i for i, page in enumerate(pages) if page["id"] == target), None)
+    if index is None:
+        return {"success": False, "error": "Esa página ya no existe"}
+    if index != current and config_manager.set_active_page(index):
+        await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+    return {"success": True, "action": "page"}
+
+
 async def run_button_action(websocket: WebSocket, slot: Dict[str, Any]) -> None:
     """Execute a button off the event loop and tell every phone how it went."""
     btn_id = slot.get("id")
     try:
         try:
-            result = await asyncio.to_thread(
-                execute_action, slot.get("action_type"), slot.get("target"), slot.get("extra")
-            )
+            if slot.get("action_type") == "page":
+                result = await navigate_pages(str(slot.get("target", "")))
+            else:
+                result = await asyncio.to_thread(
+                    execute_action, slot.get("action_type"), slot.get("target"), slot.get("extra")
+                )
         except Exception as exc:
             result = {"success": False, "error": str(exc)}
 
