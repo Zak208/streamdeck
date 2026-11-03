@@ -76,9 +76,9 @@ ALIASES = ["Sonidos más usados en Casa", "Favoritos", "Usados frecuentemente"]
 CONTENT = [
     ("Casa", ["🚪 Puerta", "bonk", "Ohana", "🌺 Aloha", "Stitchs", "Sida", "defuse"]),  # longer than the viewport
     ("Sonidos de Discord", ["🦆 quack", "🔊 airhorn"]),
-    ("Dotcord", ["Error", "bonk", "Aplausos", "Metal pipe"]),                               # "bonk" also exists in Casa
-    ("PUTEROS FC", ["Viva rusia", "Metal pipe"]),                                           # last: cannot reach the top, so the
-                                                                                            # screen still shows Dotcord's "Metal pipe"
+    ("Servidor B", ["Error", "bonk", "Aplausos", "Metal pipe"]),                               # "bonk" also exists in Casa
+    ("Servidor C", ["Viva rusia", "Metal pipe"]),                                           # last: cannot reach the top, so the
+                                                                                            # screen still shows Servidor B's "Metal pipe"
 ]
 
 
@@ -102,8 +102,8 @@ class ScanTests(unittest.TestCase):
             by_section.setdefault(sound["section"], []).append(sound["label"])
         self.assertEqual(by_section["Casa"], ["🚪 Puerta", "bonk", "Ohana", "🌺 Aloha", "Stitchs", "Sida", "defuse"])
         self.assertEqual(by_section["Sonidos de Discord"], ["🦆 quack", "🔊 airhorn"])
-        self.assertEqual(by_section["Dotcord"], ["Error", "bonk", "Aplausos", "Metal pipe"])
-        self.assertEqual(by_section["PUTEROS FC"], ["Viva rusia", "Metal pipe"])  # a short section at the very end
+        self.assertEqual(by_section["Servidor B"], ["Error", "bonk", "Aplausos", "Metal pipe"])
+        self.assertEqual(by_section["Servidor C"], ["Viva rusia", "Metal pipe"])  # a short section at the very end
         self.assertEqual(len(found), 15)
 
     def test_favourites_and_frequent_are_not_servers(self):
@@ -134,7 +134,7 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(self.press("Sonidos de Discord", "🦆 quack"), ["🦆 quack"])
 
     def test_equal_names_are_pressed_in_the_server_asked_for(self):
-        for section, wanted in (("Casa", "bonk"), ("Dotcord", "bonk"), ("Dotcord", "Metal pipe"), ("PUTEROS FC", "Metal pipe")):
+        for section, wanted in (("Casa", "bonk"), ("Servidor B", "bonk"), ("Servidor B", "Metal pipe"), ("Servidor C", "Metal pipe")):
             with self.subTest(section=section, sound=wanted):
                 a, b = with_panel()
                 with a, b:
@@ -155,7 +155,7 @@ class PlayTests(unittest.TestCase):
         self.assertEqual(self.press("Casa", "  Ohana "), ["Ohana"])
 
     def test_the_last_server_can_be_reached(self):
-        self.assertEqual(self.press("PUTEROS FC", "Metal pipe"), ["Metal pipe"])
+        self.assertEqual(self.press("Servidor C", "Metal pipe"), ["Metal pipe"])
 
     def test_a_missing_sound_or_server_says_which(self):
         with self.assertRaises(DiscordUiError) as sound:
@@ -183,8 +183,8 @@ class HelperTests(unittest.TestCase):
 
 class ActionAndConnectorTests(unittest.TestCase):
     def test_the_action_keeps_the_sound_and_its_server(self):
-        action = action_catalog.validate_action("discord_sound", "🚪 Tocar Puerta", {"section": "Fanny Aloha Ohana", "junk": 1})
-        self.assertEqual(action, {"action_type": "discord_sound", "target": "🚪 Tocar Puerta", "extra": {"section": "Fanny Aloha Ohana"}})
+        action = action_catalog.validate_action("discord_sound", "🚪 Tocar Puerta", {"section": "Servidor A", "junk": 1})
+        self.assertEqual(action, {"action_type": "discord_sound", "target": "🚪 Tocar Puerta", "extra": {"section": "Servidor A"}})
 
     def test_incomplete_or_unsafe_actions_are_refused(self):
         for target, extra in (("", {"section": "A"}), ("bonk", {}), ("bonk", {"section": ""}), ("<b>", {"section": "A"}),
