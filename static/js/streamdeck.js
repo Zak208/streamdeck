@@ -367,7 +367,7 @@ function handleServerMessage(data) {
 // Live Hardware Telemetry Updates
 function updateTelemetryWidgets(data) {
   lastTelemetry = data;
-  document.querySelectorAll(".deck-monitor").forEach((el) => paintMonitor(el, data[el.dataset.monitor]));
+  document.querySelectorAll(".deck-monitor").forEach((el) => paintMonitor(el, "deck-monitor", el.dataset.monitor, data));
 }
 
 // Render dynamic 6x2 grid (12 slots) with 2-height vertical faders
@@ -469,30 +469,18 @@ function applyButtonState(id) {
   if (slot && img) img.src = iconFor(slot);
 }
 
-// System gauges: a big number and a bar, because a small caption cannot be read on a phone.
+// System gauges are drawn by monitors.js (shared with Studio). The phone only keeps the last reading,
+// so a gauge created later (page change, reconnect) shows a real value at once.
 let lastTelemetry = null;
-const MONITOR_NAMES = { cpu: "CPU", ram: "RAM", disk: "Disco" };
-
-function paintMonitor(el, value) {
-  if (value === undefined || value === null) return;
-  el.querySelector(".deck-monitor-value span").textContent = value;
-  el.querySelector(".deck-monitor-bar i").style.width = `${Math.min(100, value)}%`;
-  el.dataset.level = value >= 85 ? "high" : value >= 60 ? "warn" : "ok";
-}
 
 function createMonitorElement(btn, keycap) {
   keycap.classList.add("deck-monitor");
   keycap.dataset.monitor = btn.target;
-  keycap.innerHTML = `
-    <div class="deck-btn-inner">
-      <div class="deck-btn-accent"></div>
-      <div class="deck-monitor-name"></div>
-      <div class="deck-monitor-value"><span>--</span><small>%</small></div>
-      <div class="deck-monitor-bar"><i></i></div>
-    </div>`;
+  keycap.innerHTML = `<div class="deck-btn-inner"><div class="deck-btn-accent"></div>${monitorInnerHtml("deck-monitor", btn.target)}</div>`;
   keycap.querySelector(".deck-btn-accent").style.background = btn.color || "var(--accent)";
-  keycap.querySelector(".deck-monitor-name").textContent = btn.label || MONITOR_NAMES[btn.target] || "Sistema";
-  if (lastTelemetry) paintMonitor(keycap, lastTelemetry[btn.target]);
+  keycap.querySelector(".deck-monitor-name").textContent = btn.label || MONITORS[btn.target]?.name || "Sistema";
+  keycap.classList.add(`kind-${MONITORS[btn.target]?.kind || "percent"}`);
+  if (lastTelemetry) paintMonitor(keycap, "deck-monitor", btn.target, lastTelemetry);
   return keycap;
 }
 

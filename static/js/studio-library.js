@@ -10,7 +10,7 @@ function builtInLibrary() {
     id: `media_${p.id}`, label: p.name, sub: "Multimedia", icon: p.icon, color: p.color, action_type: "media", target: p.target,
   }));
   const monitors = TELEMETRY_PRESETS.filter(p => p.target !== "taskmgr").map(p => ({
-    id: `monitor_${p.id}`, label: p.name.replace("Monitor ", ""), sub: "En vivo", icon: p.icon, color: p.color,
+    id: `monitor_${p.id}`, label: p.name.replace("Monitor ", ""), sub: p.sub, icon: p.icon, color: p.color,
     action_type: "hardware_monitor", target: p.target,
   }));
   return [

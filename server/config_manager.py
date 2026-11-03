@@ -56,15 +56,15 @@ def generate_default_pages() -> List[Dict[str, Any]]:
     # Page 3: Sistema & Telemetría
     page_system_slots = [
         {"index": 0, "type": "button", "id": "widget_cpu", "label": "CPU", "sublabel": "Carga", "icon": "", "image": "/static/icons/cpu.svg", "color": "#f8c700", "action_type": "hardware_monitor", "target": "cpu"},
-        {"index": 1, "type": "button", "id": "widget_disk", "label": "SSD C:", "sublabel": "Espacio", "icon": "", "image": "/static/icons/disk.svg", "color": "#10b981", "action_type": "hardware_monitor", "target": "disk"},
-        {"index": 2, "type": "button", "id": "btn_calc_p3", "label": "Calc", "sublabel": "Utilidad", "icon": "", "image": "/static/icons/calc.svg", "color": "#f59e0b", "action_type": "launch", "target": "calc"},
-        {"index": 3, "type": "button", "id": "btn_chrome_p3", "label": "Chrome", "sublabel": "Web", "icon": "", "image": "/static/icons/chrome.svg", "color": "#ea4335", "action_type": "preset_app", "target": "chrome"},
+        {"index": 1, "type": "button", "id": "widget_gpu", "label": "GPU", "sublabel": "Carga", "icon": "", "image": "/static/icons/gpu.svg", "color": "#f8c700", "action_type": "hardware_monitor", "target": "gpu"},
+        {"index": 2, "type": "button", "id": "widget_vram", "label": "VRAM", "sublabel": "Memoria de vídeo", "icon": "", "image": "/static/icons/ram.svg", "color": "#f8c700", "action_type": "hardware_monitor", "target": "vram"},
+        {"index": 3, "type": "button", "id": "widget_ram", "label": "RAM", "sublabel": "Memoria", "icon": "", "image": "/static/icons/ram.svg", "color": "#f8c700", "action_type": "hardware_monitor", "target": "ram"},
         {"index": 4, "type": "slider", "id": "slider_master_p3", "label": "Master", "sublabel": "PC", "slider_type": "master", "target_app": None, "color": "#f8c700", "row_span": 2, "icon": "/static/icons/volume_up.svg", "image": "/static/icons/volume_up.svg"},
         {"index": 5, "type": "slider", "id": "slider_chrome_p3", "label": "Chrome", "sublabel": "Web", "slider_type": "app_dynamic", "target_app": "chrome.exe", "color": "#ea4335", "row_span": 2, "icon": "/static/icons/chrome.svg", "image": "/static/icons/chrome.svg"},
-        {"index": 6, "type": "button", "id": "widget_ram", "label": "RAM", "sublabel": "Memoria", "icon": "", "image": "/static/icons/ram.svg", "color": "#8b5cf6", "action_type": "hardware_monitor", "target": "ram"},
-        {"index": 7, "type": "button", "id": "btn_taskmgr", "label": "Tareas", "sublabel": "Monitor", "icon": "", "image": "/static/icons/sliders.svg", "color": "#f59e0b", "action_type": "launch", "target": "taskmgr"},
-        {"index": 8, "type": "button", "id": "btn_notes_p3", "label": "Notas", "sublabel": "Editor", "icon": "", "image": "/static/icons/notes.svg", "color": "#f8c700", "action_type": "launch", "target": "notepad"},
-        {"index": 9, "type": "button", "id": "btn_yt_p3", "label": "YouTube", "sublabel": "Vídeo", "icon": "", "image": "/static/icons/youtube.svg", "color": "#e11d48", "action_type": "url", "target": "https://www.youtube.com"},
+        {"index": 6, "type": "button", "id": "widget_net", "label": "Red", "sublabel": "Descarga y subida", "icon": "", "image": "/static/icons/network.svg", "color": "#f8c700", "action_type": "hardware_monitor", "target": "net"},
+        {"index": 7, "type": "button", "id": "widget_disk_speed", "label": "Disco", "sublabel": "Velocidad", "icon": "", "image": "/static/icons/disk.svg", "color": "#f8c700", "action_type": "hardware_monitor", "target": "disk_speed"},
+        {"index": 8, "type": "button", "id": "btn_taskmgr", "label": "Tareas", "sublabel": "Monitor", "icon": "", "image": "/static/icons/sliders.svg", "color": "#f8c700", "action_type": "launch", "target": "taskmgr"},
+        {"index": 9, "type": "button", "id": "btn_notes_p3", "label": "Notas", "sublabel": "Editor", "icon": "", "image": "/static/icons/notes.svg", "color": "#f8c700", "action_type": "launch", "target": "notepad"},
         {"index": 10, "type": "occupied_by_slider", "id": "slot_10_p3", "parent_slot": 4},
         {"index": 11, "type": "occupied_by_slider", "id": "slot_11_p3", "parent_slot": 5}
     ]

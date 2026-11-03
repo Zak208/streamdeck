@@ -55,12 +55,15 @@ const MEDIA_PRESETS = [
   { id: "mute", name: "Mute Master", icon: "/static/icons/mute.svg", color: "#ef4444", sub: "Silenciar ordenador", target: "mute" }
 ];
 
-// Hardware Telemetry Presets
+// System gauges offered in the action library. How each one reads is in monitors.js.
 const TELEMETRY_PRESETS = [
-  { id: "mon_cpu", name: "Monitor CPU", icon: "/static/icons/cpu.svg", color: "#0ea5e9", sub: "Uso de Procesador %", target: "cpu" },
-  { id: "mon_ram", name: "Monitor RAM", icon: "/static/icons/ram.svg", color: "#8b5cf6", sub: "Memoria RAM %", target: "ram" },
-  { id: "mon_disk", name: "Monitor SSD", icon: "/static/icons/disk.svg", color: "#10b981", sub: "Disco C: en vivo", target: "disk" },
-  { id: "taskmgr", name: "Adm. Tareas", icon: "/static/icons/sliders.svg", color: "#f59e0b", sub: "Abrir TaskMgr", target: "taskmgr" }
+  { id: "mon_cpu", name: "Monitor CPU", icon: "/static/icons/cpu.svg", color: "#f8c700", sub: "Uso del procesador", target: "cpu" },
+  { id: "mon_ram", name: "Monitor RAM", icon: "/static/icons/ram.svg", color: "#f8c700", sub: "Memoria RAM", target: "ram" },
+  { id: "mon_gpu", name: "Monitor GPU", icon: "/static/icons/gpu.svg", color: "#f8c700", sub: "Uso de la tarjeta gráfica", target: "gpu" },
+  { id: "mon_vram", name: "Monitor VRAM", icon: "/static/icons/ram.svg", color: "#f8c700", sub: "Memoria de vídeo", target: "vram" },
+  { id: "mon_net", name: "Monitor Red", icon: "/static/icons/network.svg", color: "#f8c700", sub: "Descarga y subida", target: "net" },
+  { id: "mon_disk", name: "Monitor Disco", icon: "/static/icons/disk.svg", color: "#f8c700", sub: "Velocidad de lectura y escritura", target: "disk_speed" },
+  { id: "taskmgr", name: "Adm. Tareas", icon: "/static/icons/sliders.svg", color: "#f8c700", sub: "Abrir TaskMgr", target: "taskmgr" }
 ];
 
 // Load Pairing Info & QR
@@ -408,11 +411,7 @@ function paintStudioFaders() {
 function paintStudioMonitors() {
   if (!liveTelemetry) return;
   document.querySelectorAll("#phone-screen .slot-monitor").forEach((el) => {
-    const value = liveTelemetry[el.dataset.monitor];
-    if (value === undefined) return;
-    el.querySelector(".slot-monitor-value span").textContent = value;
-    el.querySelector(".slot-monitor-bar i").style.width = `${Math.min(100, value)}%`;
-    el.dataset.level = value >= 85 ? "high" : value >= 60 ? "warn" : "ok";
+    paintMonitor(el, "slot-monitor", el.dataset.monitor, liveTelemetry);
   });
 }
 
@@ -588,12 +587,12 @@ function createStudioButtonKeycap(btn, index) {
 
   if (btn.action_type === "hardware_monitor") {
     wrap.innerHTML = `
-      <div class="slot-keycap-inner slot-monitor" data-monitor="${escapeHtml(btn.target)}">
+      <div class="slot-keycap-inner slot-monitor kind-${MONITORS[btn.target]?.kind || "percent"}" data-monitor="${escapeHtml(btn.target)}">
         <div class="slot-accent" style="background: ${escapeHtml(btn.color || 'var(--accent)')};"></div>
-        <div class="slot-monitor-name">${escapeHtml(btn.label || btn.target)}</div>
-        <div class="slot-monitor-value"><span>--</span><small>%</small></div>
-        <div class="slot-monitor-bar"><i></i></div>
+        ${monitorInnerHtml("slot-monitor", btn.target)}
       </div>`;
+    wrap.querySelector(".slot-monitor-name").textContent = btn.label || MONITORS[btn.target]?.name || btn.target;
+    if (liveTelemetry) paintMonitor(wrap.querySelector(".slot-monitor"), "slot-monitor", btn.target, liveTelemetry);
     return wrap;
   }
 

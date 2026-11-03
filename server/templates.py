@@ -110,7 +110,7 @@ def _slots(template_id: str, prefix: str) -> List[Dict[str, Any]]:
             3: _button(3, prefix, "Tareas", "Administrador", "/static/icons/sliders.svg", ACCENT, "preset_app", "taskmgr"),
             6: _button(6, prefix, "CPU", "En vivo", "/static/icons/cpu.svg", ACCENT, "hardware_monitor", "cpu"),
             7: _button(7, prefix, "RAM", "En vivo", "/static/icons/ram.svg", ACCENT, "hardware_monitor", "ram"),
-            8: _button(8, prefix, "Disco", "En vivo", "/static/icons/disk.svg", ACCENT, "hardware_monitor", "disk"),
+            8: _button(8, prefix, "GPU", "En vivo", "/static/icons/gpu.svg", ACCENT, "hardware_monitor", "gpu"),
             9: _from_connector(9, prefix, mic),
         }, [
             _fader(4, prefix, "Master", "PC", "/static/icons/volume_up.svg", ACCENT, "master"),

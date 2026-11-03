@@ -51,6 +51,7 @@ from server.config_manager import CONFIG_FILE, config_manager
 from server.connectors import spotify, windows
 from server.settings_store import settings
 from server.system_scanner import system_scanner
+from server.telemetry import Telemetry
 
 from server.paths import BASE_DIR, CONFIG_DIR, FROZEN, PORT, STATIC_DIR, UPLOADS_DIR, VERSION
 
@@ -173,23 +174,20 @@ async def audio_sync_loop():
         # Four checks a second keep a volume moved on the PC and on the phone within half a second.
         await asyncio.sleep(0.4)
 
+telemetry = Telemetry(auth_manager.get_local_ip)
+
+
 async def telemetry_sync_loop():
-    import psutil
+    """Push CPU, RAM, GPU, VRAM, network and disk readings to every connected screen."""
     while True:
         try:
             if ws_manager.active_connections:
-                cpu = int(psutil.cpu_percent())
-                ram = int(psutil.virtual_memory().percent)
-                disk = int(psutil.disk_usage("C:").percent) if os.path.exists("C:") else 0
-                await ws_manager.broadcast({
-                    "type": "telemetry_update",
-                    "cpu": cpu,
-                    "ram": ram,
-                    "disk": disk
-                })
+                reading = await asyncio.to_thread(telemetry.sample)
+                await ws_manager.broadcast({"type": "telemetry_update", **reading})
         except Exception:
             pass
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(1.0)
+
 
 def foreground_process() -> str:
     """Name of the program whose window has the focus, lower case, or "" when there is none."""

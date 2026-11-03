@@ -90,6 +90,9 @@ img[src^="/static/icons/"]:not([src*="/discord."]):not([src*="/spotify."]):not([
 .btn-primary:active, .btn-secondary:active, .btn-danger:active { transform: translateY(1px); }
 .btn-primary:disabled, .btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
 
+/* An <img> in a button had no size, so an SVG without its own filled the whole button. */
+.btn-primary img, .btn-secondary img, .btn-danger img { width: 16px; height: 16px; flex: none; object-fit: contain; }
+
 /* Form controls */
 input[type="text"], input[type="url"], input[type="password"], input[type="number"], input[type="search"], select {
   width: 100%;

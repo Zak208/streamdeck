@@ -243,10 +243,19 @@ kbd { padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 5px
 .slot-monitor-value small { color: var(--text-3); font-size: 0.45em; font-weight: 700; }
 .slot-monitor-bar { width: 76%; height: 6px; overflow: hidden; background: var(--bg); border: 1px solid var(--line); border-radius: 3px; }
 .slot-monitor-bar i { display: block; width: 0; height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.4s ease; }
+.slot-monitor-detail { color: var(--text-3); font-size: 9px; font-variant-numeric: tabular-nums; }
+.slot-monitor[data-level="na"] .slot-monitor-value { color: var(--text-3); font-size: 18px; }
+.slot-monitor-rate { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 1px 4px; width: 92%; font-variant-numeric: tabular-nums; }
+.slot-monitor-rate b { color: var(--accent); font-size: 10px; }
+.slot-monitor-rate span { font-size: 16px; font-weight: 800; line-height: 1; text-align: right; }
+.slot-monitor-rate small { color: var(--text-3); font-size: 9px; }
+.slot-monitor-ratebar { display: block; grid-column: 1 / -1; height: 3px; overflow: hidden; background: var(--bg); border-radius: 2px; }
+.slot-monitor-ratebar u { display: block; width: 0; height: 100%; background: var(--accent); text-decoration: none; transition: width 0.4s ease; }
 .slot-monitor[data-level="warn"] .slot-monitor-bar i { background: #ffb020; }
 .slot-monitor[data-level="high"] .slot-monitor-bar i { background: var(--danger); }
 .slot-monitor[data-level="high"] .slot-monitor-value { color: var(--danger); }
 @supports (width: 1cqmin) {
+  .slot-monitor-rate span { font-size: clamp(13px, 17cqmin, 28px); }
   .slot-monitor-name { font-size: clamp(9px, 9cqmin, 13px); }
   .slot-monitor-value { font-size: clamp(22px, 36cqmin, 56px); }
 }

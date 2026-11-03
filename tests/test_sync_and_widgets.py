@@ -141,9 +141,11 @@ class PhoneAndStudioMarkupTests(unittest.TestCase):
         self.assertIn("masterSliderIds.has(sliderId)", code)
 
     def test_system_monitors_render_a_big_number_and_a_bar(self):
-        code, css = read("js/streamdeck.js"), read("css/style.css")
-        for token in ("createMonitorElement", "deck-monitor-value", "deck-monitor-bar", 'dataset.level'):
-            self.assertIn(token, code)
+        code, shared, css = read("js/streamdeck.js"), read("js/monitors.js"), read("css/style.css")
+        self.assertIn("createMonitorElement", code)
+        self.assertIn("paintMonitor(", code)
+        for token in ("value", "bar", "dataset.level"):
+            self.assertIn(token, shared)
         self.assertIn(".deck-monitor-value", css)
         self.assertNotIn("% Uso", code)  # the old tiny caption
 
