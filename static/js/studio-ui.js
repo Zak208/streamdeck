@@ -121,6 +121,108 @@ async function openNewPageDialog() {
   });
 }
 
+// ---------- Page settings: name, program that opens it, duplicate ----------
+
+function openPageSettings() {
+  const page = config.pages[activePageIndex];
+  const programs = [...new Set([...detectedSystemApps.map(a => a.exe_name), ...audioSessions.map(s => s.process_name)].filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  openModal({
+    title: "Ajustes de la página",
+    body: `
+      <div class="dialog-field" style="margin-bottom: 16px;">
+        <label class="section-label" for="ps-name" style="margin: 0;">Nombre</label>
+        <input type="text" id="ps-name" maxlength="40" value="${escapeHtml(page.name)}">
+      </div>
+      <div class="dialog-field">
+        <label class="section-label" for="ps-app" style="margin: 0;">Abrir esta página sola cuando este programa esté en primer plano</label>
+        <input type="text" id="ps-app" list="ps-programs" maxlength="128" value="${escapeHtml(page.auto_app || "")}" placeholder="Por ejemplo obs64.exe. Vacío para no usarlo.">
+        <datalist id="ps-programs">${programs.map(p => `<option value="${escapeHtml(p)}"></option>`).join("")}</datalist>
+        <p class="integration-hint">Es como los perfiles inteligentes de Stream Deck: al cambiar de programa en tu PC, el móvil salta a esta página. Si lo mueves tú a otra página, no te lo deshace hasta que cambies de programa.</p>
+      </div>
+      <div class="inline-row" style="margin-top: 16px;">
+        <button class="btn-secondary" id="ps-duplicate">Duplicar página</button>
+        <button class="btn-danger" id="ps-delete" style="width: auto; margin-top: 0;">Eliminar página</button>
+      </div>`,
+    actions: [
+      { label: "Cancelar", kind: "secondary" },
+      {
+        label: "Guardar", kind: "primary",
+        onClick: async (modal) => {
+          const name = modal.el.querySelector("#ps-name").value.trim();
+          const program = modal.el.querySelector("#ps-app").value.trim();
+          if (!name) return showToast("La página necesita un nombre");
+          const clash = config.pages.find((p, i) => i !== activePageIndex && program && (p.auto_app || "").toLowerCase() === program.toLowerCase());
+          if (clash) return showToast(`"${clash.name}" ya se abre con ese programa`);
+          const before = { name: page.name, auto_app: page.auto_app };
+          page.name = name;
+          if (program) page.auto_app = program; else delete page.auto_app;
+          if (await saveConfigToServer({ immediate: true })) {
+            renderPageTabs();
+            modal.close();
+            showToast("Página guardada");
+          } else {
+            // The server refused it. Do not keep the bad value, or every later autosave would fail too.
+            page.name = before.name;
+            if (before.auto_app) page.auto_app = before.auto_app; else delete page.auto_app;
+          }
+        },
+      },
+    ],
+    onMount: (modal) => {
+      modal.el.querySelector("#ps-duplicate").addEventListener("click", async () => {
+        try {
+          const result = await postJson("/api/deck/page/duplicate", { page_index: activePageIndex });
+          modal.close();
+          await loadConfig();
+          await switchPage(result.index);
+          showToast("Página duplicada");
+        } catch (err) {
+          showToast(err.message);
+        }
+      });
+      modal.el.querySelector("#ps-delete").addEventListener("click", () => {
+        modal.close();
+        document.getElementById("btn-delete-page")?.click();
+      });
+    },
+  });
+}
+
+// ---------- Profile: save a copy, load a copy ----------
+
+async function saveProfileCopy() {
+  try {
+    const { path } = await postJson("/api/profile/save-copy", {});
+    showToast(`Copia guardada en ${path}`);
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+async function loadProfileCopy(file) {
+  let profile;
+  try {
+    profile = JSON.parse(await file.text());
+  } catch (e) {
+    return showToast("Ese archivo no es un perfil de StreamDesk");
+  }
+  const confirmed = await askConfirm({
+    title: "Cargar este perfil",
+    message: `Se reemplazarán todas tus páginas y botones por los de "${file.name}". Antes se guarda una copia de los actuales.`,
+    confirmLabel: "Cargar perfil", danger: true,
+  });
+  if (!confirmed) return;
+  try {
+    const result = await postJson("/api/profile/import", profile);
+    await loadConfig();
+    await switchPage(0);
+    showToast(`Perfil cargado: ${result.pages} páginas`);
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
 // ---------- Theme ----------
 
 function applyTheme(theme) {
@@ -159,6 +261,15 @@ function openSettings() {
         <div id="settings-devices"><span class="integration-hint">Cargando...</span></div>
       </section>
       <section class="settings-section">
+        <h3>Perfil</h3>
+        <p>Guarda una copia de todas tus páginas y botones, o carga una en este u otro PC. No incluye contraseñas ni móviles emparejados, ni las imágenes que hayas subido.</p>
+        <div class="inline-row">
+          <button class="btn-secondary" id="settings-export">Guardar una copia</button>
+          <button class="btn-secondary" id="settings-import">Cargar una copia</button>
+        </div>
+        <input type="file" id="settings-import-file" accept="application/json,.json" hidden>
+      </section>
+      <section class="settings-section">
         <h3>Conexión del móvil</h3>
         <p>Lo último que ha intentado un móvil. Si algo falla, aquí se ve en qué punto.</p>
         <div id="settings-diagnostics"><span class="integration-hint">Cargando...</span></div>
@@ -186,6 +297,13 @@ function openSettings() {
         m.el.querySelector("#settings-version").textContent = updateStatusText.textContent;
       });
       m.el.querySelector("#settings-version").textContent = updateStatusText.textContent;
+      m.el.querySelector("#settings-export").addEventListener("click", saveProfileCopy);
+      const importInput = m.el.querySelector("#settings-import-file");
+      m.el.querySelector("#settings-import").addEventListener("click", () => importInput.click());
+      importInput.addEventListener("change", () => {
+        const file = importInput.files[0];
+        if (file) { m.close(); loadProfileCopy(file); }
+      });
       renderSettingsDevices(m.el.querySelector("#settings-devices"));
       renderSettingsDiagnostics(m.el.querySelector("#settings-diagnostics"));
     },
@@ -300,13 +418,25 @@ async function allowPhoneThroughFirewall() {
   }
 }
 
+// The QR panel is only needed until a phone is paired; folding it gives the action library the room.
+// It stays open while the firewall warning is showing, because that is the thing to act on.
+async function collapsePairingWhenDone() {
+  try {
+    const { devices } = await apiJson("/api/auth/devices");
+    if (devices.length && document.getElementById("firewall-note").hidden) {
+      document.getElementById("pairing-panel").open = false;
+    }
+  } catch (e) { /* leave it open */ }
+}
+
 // ---------- Startup ----------
 
 window.addEventListener("DOMContentLoaded", () => {
   loadTheme();
   document.getElementById("btn-settings")?.addEventListener("click", openSettings);
+  document.getElementById("btn-page-settings")?.addEventListener("click", openPageSettings);
   document.getElementById("btn-allow-firewall")?.addEventListener("click", allowPhoneThroughFirewall);
-  refreshFirewall();
+  refreshFirewall().then(collapsePairingWhenDone);
   setInterval(refreshFirewall, 20000);
   setTimeout(maybeShowWelcome, 700);
 });

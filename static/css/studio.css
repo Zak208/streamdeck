@@ -381,6 +381,56 @@ kbd { padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 5px
 .icon-choice-btn.active { border-color: var(--accent); background: var(--accent-soft); }
 .btn-danger { width: 100%; margin-top: 22px; }
 
+/* ---------- Action library ---------- */
+.library-panel input[type="search"] { margin-bottom: 10px; }
+.library-list { display: flex; flex-direction: column; gap: 4px; max-height: 420px; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.library-category > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 4px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+.library-category > summary::-webkit-details-marker { display: none; }
+.library-category > summary::before { content: "›"; display: inline-block; width: 12px; color: var(--text-3); transition: transform 0.12s; }
+.library-category[open] > summary::before { transform: rotate(90deg); }
+.library-category > summary { justify-content: flex-start; gap: 4px; }
+.library-count { margin-left: auto; padding: 0 7px; border-radius: 999px; background: var(--surface-3); color: var(--text-3); font-size: 10px; }
+.library-items { display: grid; gap: 4px; padding: 2px 0 8px; }
+.library-item { display: flex; align-items: center; gap: 10px; padding: 7px 9px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; cursor: grab; }
+.library-item:hover { border-color: var(--accent); }
+.library-item:active { cursor: grabbing; }
+.library-item img { width: 22px; height: 22px; flex: none; object-fit: contain; }
+.library-item strong { display: block; font-size: 12px; line-height: 1.2; }
+.library-item span { color: var(--text-3); font-size: 10px; }
+details.panel-card > summary.panel-title { margin-bottom: 0; cursor: pointer; list-style: none; }
+details.panel-card[open] > summary.panel-title { margin-bottom: 12px; }
+details.panel-card > summary.panel-title::-webkit-details-marker { display: none; }
+
+/* ---------- Action editor ---------- */
+.action-summary { padding: 12px; margin-bottom: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.action-summary strong { font-size: 14px; line-height: 1.35; word-break: break-word; }
+textarea { width: 100%; padding: 8px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text); font: inherit; outline: none; resize: vertical; }
+textarea:focus { border-color: var(--accent); }
+.check-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--text-2); font-size: 13px; }
+.check-row input { width: auto; min-height: 0; accent-color: var(--accent); }
+.step-list { display: flex; flex-direction: column; gap: 8px; }
+.step-row { display: grid; grid-template-columns: 22px 1fr; gap: 4px 10px; padding: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.step-num { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 800; }
+.step-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.step-body strong { font-size: 12px; word-break: break-word; }
+.step-input { min-height: 32px; padding: 5px 8px; font-size: 12px; }
+.step-controls { grid-column: 2; display: flex; align-items: center; gap: 6px; }
+.step-delay { display: flex; align-items: center; gap: 5px; margin-right: auto; color: var(--text-3); font-size: 11px; }
+.step-delay input { width: 64px; min-height: 28px; padding: 3px 6px; font-size: 12px; }
+.icon-mini { width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text); font-size: 12px; }
+.icon-mini:hover:not(:disabled) { border-color: var(--accent); }
+.icon-mini:disabled { opacity: 0.35; cursor: not-allowed; }
+
 /* ---------- Connectors tab ---------- */
 .integration-intro { display: flex; flex-direction: column; gap: 3px; padding: 4px 0 14px; color: var(--text-3); font-size: 12px; line-height: 1.5; }
 .integration-intro strong { color: var(--text); font-size: 13px; }

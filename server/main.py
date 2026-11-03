@@ -447,6 +447,17 @@ def export_profile(_: None = Depends(require_local_request)):
     })
 
 
+@app.post("/api/profile/save-copy")
+def save_profile_copy(_: None = Depends(require_local_request)):
+    """Write the profile to Documents\\StreamDesk. Reliable where a browser download may be blocked."""
+    folder = os.path.join(os.path.expanduser("~"), "Documents", "StreamDesk")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, time.strftime("streamdesk-perfil-%Y%m%d-%H%M%S.json"))
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(config_manager.get_config(), handle, indent=2, ensure_ascii=False)
+    return {"path": path}
+
+
 @app.post("/api/profile/import")
 async def import_profile(profile: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
     """Replace the profile with one from a file. The file is untrusted, so it goes through the same

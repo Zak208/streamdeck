@@ -441,6 +441,15 @@ const STATE_LABELS = {
   "windows:app_mute": "Silenciado",
 };
 
+// Keys with two looks: the microphone shows its muted icon while it is muted.
+const STATE_ICONS = { "windows:mic_mute": ["/static/icons/mic.svg", "/static/icons/mic_off.svg"] };
+
+function iconFor(slot) {
+  const base = slot.image || slot.icon || "/static/icons/power.svg";
+  const pair = STATE_ICONS[`${slot.action_type}:${slot.target}`];
+  return pair && base === pair[0] && buttonStates[slot.id] ? pair[1] : base;
+}
+
 function subLabelFor(slot) {
   if (buttonStates[slot.id]) return STATE_LABELS[`${slot.action_type}:${slot.target}`] || slot.sublabel || "";
   return slot.sublabel || "";
@@ -453,6 +462,8 @@ function applyButtonState(id) {
   const slot = (currentConfig?.slots || []).find(s => s.id === id);
   const sub = el.querySelector(".deck-btn-sub");
   if (slot && sub) sub.textContent = subLabelFor(slot);
+  const img = el.querySelector(".deck-btn-img");
+  if (slot && img) img.src = iconFor(slot);
 }
 
 // System gauges: a big number and a bar, because a small caption cannot be read on a phone.
@@ -502,7 +513,7 @@ function createButtonElement(btn) {
   const iconWrap = document.createElement("div");
   iconWrap.className = "deck-btn-icon-wrapper";
 
-  const iconSrc = btn.image || btn.icon || "/static/icons/power.svg";
+  const iconSrc = iconFor(btn);
   const img = document.createElement("img");
   img.src = iconSrc;
   img.className = "deck-btn-img";

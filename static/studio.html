@@ -8,8 +8,8 @@
     // Apply the saved theme before first paint so the window does not flash the wrong colours.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.4.0">
-  <link rel="stylesheet" href="/static/css/studio.css?v=2.4.0">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.5.0">
+  <link rel="stylesheet" href="/static/css/studio.css?v=2.5.0">
 </head>
 <body>
 
@@ -24,6 +24,9 @@
     <div class="page-tabs-container">
       <div class="page-tabs" id="page-tabs"></div>
       <button class="btn-page-add" id="btn-add-page" title="Crear una página nueva">+ Página</button>
+      <button class="btn-page-del" id="btn-page-settings" title="Ajustes de la página: nombre, programa asociado, duplicar">
+        <img src="/static/icons/gear.svg" alt="Ajustes de la página">
+      </button>
       <button class="btn-page-del" id="btn-delete-page" title="Eliminar la página activa" style="display: none;">
         <img src="/static/icons/trash.svg" alt="Eliminar página">
       </button>
@@ -44,11 +47,11 @@
   <div class="studio-shell">
     <aside>
       <div class="sidebar-scroll">
-        <div class="panel-card panel-pairing">
-          <div class="panel-title">
+        <details class="panel-card panel-pairing" id="pairing-panel" open>
+          <summary class="panel-title">
             <span>Enlazar móvil</span>
             <span class="badge-live-dot" title="Servidor activo"></span>
-          </div>
+          </summary>
           <div class="qr-container">
             <div class="qr-wrapper">
               <img id="qr-image" class="qr-image" alt="Escanea con la cámara de tu móvil">
@@ -66,6 +69,12 @@
             </div>
             <div class="info-url" id="server-url">Cargando IP...</div>
           </div>
+        </details>
+
+        <div class="panel-card library-panel">
+          <div class="panel-title"><span>Biblioteca de acciones</span></div>
+          <input type="search" id="library-search" placeholder="Buscar una acción" aria-label="Buscar una acción">
+          <div id="library-list" class="library-list"></div>
         </div>
 
         <div class="panel-card">
@@ -138,7 +147,8 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/studio.js?v=2.4.0"></script>
-  <script src="/static/js/studio-ui.js?v=2.4.0"></script>
+  <script src="/static/js/studio.js?v=2.5.0"></script>
+  <script src="/static/js/studio-library.js?v=2.5.0"></script>
+  <script src="/static/js/studio-ui.js?v=2.5.0"></script>
 </body>
 </html>

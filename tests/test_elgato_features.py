@@ -4,7 +4,10 @@ import ctypes
 import glob
 import json
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import time
 import unittest
 import urllib.error
@@ -292,6 +295,61 @@ class LiveBehaviourTests(unittest.TestCase):
         by_id = {c["id"]: c for c in body["connectors"]}
         self.assertEqual(set(by_id), {"windows", "obs", "spotify", "discord"})
         self.assertIn("lock_pc", [a["id"] for a in by_id["windows"]["actions"]])
+
+
+class SaveCopyAndLibraryTests(unittest.TestCase):
+    def test_saving_a_copy_writes_a_profile_the_importer_accepts(self):
+        folder = tempfile.mkdtemp()
+        with support.LiveServer() as live, mock.patch("os.path.expanduser", return_value=folder):
+            request = urllib.request.Request(live.base_url + "/api/profile/save-copy", data=b"{}",
+                                             headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(request, timeout=10) as response:
+                path = json.loads(response.read().decode())["path"]
+        self.assertTrue(path.startswith(folder))
+        with open(path, encoding="utf-8") as handle:
+            validate_deck_config(json.load(handle))  # raises if the copy is not a valid profile
+
+    @unittest.skipUnless(shutil.which("node"), "needs Node to run the browser code")
+    def test_every_library_action_is_accepted_by_the_server(self):
+        # Runs the real studio.js and studio-library.js against a stub DOM and reads the library.
+        script = r"""
+const fs = require("fs"), vm = require("vm");
+const fake = new Proxy(function () {}, {
+  get: (t, p) => (p === Symbol.toPrimitive ? () => "" : p === "then" ? undefined : fake),
+  apply: () => fake, construct: () => fake,
+});
+const sandbox = { document: fake, window: fake, localStorage: fake, location: { host: "x" }, navigator: fake,
+  fetch: () => new Promise(() => {}), WebSocket: function () { return fake; }, setInterval: () => 0, setTimeout: () => 0,
+  console, JSON, Promise, Map, Set, Math, Date, Number, String, Array, Object, Event: function () {}, FormData: function () {} };
+vm.createContext(sandbox);
+for (const file of process.argv.slice(1)) vm.runInContext(fs.readFileSync(file, "utf8"), sandbox, { filename: file });
+process.stdout.write(vm.runInContext("JSON.stringify(builtInLibrary())", sandbox));
+"""
+        result = subprocess.run(
+            ["node", "-e", script, os.path.join(STATIC_DIR, "js", "studio.js"), os.path.join(STATIC_DIR, "js", "studio-library.js")],
+            capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr[-600:])
+        categories = json.loads(result.stdout)
+        items = [item for category in categories for item in category["items"]]
+        self.assertGreater(len(items), 15)
+        ids = [item["id"] for item in items]
+        self.assertEqual(len(ids), len(set(ids)), "library ids must be unique")
+        for item in items:
+            with self.subTest(item=item["id"]):
+                self.assertLessEqual(len(item["label"]), 32)  # the button title limit
+                self.assertLessEqual(len(item["sub"]), 36)
+                validate_action(item["action_type"], item["target"], item.get("extra"))
+                self.assertTrue(os.path.exists(os.path.join(STATIC_DIR, item["icon"].lstrip("/").replace("static/", "", 1))), item["icon"])
+
+    def test_the_interface_has_what_the_library_needs(self):
+        html = open(os.path.join(STATIC_DIR, "studio.html"), encoding="utf-8").read()
+        for element in ("library-search", "library-list", "btn-page-settings", "pairing-panel"):
+            self.assertIn(f'id="{element}"', html)
+        self.assertIn("studio-library.js", html)
+        studio = open(os.path.join(STATIC_DIR, "js", "studio.js"), encoding="utf-8").read()
+        self.assertIn('["action", "Acción"]', studio)
+        self.assertNotIn('["controls", "Controles"]', studio)  # media and monitors live in the library now
+        self.assertIn('dragSourceType === "library"', studio)
 
 
 class IconTests(unittest.TestCase):

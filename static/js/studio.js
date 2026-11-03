@@ -4,7 +4,8 @@ let activePageIndex = 0;
 let selectedSlotIndex = null;
 let audioSessions = [];
 let detectedSystemApps = [];
-let dragSourceType = null; // 'palette_btn' | 'palette_slider' | 'slot'
+let draggedLibraryItem = null; // the action being dragged out of the library
+let dragSourceType = null; // 'palette_btn' | 'palette_slider' | 'slot' | 'library'
 let draggedSlotIndex = null;
 let activeInspectorTab = "apps"; // apps | media | obs | telemetry | integrations | design
 
@@ -713,6 +714,12 @@ function handleDropOnSlot(targetIndex) {
     saveConfigToServer();
     showToast("Botón colocado en la cuadrícula");
 
+  } else if (dragSourceType === "library" && draggedLibraryItem) {
+    const item = draggedLibraryItem;
+    dragSourceType = null;
+    draggedLibraryItem = null;
+    placeLibraryItem(targetIndex, item);
+
   } else if (dragSourceType === "slot" && draggedSlotIndex !== null) {
     if (draggedSlotIndex !== targetIndex) {
       const isSourceSlider = currentSlots[draggedSlotIndex]?.type === "slider";
@@ -976,16 +983,16 @@ function renderEmptySlotInspector(index) {
 // Button inspector: what it does (Apps, Controles, Conectores) and how it looks (Aspecto).
 const INSPECTOR_TABS = [
   ["apps", "Apps"],
-  ["controls", "Controles"],
   ["integrations", "Conectores"],
+  ["action", "Acción"],
   ["design", "Aspecto"],
 ];
 
 function renderButtonInspector(btn, index) {
   const currentSlots = config.pages[activePageIndex].slots;
   if (!INSPECTOR_TABS.some(([id]) => id === activeInspectorTab)) {
-    // A tab remembered from an older layout (media, telemetry, obs).
-    activeInspectorTab = activeInspectorTab === "obs" ? "integrations" : "controls";
+    // A tab remembered from an older layout (media and telemetry moved to the library).
+    activeInspectorTab = activeInspectorTab === "obs" ? "integrations" : "apps";
   }
 
   inspectorContent.innerHTML = `
@@ -1021,8 +1028,8 @@ function renderButtonInspector(btn, index) {
   const tabContainer = document.getElementById("inspector-tab-content");
   const renderers = {
     apps: renderTabApps,
-    controls: renderTabControls,
     integrations: renderTabConnectors,
+    action: renderTabAction,
     design: renderTabDesign,
   };
   renderers[activeInspectorTab](tabContainer, btn, index);
@@ -1090,43 +1097,6 @@ function renderTabApps(container, btn, index) {
 
   searchInput.addEventListener("input", (e) => populateApps(e.target.value));
   populateApps();
-}
-
-// Media keys and live PC monitors.
-function renderTabControls(container, btn, index) {
-  const tile = (p, kind) => `
-    <div class="quick-action-card" data-kind="${kind}" data-id="${p.id}">
-      <img src="${p.icon}" alt="">
-      <div class="quick-action-name">${p.name}</div>
-      <div class="quick-action-sub">${p.sub}</div>
-    </div>`;
-
-  container.innerHTML = `
-    <span class="section-label" style="margin-top: 0;">Multimedia</span>
-    <div class="quick-actions-grid">${MEDIA_PRESETS.map(p => tile(p, "media")).join("")}</div>
-    <span class="section-label">Sistema</span>
-    <div class="quick-actions-grid">${TELEMETRY_PRESETS.map(p => tile(p, "system")).join("")}</div>
-  `;
-
-  container.querySelectorAll(".quick-action-card").forEach(card => {
-    card.addEventListener("click", () => {
-      if (card.dataset.kind === "media") {
-        const preset = MEDIA_PRESETS.find(p => p.id === card.dataset.id);
-        assignFromTemplate(btn, index, {
-          label: preset.name, sublabel: "Multimedia", icon: preset.icon, color: preset.color,
-          action_type: "media", target: preset.target,
-        });
-      } else {
-        const preset = TELEMETRY_PRESETS.find(p => p.id === card.dataset.id);
-        // The Task Manager tile opens an app; the others are live gauges. They are different action types.
-        const opensApp = preset.target === "taskmgr";
-        assignFromTemplate(btn, index, {
-          label: preset.name, sublabel: opensApp ? "Abrir" : "En vivo", icon: preset.icon, color: preset.color,
-          action_type: opensApp ? "preset_app" : "hardware_monitor", target: preset.target,
-        });
-      }
-    });
-  });
 }
 
 // 5. Tab Connectors: Windows, OBS, Spotify and Discord, set up and assigned in one place

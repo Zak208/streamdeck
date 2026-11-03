@@ -31,7 +31,7 @@ Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollad
 
 ### 4. 🔄 Auto-Actualizador Integrado con GitHub
 - En la barra superior del PC Studio se encuentra el **cilindro indicador de estado de versión**:
-  - `🟢 v2.4.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
+  - `🟢 v2.5.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
   - `🟡 ¡Actualización en GitHub! [Actualizar 🚀]`: El sistema detecta automáticamente nuevos commits en `https://github.com/Zak208/streamdeck`.
 - Al pulsar el botón de actualizar, el sistema ejecuta `/api/system/apply-update` sincronizando el código automáticamente sin necesidad de reinstalar manualmente.
 
@@ -71,6 +71,17 @@ Si prefieres ejecutar el proyecto desde el código fuente o los scripts auxiliar
      👉 `http://localhost:48291/studio`
 
 ---
+
+## 🧩 Acciones al estilo Stream Deck
+
+Inspirado en la aplicación oficial de Elgato:
+
+- **Biblioteca de acciones** en el panel lateral, con buscador y categorías. Arrastra una acción a una casilla, o pulsa la acción con una casilla elegida.
+- **Multiacción:** varias acciones en un botón, con espera entre pasos (hasta 8). Los pasos pueden pulsar atajos, escribir texto, abrir webs y apps, o usar cualquier acción de la biblioteca.
+- **Atajo de teclado** (con botón "Grabar"), **Escribir texto** (acentos, emojis y varias líneas, con Enter opcional), **Abrir una web** y **Bloquear PC**.
+- **Páginas y carpetas:** botones "Página siguiente / anterior / primera / ir a una página" para montar carpetas.
+- **Páginas inteligentes:** en los ajustes de una página (⚙ junto a las pestañas) eliges un programa, y el móvil salta a esa página cuando ese programa pasa a primer plano. Si la cambias tú a mano no te la deshace hasta que cambies de programa.
+- **Duplicar páginas** y **guardar o cargar una copia del perfil** (Ajustes > Perfil). La copia no incluye contraseñas, móviles emparejados ni las imágenes que hayas subido; al cargar una se guarda antes una copia del perfil actual.
 
 ## 🎨 Interfaz y primeros pasos
 
