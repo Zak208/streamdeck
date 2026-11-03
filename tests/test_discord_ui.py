@@ -453,5 +453,201 @@ class ServerPageEndpointTests(unittest.TestCase):
             self.assertEqual(discord.options("voice"), [])
 
 
+class FakeUser32:
+    """Window styles in a dict, to watch the "cannot be activated" mark go on and off."""
+
+    def __init__(self, styles):
+        self.styles = dict(styles)
+
+    def GetWindowLongPtrW(self, hwnd, index):
+        return self.styles[hwnd]
+
+    def SetWindowLongPtrW(self, hwnd, index, value):
+        self.styles[hwnd] = value
+        return 0
+
+
+class FocusGuardTests(unittest.TestCase):
+    """UI Automation clicks make Discord take the focus; while we act the window is marked not activatable."""
+    FLAG = discord_ui.WS_EX_NOACTIVATE
+
+    def setUp(self):
+        discord_ui._marked.clear()
+        self.user32 = FakeUser32({7: 0x14CF0000})
+        patcher = mock.patch.object(discord_ui, "_user32", self.user32)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        sleeper = mock.patch.object(discord_ui.time, "sleep", lambda _s: None)
+        sleeper.start()
+        self.addCleanup(sleeper.stop)
+
+    def window(self, guard):
+        window = object.__new__(discord_ui._Window)
+        window.hwnd, window._guarded = 7, False
+        if guard:
+            discord_ui._mark(7)
+            window._guarded = True
+        return window
+
+    def test_the_mark_is_on_while_acting_and_the_old_style_comes_back(self):
+        window = self.window(guard=True)
+        self.assertTrue(self.user32.styles[7] & self.FLAG)
+        window.close()
+        self.assertEqual(self.user32.styles[7], 0x14CF0000)
+
+    def test_closing_twice_changes_nothing_more(self):
+        window = self.window(guard=True)
+        window.close()
+        self.user32.styles[7] |= 0x1  # someone else changes another bit afterwards
+        window.close()
+        self.assertEqual(self.user32.styles[7], 0x14CF0000 | 0x1)
+
+    def test_a_mark_that_was_already_there_is_not_ours_to_clear(self):
+        self.user32.styles[7] |= self.FLAG
+        window = self.window(guard=True)
+        window.close()
+        self.assertTrue(self.user32.styles[7] & self.FLAG)
+
+    def test_reading_alone_never_marks_the_window(self):
+        window = self.window(guard=False)
+        window.close()
+        self.assertEqual(self.user32.styles[7], 0x14CF0000)
+
+    def test_a_failed_scan_or_press_still_lets_discord_take_the_focus_again(self):
+        for run in (lambda: discord_ui._scan(), lambda: discord_ui._play("A", "b")):
+            with self.subTest(run=run):
+                self.user32.styles[7] = 0x14CF0000
+                window = self.window(guard=True)
+                panel = mock.Mock(wraps=window)
+                panel.close = window.close
+                with mock.patch.object(discord_ui, "_Panel", return_value=panel), \
+                        mock.patch.object(discord_ui, "_scan_panel", side_effect=DiscordUiError("x")), \
+                        mock.patch.object(discord_ui, "_locate", side_effect=DiscordUiError("x")):
+                    with self.assertRaises(DiscordUiError):
+                        run()
+                self.assertEqual(self.user32.styles[7], 0x14CF0000)
+
+    def test_everything_marked_is_cleared_when_the_app_exits(self):
+        self.window(guard=True)
+        discord_ui._clear_marks()
+        self.assertEqual(self.user32.styles[7], 0x14CF0000)
+
+
+class PhonePressTests(unittest.TestCase):
+    """A tap that does nothing and says nothing cannot be told from a broken button: both ends now answer."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.live = support.LiveServer().__enter__()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.live.__exit__(None, None, None)
+
+    def press(self, button_id):
+        import asyncio
+
+        import websockets
+
+        async def scenario():
+            async with websockets.connect(f"ws://127.0.0.1:{self.live.port}/ws") as ws:
+                await ws.send(json.dumps({"type": "trigger_button", "id": button_id}))
+                for _ in range(20):
+                    message = json.loads(await asyncio.wait_for(ws.recv(), timeout=8))
+                    if message["type"] == "action_result":
+                        return message
+
+        return asyncio.run(scenario())
+
+    def test_a_button_that_is_not_on_the_active_page_is_answered_and_logged(self):
+        from server import diagnostics
+        diagnostics.clear()
+        message = self.press("btn_does_not_exist")
+        self.assertIs(message["success"], False)
+        self.assertIn("página activa", message["message"])
+        self.assertTrue(any("btn_does_not_exist" in event["message"] and event["kind"] == "error" for event in diagnostics.recent()))
+
+    def test_a_sound_that_fails_reaches_the_phone_and_the_log(self):
+        from server import diagnostics
+        from server.config_manager import config_manager
+        import copy
+
+        original = copy.deepcopy(config_manager.get_config())
+        self.addCleanup(lambda: config_manager.save_config(original))
+        config = copy.deepcopy(original)
+        config["pages"][0]["slots"][0] = {
+            "index": 0, "type": "button", "id": "btn_sound_test", "label": "Bonk", "sublabel": "", "icon": "", "image": "",
+            "color": "#5865f2", "action_type": "discord_sound", "target": "bonk", "extra": {"section": "Servidor A"}}
+        config["current_page"] = 0
+        self.assertTrue(config_manager.save_config(config), config_manager.last_error)
+        diagnostics.clear()
+        with mock.patch.object(discord_ui, "play", side_effect=DiscordUiError("Discord está minimizado.")):
+            message = self.press("btn_sound_test")
+        self.assertEqual((message["success"], message["message"]), (False, "Discord está minimizado."))
+        self.assertTrue(any(event["message"] == "Botón «Bonk»: Discord está minimizado." for event in diagnostics.recent()))
+
+    def test_a_working_button_is_not_reported_as_a_failure(self):
+        from server import diagnostics
+        from server.config_manager import config_manager
+        import copy
+
+        original = copy.deepcopy(config_manager.get_config())
+        self.addCleanup(lambda: config_manager.save_config(original))
+        config = copy.deepcopy(original)
+        config["pages"][0]["slots"][0] = {
+            "index": 0, "type": "button", "id": "btn_sound_ok", "label": "Bonk", "sublabel": "", "icon": "", "image": "",
+            "color": "#5865f2", "action_type": "discord_sound", "target": "bonk", "extra": {"section": "Servidor A"}}
+        config["current_page"] = 0
+        self.assertTrue(config_manager.save_config(config), config_manager.last_error)
+        diagnostics.clear()
+        with mock.patch.object(discord_ui, "play") as play:
+            message = self.press("btn_sound_ok")
+        play.assert_called_once_with("Servidor A", "bonk")
+        self.assertIs(message["success"], True)
+        self.assertEqual([event for event in diagnostics.recent() if event["kind"] == "error"], [])
+
+
+NODE = __import__("shutil").which("node")
+
+
+@unittest.skipUnless(NODE, "needs Node to run the browser code")
+class PhoneTapWithoutConnectionTests(unittest.TestCase):
+    SCRIPT = r"""
+const fs = require("fs");
+const source = fs.readFileSync(process.argv[1], "utf8");
+const match = /function sendWS\(payload\) \{[\s\S]*?\n\}/.exec(source);
+const out = {};
+for (const [name, readyState, ws, type] of [
+  ["open", 1, true, "trigger_button"], ["closed", 3, true, "trigger_button"], ["never", 0, false, "trigger_button"],
+  ["connecting", 0, true, "trigger_button"], ["fader closed", 3, true, "set_master_volume"]]) {
+  const log = { sent: [], toasts: [], haptics: 0, connects: 0 };
+  const WebSocket = { OPEN: 1, CLOSED: 3 };
+  const socket = ws ? { readyState, send: (text) => log.sent.push(JSON.parse(text)) } : null;
+  const run = new Function("ws", "WebSocket", "haptic", "showMobileToast", "connectWebSocket",
+    match[0] + "; return sendWS;")(socket, WebSocket, () => { log.haptics += 1; },
+    (message, isError) => log.toasts.push([message, isError]), () => { log.connects += 1; });
+  run({ type, id: "b1" });
+  out[name] = log;
+}
+console.log(JSON.stringify(out));
+"""
+
+    def test_a_tap_with_no_connection_says_so_and_reconnects(self):
+        import subprocess
+        from server.paths import STATIC_DIR
+        path = f"{STATIC_DIR}/js/streamdeck.js"
+        result = subprocess.run([NODE, "-e", self.SCRIPT, path], capture_output=True, text=True, encoding="utf-8", timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = json.loads(result.stdout)
+        self.assertEqual((len(out["open"]["sent"]), out["open"]["toasts"]), (1, []))
+        for name in ("closed", "never"):
+            with self.subTest(name=name):
+                self.assertEqual(out[name]["sent"], [])
+                self.assertEqual(out[name]["toasts"], [["Sin conexión con el PC. Reconectando...", True]])
+                self.assertEqual((out[name]["haptics"], out[name]["connects"]), (1, 1))
+        self.assertEqual((out["connecting"]["connects"], len(out["connecting"]["toasts"])), (0, 1))  # already trying: do not stack attempts
+        self.assertEqual(out["fader closed"]["toasts"], [])  # only button taps get the warning
+
+
 if __name__ == "__main__":
     unittest.main()

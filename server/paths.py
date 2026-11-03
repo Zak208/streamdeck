@@ -7,7 +7,7 @@ do this so they never touch the real profile or the paired devices).
 import os
 import sys
 
-VERSION = "2.9.0"
+VERSION = "2.9.1"
 PORT = 48291
 
 FROZEN = bool(getattr(sys, "frozen", False))

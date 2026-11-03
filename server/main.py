@@ -791,6 +791,12 @@ async def navigate_pages(target: str) -> Dict[str, Any]:
     return {"success": True, "action": "page"}
 
 
+def _record_button_failure(websocket: WebSocket, label: str, message: str) -> None:
+    """Keep why a button did nothing where Studio's diagnostics can show it."""
+    ip = websocket.client.host if websocket.client else ""
+    diagnostics.record("error", f"Botón «{label}»: {message}", ip, websocket.headers.get("user-agent"))
+
+
 async def run_button_action(websocket: WebSocket, slot: Dict[str, Any]) -> None:
     """Execute a button off the event loop and tell every phone how it went."""
     btn_id = slot.get("id")
@@ -815,6 +821,7 @@ async def run_button_action(websocket: WebSocket, slot: Dict[str, Any]) -> None:
         }
         if not success:
             payload["message"] = result.get("error") or "No se pudo ejecutar la acción"
+            _record_button_failure(websocket, slot.get("label") or btn_id, payload["message"])
         try:
             await websocket.send_text(json.dumps(payload))
         except Exception:
@@ -876,7 +883,16 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                     config = config_manager.get_config()
                     slots = config.get("slots", [])
                     slot = next((s for s in slots if s.get("id") == btn_id), None)
-                    if slot and slot.get("type") == "button" and btn_id not in _running_actions:
+                    if not slot or slot.get("type") != "button":
+                        # The phone shows a page the PC no longer has active (or an old layout). Say so: a tap that
+                        # does nothing and says nothing cannot be told apart from a broken button.
+                        message = "Ese botón no está en la página activa del PC. Cambia de página o espera a que se actualice el móvil."
+                        _record_button_failure(websocket, str(btn_id), message)
+                        await websocket.send_text(json.dumps({
+                            "type": "action_result", "id": btn_id, "slot_id": btn_id, "success": False,
+                            "message": message, "result": {"success": False, "error": message},
+                        }))
+                    elif btn_id not in _running_actions:
                         # Mark it busy now, not when the task starts: two quick taps arrive before
                         # the first task gets to run and would both pass the check.
                         _running_actions.add(btn_id)

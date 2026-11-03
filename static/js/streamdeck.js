@@ -269,6 +269,13 @@ function connectWebSocket() {
 function sendWS(payload) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload));
+    return;
+  }
+  // A button tapped while the connection is down would do nothing and say nothing.
+  if (payload.type === "trigger_button") {
+    haptic([40, 60, 40]);
+    showMobileToast("Sin conexión con el PC. Reconectando...", true);
+    if (!ws || ws.readyState === WebSocket.CLOSED) connectWebSocket();
   }
 }
 

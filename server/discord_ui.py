@@ -11,6 +11,7 @@ the user must be in a voice channel, and the labels are read in Spanish ("Reprod
 sonidos"). A Discord redesign can break it, and the errors say what could not be found.
 """
 
+import atexit
 import ctypes
 import re
 import time
@@ -37,6 +38,40 @@ INVOKE_PATTERN, SCROLL_PATTERN = 10000, 10004
 
 # Its own thread: reading the panel takes a few seconds and must not stall the volume faders.
 ui_worker = ComWorker()
+
+# Any press, tab change or scroll through UI Automation makes Discord (Electron) take the focus, which would pull
+# the user out of their game. While StreamDesk acts, the window is marked "cannot be activated"; measured live:
+# with the mark the focus never moved, without it every one of those actions took it.
+GWL_EXSTYLE, WS_EX_NOACTIVATE = -20, 0x08000000
+REACTION_SECONDS = 0.4  # Chromium reacts a moment after the click: keep the mark on until then
+# A private copy of user32: setting argument types on the shared one would change it for the whole app.
+_user32 = ctypes.WinDLL("user32")
+_user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+_user32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+_user32.SetWindowLongPtrW.restype = ctypes.c_ssize_t
+_user32.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+_marked: set = set()  # windows we marked and have not cleared yet
+
+
+def _clear_marks() -> None:
+    for hwnd in list(_marked):
+        _unmark(hwnd)
+
+
+def _mark(hwnd: int) -> None:
+    style = _user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
+    if not style & WS_EX_NOACTIVATE:  # never touch a mark somebody else set
+        _user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE)
+        _marked.add(hwnd)
+
+
+def _unmark(hwnd: int) -> None:
+    if hwnd in _marked:
+        _marked.discard(hwnd)
+        _user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, _user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & ~WS_EX_NOACTIVATE)
+
+
+atexit.register(_clear_marks)  # a crash must not leave Discord unable to take the focus
 
 
 class DiscordUiError(Exception):
@@ -76,20 +111,27 @@ def _find_window() -> int:
     if not found:
         raise DiscordUiError("No encuentro la ventana de Discord. Ábrela (puede quedar detrás de otras ventanas).")
     if user32.IsIconic(found[0]):
-        raise DiscordUiError("Discord está minimizado. Ábrelo (puede quedar detrás de otras ventanas).")
+        # Never restored by StreamDesk: showing a minimized window can pull the focus away from the user's game.
+        raise DiscordUiError("Discord está minimizado. Déjalo abierto sin minimizar, por ejemplo en tu otra pantalla o detrás de tu programa, y no te quitará el foco.")
     return found[0]
 
 
 class _Window:
     """Windows UI Automation over Discord's main window. Create and use it on the ui_worker thread only."""
 
-    def __init__(self) -> None:
+    def __init__(self, guard: bool = False) -> None:
+        """With `guard`, Discord cannot take the focus until close(). Reading alone never needs it."""
         import comtypes.client
         comtypes.client.GetModule("UIAutomationCore.dll")
         from comtypes.gen import UIAutomationClient as UIA
+        self.hwnd = _find_window()
+        self._guarded = False
+        if guard:
+            _mark(self.hwnd)
+            self._guarded = True
         self.UIA = UIA
         self.auto = comtypes.client.CreateObject("{ff48dba4-60ef-4201-aa87-54103eef594e}", interface=UIA.IUIAutomation)
-        self.root = self.auto.ElementFromHandle(_find_window())
+        self.root = self.auto.ElementFromHandle(self.hwnd)
         self.cache = self.auto.CreateCacheRequest()
         for prop in (UIA.UIA_NamePropertyId, UIA.UIA_BoundingRectanglePropertyId, UIA.UIA_ControlTypePropertyId):
             self.cache.AddProperty(prop)
@@ -106,6 +148,13 @@ class _Window:
             except Exception:
                 continue  # Discord redrew that element while we were reading: it will be there on the next look
         return items
+
+    def close(self) -> None:
+        """Let Discord take the focus again, after the reaction to our last click has passed."""
+        if getattr(self, "_guarded", False):
+            self._guarded = False
+            time.sleep(REACTION_SECONDS)
+            _unmark(self.hwnd)
 
     def _named(self, name: str, control_type: int = UIA_BUTTON) -> Optional[Any]:
         return next((e for e, n, _ in self._all(control_type) if n == name), None)
@@ -129,11 +178,15 @@ class _Panel(_Window):
     """One session with the soundboard panel."""
 
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(guard=True)
         self.rect: Rect = (0, 0, 0, 0)
         self.scroll = None
-        self._wait_for_tree()
-        self._open_panel()
+        try:
+            self._wait_for_tree()
+            self._open_panel()
+        except BaseException:
+            self.close()
+            raise
 
     # ---- the panel
     def _open_panel(self) -> None:
@@ -267,6 +320,13 @@ def _is_alias(name: str) -> bool:
 
 def _scan() -> List[Dict[str, Any]]:
     panel = _Panel()
+    try:
+        return _scan_panel(panel)
+    finally:
+        panel.close()
+
+
+def _scan_panel(panel: "_Panel") -> List[Dict[str, Any]]:
     found: List[Dict[str, Any]] = []
     tabs = panel.rail()
     # "Sonidos más usados en <servidor>" names the server of the voice channel the user is in.
@@ -311,7 +371,10 @@ def _locate(panel: _Panel, section: str, label: str):
 
 def _play(section: str, label: str) -> None:
     panel = _Panel()
-    panel._invoke(_locate(panel, section, label))
+    try:
+        panel._invoke(_locate(panel, section, label))
+    finally:
+        panel.close()
 
 
 def list_sounds() -> List[Dict[str, Any]]:
