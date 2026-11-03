@@ -31,7 +31,7 @@ Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollad
 
 ### 4. 🔄 Auto-Actualizador Integrado con GitHub
 - En la barra superior del PC Studio se encuentra el **cilindro indicador de estado de versión**:
-  - `🟢 v2.7.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
+  - `🟢 v2.8.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
   - `🟡 ¡Actualización en GitHub! [Actualizar 🚀]`: El sistema detecta automáticamente nuevos commits en `https://github.com/Zak208/streamdeck`.
 - Al pulsar el botón de actualizar, el sistema ejecuta `/api/system/apply-update` sincronizando el código automáticamente sin necesidad de reinstalar manualmente.
 
@@ -115,8 +115,8 @@ En Studio, selecciona una casilla y abre la pestaña **Conectores**. Cada servic
 - **Spotify:** elige una de tus playlists (o pega un enlace) y el botón la reproduce. Requiere crear una app gratuita en el panel de desarrolladores de Spotify, pegar su Client ID y una cuenta **Premium**. Sin conectar, o con cuenta gratuita, el botón abre la lista en la app de Spotify.
 - **Discord:**
   - **Silenciar y ensordecer** pulsan los atajos globales que tú defines una vez (por defecto `CTRL+ALT+F9` y `CTRL+ALT+F10`) y creas también en Discord.
-  - **Soundboard de tus servidores:** Discord solo deja listar y reproducir sonidos a un **bot**, así que creas uno propio (gratis, 2 minutos): en el portal de desarrolladores (`discord.com/developers/applications`) creas una aplicación, copias el token de su pestaña *Bot*, y pegas el token y tu ID de usuario en Studio. Después abres el enlace de invitación para añadirlo a tus servidores. En Studio eliges el servidor (se preselecciona el del canal de voz en el que estés), ves sus sonidos y asignas el que quieras a una casilla. Al pulsar, el bot entra en silencio al canal de voz donde estés, Discord reproduce el sonido y el bot sale al poco rato. El bot pide solo permisos de ver canal, conectar, hablar y usar soundboard. StreamDesk nunca usa ni pide tu cuenta de Discord.
-  - Sin bot sigue la alternativa antigua: darle a un sonido un atajo en Discord y que el botón lo pulse.
+  - **Soundboard de tus servidores:** en Studio pulsa *Buscar mis sonidos*. StreamDesk lee el panel de sonidos de **tu** Discord (con la accesibilidad de Windows, UI Automation), lista los sonidos de cada servidor (se preselecciona el del canal de voz en el que estés) y al pulsar el botón pulsa ese sonido en el panel, igual que harías con el ratón, sin mover el cursor ni quitarte el foco. No usa tu cuenta, ni su token, ni bots, ni envía nada a Discord.
+  - **Requisitos y límites:** Discord abierto (puede estar detrás de otras ventanas, no minimizado ni cerrado a la bandeja) y tú dentro de un canal de voz. Lee los textos de Discord en **español** («Reproducir…», «Abrir panel de sonidos»); en otro idioma habría que cambiarlos en `server/discord_ui.py`. Un rediseño de Discord puede romperlo: los errores dicen qué no encuentra. Los sonidos se buscan por su nombre, así que si los renombras hay que volver a buscarlos.
 
 Las contraseñas y tokens se guardan en `config/settings.json` dentro de tu carpeta de datos y nunca se envían al navegador ni al móvil.
 
@@ -155,7 +155,7 @@ streamdeck/
 │   ├── audio_controller.py    # Control de volumen de Windows y sesiones de audio
 │   ├── auth.py                # Sistema de autenticación por PIN, tokens y rate-limiting
 │   ├── config_manager.py      # Gestión de lectura y guardado de deck_config.json
-│   ├── discord_bot.py         # Bot de Discord (gateway + REST) para el soundboard por servidor
+│   ├── discord_ui.py          # Lee y pulsa el panel de sonidos de Discord (UI Automation)
 │   ├── telemetry.py           # CPU, RAM, GPU/VRAM (NVML), red y velocidad de disco
 │   ├── main.py                # Servidor FastAPI, WebSockets y auto-actualizador de GitHub
 │   └── system_scanner.py      # Escáner automático de ejecutables y rutas de apps instaladas

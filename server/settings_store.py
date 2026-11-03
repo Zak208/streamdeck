@@ -14,7 +14,7 @@ from server.paths import CONFIG_DIR
 SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.json")
 
 # Keys that must never be sent to Studio or a phone.
-SECRET_KEYS = frozenset({"password", "access_token", "refresh_token", "bot_token"})
+SECRET_KEYS = frozenset({"password", "access_token", "refresh_token"})
 
 
 class SettingsStore:

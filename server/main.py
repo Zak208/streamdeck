@@ -45,7 +45,7 @@ from server.audio_controller import audio_controller
 from server.com_worker import com_worker
 from server.actions import execute_action
 from server.auth import auth_manager
-from server import diagnostics, discord_bot, firewall, templates
+from server import diagnostics, firewall, templates
 from server.action_catalog import validate_deck_config
 from server.config_manager import CONFIG_FILE, config_manager
 from server.connectors import spotify, windows
@@ -232,9 +232,7 @@ async def lifespan(app: FastAPI):
     sync_task = asyncio.create_task(audio_sync_loop())
     telemetry_task = asyncio.create_task(telemetry_sync_loop())
     smart_task = asyncio.create_task(smart_page_loop())
-    discord_bot.bot.start(asyncio.get_running_loop())  # connects only when a token and user id are saved
     yield
-    discord_bot.bot.stop()
     sync_task.cancel()
     telemetry_task.cancel()
     smart_task.cancel()
