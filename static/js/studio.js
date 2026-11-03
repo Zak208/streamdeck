@@ -1335,10 +1335,129 @@ function suggestSoundHotkey(settings) {
   return candidates.find(k => !used.has(k)) || "CTRL+ALT+F1";
 }
 
+const DISCORD_PORTAL = "https://discord.com/developers/applications";
+
+// Steps and form to connect a bot: the soundboard needs one, and Discord only lets bots list and play sounds.
+function discordSetupHtml(s) {
+  return `
+    <ol class="setup-steps">
+      <li>Entra en <code class="copyable">${DISCORD_PORTAL}</code>, pulsa <strong>New Application</strong> y ponle el nombre que quieras.</li>
+      <li>En la pestaña <strong>Bot</strong> pulsa <strong>Reset Token</strong> y copia el token. Pégalo aquí:
+        <input id="dc-token" type="password" autocomplete="off" placeholder="Token del bot"></li>
+      <li>En Discord activa Ajustes &gt; Avanzado &gt; <strong>Modo desarrollador</strong>, haz clic derecho sobre tu nombre y elige <strong>Copiar ID de usuario</strong>. Pégalo aquí:
+        <input id="dc-user" type="text" inputmode="numeric" maxlength="25" autocomplete="off" value="${escapeHtml(s.user_id || "")}" placeholder="Solo números"></li>
+      <li><button class="btn-primary" id="dc-bot-save">Guardar y comprobar</button></li>
+    </ol>
+    <p class="integration-hint">El token es como la contraseña del bot: se guarda solo en este PC y no llega nunca al móvil. StreamDesk no pide ni usa tu cuenta de Discord.</p>`;
+}
+
+function discordBotHtml(s) {
+  return `
+    <p class="integration-hint">Bot <strong>${escapeHtml(s.bot_name || "conectado")}</strong>. Para añadirlo a un servidor, abre este enlace en tu navegador y elige el servidor:</p>
+    <code class="copyable">${escapeHtml(s.invite_url || "")}</code>
+    <div class="inline-row"><span class="integration-hint" id="dc-voice" style="flex:1;align-self:center">Mirando dónde estás...</span><button class="btn-secondary" id="dc-refresh">Actualizar</button></div>
+    <label for="dc-guild">Sonidos de este servidor</label>
+    <select id="dc-guild" disabled><option>Cargando...</option></select>
+    <div class="option-list" id="dc-sounds"></div>
+    <p class="integration-hint">Al pulsar el botón, el bot entra (en silencio) al canal de voz donde estés, Discord reproduce el sonido para todos y el bot sale al poco rato. Hace falta estar dentro de un canal de voz.</p>
+    <button class="btn-secondary" id="dc-bot-remove">Quitar el bot</button>`;
+}
+
+// Servers, where the user is in voice, and the sounds of the chosen server. Picks the server of the
+// voice channel by itself, and follows the user when they move, until they choose another one.
+function wireDiscordBot(body, ctx) {
+  const voiceLine = body.querySelector("#dc-voice");
+  const select = body.querySelector("#dc-guild");
+  const list = body.querySelector("#dc-sounds");
+  let guilds = [];
+  let voiceGuild = "";
+  let picked = false;
+  let sounds = [];
+
+  const guildName = (id) => guilds.find(g => g.id === id)?.name || "Discord";
+
+  const showSounds = async () => {
+    list.innerHTML = '<span class="integration-hint">Cargando sonidos...</span>';
+    try {
+      const { options } = await connectorApi(`/discord/options/sounds:${select.value}`);
+      sounds = options;
+      if (!list.isConnected) return;
+      list.innerHTML = sounds.map((sound, i) => `
+        <div class="option-row">
+          <span>${escapeHtml(sound.emoji)} ${escapeHtml(sound.name)}${sound.available ? "" : " (no disponible)"}</span>
+          <span class="inline-row">
+            <button class="btn-secondary" data-test="${i}" ${sound.available ? "" : "disabled"}>Probar</button>
+            <button class="btn-primary" data-assign="${i}" ${sound.available ? "" : "disabled"}>Asignar</button>
+          </span>
+        </div>`).join("") || '<span class="integration-hint">Este servidor no tiene sonidos</span>';
+    } catch (err) {
+      if (list.isConnected) list.innerHTML = `<span class="integration-hint">${escapeHtml(err.message)}</span>`;
+    }
+  };
+  const actionOf = (sound) => ({
+    action_type: "discord_sound", target: sound.sound_id,
+    extra: { guild_id: sound.guild_id, sound_name: sound.name.slice(0, 40) },
+  });
+  list.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    if (button.dataset.assign !== undefined) {
+      const sound = sounds[Number(button.dataset.assign)];
+      assignFromTemplate(ctx.btn, ctx.index, {
+        label: sound.name, sublabel: guildName(sound.guild_id), icon: "/static/icons/soundboard.svg", color: "#5865f2", ...actionOf(sound),
+      });
+    } else if (button.dataset.test !== undefined) {
+      withToast(async () => {
+        const result = await postJson("/api/actions/test", actionOf(sounds[Number(button.dataset.test)]));
+        if (!result.success) throw new Error(result.error || "No se pudo reproducir");
+      }, "Sonido enviado a tu canal de voz");
+    }
+  });
+
+  const showVoice = (here) => {
+    const id = here ? here.guild_id : "";
+    voiceLine.textContent = here
+      ? `Estás en «${here.channel_name}» de ${here.guild_name}`
+      : "No estás en un canal de voz de un servidor donde esté el bot";
+    if (id && id !== voiceGuild && !picked && guilds.some(g => g.id === id)) {
+      select.value = id;
+      showSounds();
+    }
+    voiceGuild = id;
+  };
+  const refreshVoice = () => connectorApi("/discord/options/voice").then(({ options }) => showVoice(options[0] || null)).catch(() => {});
+
+  select.addEventListener("change", () => { picked = true; showSounds(); });
+  body.querySelector("#dc-refresh").addEventListener("click", () => { picked = false; refreshVoice(); });
+  body.querySelector("#dc-bot-remove").addEventListener("click", () => withToast(async () => {
+    await connectorApi("/discord/configure", { remove_bot: true });
+    await ctx.refresh();
+  }, "Bot quitado"));
+
+  Promise.all([connectorApi("/discord/options/guilds"), connectorApi("/discord/options/voice")]).then(([g, v]) => {
+    guilds = g.options;
+    select.innerHTML = guilds.map(x => `<option value="${escapeHtml(x.id)}">${escapeHtml(x.name)}</option>`).join("");
+    select.disabled = false;
+    const here = v.options[0] || null;
+    voiceGuild = here ? here.guild_id : "";
+    select.value = guilds.some(x => x.id === voiceGuild) ? voiceGuild : (guilds[1] || guilds[0]).id;
+    showVoice(here);
+    showSounds();
+  }).catch(err => {
+    select.innerHTML = "";
+    list.innerHTML = `<span class="integration-hint">${escapeHtml(err.message)}</span>`;
+  });
+  const poll = setInterval(() => { if (body.isConnected) refreshVoice(); else clearInterval(poll); }, 4000);
+}
+
 function connectorBodyDiscord(c, body, ctx) {
   const s = c.settings || {};
+  const botReady = Boolean(s.bot_token_set && s.user_id);
   body.innerHTML = `
     ${statusLine(c)}
+    <span class="section-label">Soundboard de tus servidores</span>
+    ${botReady ? discordBotHtml(s) : discordSetupHtml(s)}
+    <span class="section-label">Silenciar y ensordecer</span>
     <label for="dc-mute">Atajo para silenciar</label>
     <input id="dc-mute" type="text" maxlength="40" value="${escapeHtml(s.mute_hotkey)}">
     <label for="dc-deafen">Atajo para ensordecer</label>
@@ -1349,22 +1468,18 @@ function connectorBodyDiscord(c, body, ctx) {
       <li>En Discord abre Ajustes de usuario &gt; Atajos de teclado y pulsa Añadir un atajo.</li>
       <li>Elige la acción "Alternar silenciar" (o "Alternar ensordecer") y pulsa la misma combinación que guardaste arriba.</li>
     </ol>
-    <span class="section-label">Sonido del soundboard</span>
-    <p class="integration-hint">Discord no permite que otra app lea tus sonidos ni los reproduzca sin la contraseña de tu cuenta, y StreamDesk nunca la pide. Lo que sí funciona: dale a un sonido su propio atajo en Discord y el botón pulsará ese atajo.</p>
-    <label for="dc-sound-name">Nombre del sonido</label>
-    <input id="dc-sound-name" type="text" maxlength="32" placeholder="Ej. Aplausos">
-    <label for="dc-sound-key">Atajo de ese sonido en Discord</label>
-    <input id="dc-sound-key" type="text" maxlength="40" value="${escapeHtml(suggestSoundHotkey(s))}">
-    <div class="inline-row">
-      <button class="btn-primary" id="dc-sound-assign">Asignar a esta casilla</button>
-      <button class="btn-secondary" id="dc-sound-test">Probar</button>
-    </div>
-    <ol class="setup-steps">
-      <li>Entra en un canal de voz y abre el panel de sonidos (Soundboard).</li>
-      <li>Haz clic derecho sobre el sonido y busca la opción de asignarle un atajo (depende de tu versión de Discord) y pulsa la combinación de arriba.</li>
-      <li>Pulsa Probar con la voz conectada: el sonido debería sonar. Si tu Discord no ofrece atajo por sonido, este botón no podrá reproducirlo.</li>
-    </ol>
-    <p class="integration-hint">Sin configurar nada en Discord: el botón "Mute micrófono" de Windows silencia el micro para todas las apps.</p>`;
+    <details class="panel-card">
+      <summary class="panel-title">Alternativa sin bot: atajo de un sonido</summary>
+      <p class="integration-hint">Dale a un sonido su propio atajo en Discord y el botón pulsará ese atajo. Solo suena el sonido que tengas asignado en tu Discord.</p>
+      <label for="dc-sound-name">Nombre del sonido</label>
+      <input id="dc-sound-name" type="text" maxlength="32" placeholder="Ej. Aplausos">
+      <label for="dc-sound-key">Atajo de ese sonido en Discord</label>
+      <input id="dc-sound-key" type="text" maxlength="40" value="${escapeHtml(suggestSoundHotkey(s))}">
+      <div class="inline-row">
+        <button class="btn-primary" id="dc-sound-assign">Asignar a esta casilla</button>
+        <button class="btn-secondary" id="dc-sound-test">Probar</button>
+      </div>
+    </details>`;
   wireTiles(body, c.actions, ctx);
   body.querySelector("#dc-save").addEventListener("click", () => withToast(async () => {
     await connectorApi("/discord/configure", {
@@ -1372,6 +1487,16 @@ function connectorBodyDiscord(c, body, ctx) {
     });
     await ctx.refresh();
   }, "Atajos guardados"));
+
+  body.querySelector("#dc-bot-save")?.addEventListener("click", () => withToast(async () => {
+    const values = { user_id: body.querySelector("#dc-user").value.trim() };
+    const token = body.querySelector("#dc-token").value.trim();
+    if (!token && !s.bot_token_set) throw new Error("Pega el token del bot");
+    if (token) values.bot_token = token;
+    await connectorApi("/discord/configure", values);
+    await ctx.refresh();
+  }, "Bot comprobado y guardado"));
+  if (botReady) wireDiscordBot(body, ctx);
 
   const soundAction = () => {
     const name = body.querySelector("#dc-sound-name").value.trim() || "Sonido";

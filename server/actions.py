@@ -14,6 +14,7 @@ from server.action_catalog import (
     validate_action,
     validate_hotkey,
 )
+from server import discord_bot
 from server.connectors import spotify, windows
 from server.system_scanner import system_scanner
 
@@ -202,6 +203,13 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
             if target not in DISCORD_TARGETS:
                 return {"success": False, "error": "Acción de Discord no válida"}
             return {"success": send_hotkey(extra["hotkey"]), "action": action_type, "target": target}
+
+        if action_type == "discord_sound":
+            try:
+                discord_bot.bot.run(discord_bot.bot.play(target, extra.get("guild_id", "")))
+            except discord_bot.DiscordError as exc:
+                return {"success": False, "error": str(exc)}
+            return {"success": True, "action": action_type, "target": target}
 
         if action_type == "media":
             media_key = target.lower()

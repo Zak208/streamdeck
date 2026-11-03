@@ -59,7 +59,7 @@ async function loadLibrary() {
     ];
     const discord = fromConnectors.find(c => c.category === "Discord");
     if (discord) {
-      discord.items.push({ id: "discord_sound", label: "Sonido del soundboard", sub: "Con atajo de Discord", icon: "/static/icons/soundboard.svg", color: "#5865f2", action_type: "sound", target: "beep", opensTab: "integrations", openConnector: "discord" });
+      discord.items.push({ id: "discord_sound", label: "Sonido del soundboard", sub: "Elige de tus servidores", icon: "/static/icons/soundboard.svg", color: "#5865f2", action_type: "sound", target: "beep", opensTab: "integrations", openConnector: "discord" });
     }
     libraryCategories = [...libraryCategories, ...fromConnectors.filter(c => c !== spotify), ...extra];
     renderLibrary();
@@ -157,6 +157,7 @@ function describeAction(a) {
     case "preset_app": case "launch": return `Abre ${t}`;
     case "obs_action": return `OBS: ${t.replace("_", " ")}`;
     case "discord_hotkey": return t === "sound" ? `Sonido de Discord (${a.extra?.sound_name || "sin nombre"})` : `Discord: ${t}`;
+    case "discord_sound": return `Reproduce «${a.extra?.sound_name || "un sonido"}» en tu canal de voz`;
     case "windows": return `Windows: ${t.replace("_", " ")}`;
     case "spotify_uri": return `Spotify: ${t}`;
     case "hardware_monitor": return `Muestra ${t.toUpperCase()} en vivo`;

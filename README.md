@@ -31,7 +31,7 @@ Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollad
 
 ### 4. 🔄 Auto-Actualizador Integrado con GitHub
 - En la barra superior del PC Studio se encuentra el **cilindro indicador de estado de versión**:
-  - `🟢 v2.6.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
+  - `🟢 v2.7.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
   - `🟡 ¡Actualización en GitHub! [Actualizar 🚀]`: El sistema detecta automáticamente nuevos commits en `https://github.com/Zak208/streamdeck`.
 - Al pulsar el botón de actualizar, el sistema ejecuta `/api/system/apply-update` sincronizando el código automáticamente sin necesidad de reinstalar manualmente.
 
@@ -78,6 +78,7 @@ Abre la dirección que muestra Studio (o escanea el QR) y pulsa el engranaje: **
 
 - **iPhone (Safari):** Compartir > *Añadir a pantalla de inicio*. Funciona sin más. La app instalada guarda sus datos aparte de Safari, así que pedirá el PIN una vez.
 - **Android (Chrome):** Chrome solo ofrece *Instalar app* en webs **https**, y StreamDesk se sirve por `http` dentro de tu red. Para activarlo una vez: abre `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, pega la dirección de StreamDesk (por ejemplo `http://192.168.2.81:48291`), pon *Enabled* y pulsa *Relaunch*. Si la IP de tu PC cambia, repite el paso con la nueva (conviene fijarla en el router).
+- **Si no se instala:** en los ajustes del móvil, el botón *Comprobar por qué no se instala* revisa dirección segura, service worker, manifiesto e iconos y genera un informe que puedes copiar. Las causas habituales son no tener internet (Android genera la app a través de los servidores de Google), Chrome desactualizado o sin Google Play Services.
 - **Sin instalar:** menú ⋮ > *Añadir a la pantalla de inicio* crea un acceso directo, y el botón de **pantalla completa** quita las barras. En `http` Chrome no permite mantener la pantalla encendida.
 
 **Móvil en vertical u horizontal:** en vertical los botones se reorganizan en 3 columnas; en horizontal se aprovecha toda la altura. El menú de ajustes del móvil permite saltar de página, ver el estado de la conexión y vincular con otro PC.
@@ -92,6 +93,10 @@ Inspirado en la aplicación oficial de Elgato:
 - **Páginas y carpetas:** botones "Página siguiente / anterior / primera / ir a una página" para montar carpetas.
 - **Páginas inteligentes:** en los ajustes de una página (⚙ junto a las pestañas) eliges un programa, y el móvil salta a esa página cuando ese programa pasa a primer plano. Si la cambias tú a mano no te la deshace hasta que cambies de programa.
 - **Duplicar páginas** y **guardar o cargar una copia del perfil** (Ajustes > Perfil). La copia no incluye contraseñas, móviles emparejados ni las imágenes que hayas subido; al cargar una se guarda antes una copia del perfil actual.
+
+## 📊 Monitores del sistema
+
+Las casillas de monitor muestran en vivo: **CPU**, **RAM**, **GPU** y **VRAM** (tarjetas NVIDIA, leídas con su librería `nvml.dll`; con otras marcas muestran *N/D*), **Red** (descarga y subida de la tarjeta que usa tu red local) y **Disco** (velocidad de lectura y escritura). El porcentaje de disco ocupado sigue disponible como acción, pero ya no está en la página Sistema por defecto.
 
 ## 🎨 Interfaz y primeros pasos
 
@@ -108,7 +113,10 @@ En Studio, selecciona una casilla y abre la pestaña **Conectores**. Cada servic
 - **Windows:** mute del micrófono (funciona con Discord, juegos y cualquier app), mute de una app concreta y cambio de salida de audio. No necesita configuración.
 - **OBS Studio:** grabar, transmitir, cambiar de escena y mutear una fuente, con las escenas y fuentes reales de tu OBS. Soporta la contraseña del servidor WebSocket. Los botones de grabar y transmitir se marcan en rojo mientras están activos.
 - **Spotify:** elige una de tus playlists (o pega un enlace) y el botón la reproduce. Requiere crear una app gratuita en el panel de desarrolladores de Spotify, pegar su Client ID y una cuenta **Premium**. Sin conectar, o con cuenta gratuita, el botón abre la lista en la app de Spotify.
-- **Discord:** también hay un botón de **sonido del soundboard**: das al sonido un atajo en Discord y el botón lo pulsa (StreamDesk no puede leer tus sonidos: Discord no lo permite sin la contraseña de tu cuenta). Silenciar y ensordecer pulsando los atajos globales que tú defines una vez (por defecto `CTRL+ALT+F9` y `CTRL+ALT+F10`) y creas también en Discord. El soundboard no está disponible: Discord no lo permite sin un bot propio.
+- **Discord:**
+  - **Silenciar y ensordecer** pulsan los atajos globales que tú defines una vez (por defecto `CTRL+ALT+F9` y `CTRL+ALT+F10`) y creas también en Discord.
+  - **Soundboard de tus servidores:** Discord solo deja listar y reproducir sonidos a un **bot**, así que creas uno propio (gratis, 2 minutos): en el portal de desarrolladores (`discord.com/developers/applications`) creas una aplicación, copias el token de su pestaña *Bot*, y pegas el token y tu ID de usuario en Studio. Después abres el enlace de invitación para añadirlo a tus servidores. En Studio eliges el servidor (se preselecciona el del canal de voz en el que estés), ves sus sonidos y asignas el que quieras a una casilla. Al pulsar, el bot entra en silencio al canal de voz donde estés, Discord reproduce el sonido y el bot sale al poco rato. El bot pide solo permisos de ver canal, conectar, hablar y usar soundboard. StreamDesk nunca usa ni pide tu cuenta de Discord.
+  - Sin bot sigue la alternativa antigua: darle a un sonido un atajo en Discord y que el botón lo pulse.
 
 Las contraseñas y tokens se guardan en `config/settings.json` dentro de tu carpeta de datos y nunca se envían al navegador ni al móvil.
 
@@ -147,6 +155,8 @@ streamdeck/
 │   ├── audio_controller.py    # Control de volumen de Windows y sesiones de audio
 │   ├── auth.py                # Sistema de autenticación por PIN, tokens y rate-limiting
 │   ├── config_manager.py      # Gestión de lectura y guardado de deck_config.json
+│   ├── discord_bot.py         # Bot de Discord (gateway + REST) para el soundboard por servidor
+│   ├── telemetry.py           # CPU, RAM, GPU/VRAM (NVML), red y velocidad de disco
 │   ├── main.py                # Servidor FastAPI, WebSockets y auto-actualizador de GitHub
 │   └── system_scanner.py      # Escáner automático de ejecutables y rutas de apps instaladas
 │

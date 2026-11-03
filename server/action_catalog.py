@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 ACTION_TYPES = frozenset({
     "preset_app", "launch", "media", "url", "obs_action", "hardware_monitor",
-    "sound", "multi", "spotify_uri", "discord_hotkey", "windows", "hotkey", "text", "page",
+    "sound", "multi", "spotify_uri", "discord_hotkey", "discord_sound", "windows", "hotkey", "text", "page",
 })
 WINDOWS_TARGETS = frozenset({"mic_mute", "app_mute", "output_device", "lock_pc"})
 PAGE_KEYWORDS = frozenset({"next", "prev", "first"})
@@ -38,6 +38,8 @@ SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 SAFE_APP_TARGET = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 SAFE_PROCESS = re.compile(r"^[A-Za-z0-9_. -]{1,128}$")
 SAFE_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+DISCORD_ID = re.compile(r"^\d{15,25}$")
+DISCORD_SOUND_ID = re.compile(r"^\d{1,25}$")  # Discord's own sounds have short ids such as "1"
 SPOTIFY_URI = re.compile(r"^spotify:(playlist|album|artist|track):([A-Za-z0-9]{10,64})$")
 
 
@@ -152,6 +154,16 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
         clean_extra = {"hotkey": validate_hotkey(action_extra.get("hotkey", ""))}
         if target_text == "sound" and action_extra.get("sound_name"):
             # Only a label: StreamDesk cannot read Discord's sounds, the shortcut is what plays one.
+            clean_extra["sound_name"] = _text(action_extra["sound_name"], "nombre del sonido", 40, allow_empty=False)
+    elif action_type == "discord_sound":
+        # target is the sound's id; guild_id says whose soundboard it belongs to ("default" for Discord's own).
+        if not DISCORD_SOUND_ID.fullmatch(target_text):
+            raise ValueError("El sonido de Discord debe elegirse desde StreamDesk")
+        guild_id = _text(action_extra.get("guild_id", ""), "servidor de Discord", 25)
+        if guild_id and guild_id != "default" and not DISCORD_ID.fullmatch(guild_id):
+            raise ValueError("El servidor de Discord no es válido")
+        clean_extra = {"guild_id": guild_id}
+        if action_extra.get("sound_name"):
             clean_extra["sound_name"] = _text(action_extra["sound_name"], "nombre del sonido", 40, allow_empty=False)
     elif action_type == "hotkey":
         target_text = validate_hotkey(target_text, require_modifier=False)
