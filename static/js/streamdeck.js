@@ -26,12 +26,13 @@ const pageDots = document.getElementById("page-dots");
 const btnPrevPage = document.getElementById("btn-prev-page");
 const btnNextPage = document.getElementById("btn-next-page");
 
-// Register Service Worker for PWA
+// Register Service Worker for PWA. The outcome is kept so Settings can show why installing fails.
+let swState = null;
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
-      .then(reg => console.log('SW registrado:', reg.scope))
-      .catch(err => console.error('Error SW:', err));
+      .then(reg => { swState = { ok: true, scope: reg.scope }; })
+      .catch(err => { swState = { ok: false, message: String(err && err.message || err) }; console.error('Error SW:', err); });
   });
 }
 

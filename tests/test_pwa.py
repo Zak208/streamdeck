@@ -241,6 +241,81 @@ process.stdout.write(vm.runInContext("installSectionHtml()", sandbox));
         self.assertIn("instalada", self.html(userAgent=self.IPHONE, platform="iPhone", iosStandalone=True))
 
 
+@unittest.skipUnless(NODE, "needs Node to run the browser code")
+class InstallCheckTests(unittest.TestCase):
+    """The "why does it not install" report, run in four phone situations."""
+
+    SCRIPT = r"""
+const fs = require("fs"), vm = require("vm");
+const fake = new Proxy(function () {}, {
+  get: (t, p) => (p === Symbol.toPrimitive ? () => "" : p === "then" ? undefined : fake), apply: () => fake, construct: () => fake });
+const scenario = JSON.parse(process.argv[1]);
+const document = new Proxy(fake, { get: (t, p) => (p === "querySelector" ? () => ({ href: "/manifest.json" }) : fake) });
+const manifest = { name: "StreamDesk", display: "standalone", icons: [{ src: "/a.png" }, { src: "/b.png" }] };
+const sandbox = {
+  document, console, JSON, Promise, Map, Set, Math, Date, Number, String, Array, Object, Error,
+  window: { isSecureContext: scenario.secure, addEventListener: () => {} },
+  navigator: { userAgent: "Mozilla/5.0 (Linux; Android 14) Chrome/120 Mobile", platform: "Linux armv8l", maxTouchPoints: 5,
+    ...(scenario.serviceWorker ? { serviceWorker: { getRegistration: async () => scenario.registration } } : {}) },
+  matchMedia: () => ({ matches: false }),
+  location: { origin: "http://192.168.2.81:48291", host: "192.168.2.81:48291" },
+  localStorage: { getItem: () => null, setItem: () => {} },
+  currentConfig: null, deferredInstallPrompt: scenario.prompt ? {} : null, swState: scenario.swState || null,
+  fetch: async () => { if (scenario.manifestBroken) throw new Error("boom"); return { json: async () => manifest }; },
+  Image: class { set src(value) { setTimeout(() => (value.startsWith("/a") || !scenario.iconBroken ? this.onload() : this.onerror()), 0); } },
+};
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), sandbox);
+vm.runInContext("runInstallChecks()", sandbox).then((checks) => {
+  sandbox.checks = checks;
+  process.stdout.write(JSON.stringify({ checks, report: vm.runInContext("installReportText(checks)", sandbox), html: vm.runInContext("installReportHtml(checks)", sandbox) }));
+});
+"""
+
+    def checks(self, **scenario):
+        probe = subprocess.run(["node", "-e", self.SCRIPT, json.dumps(scenario), os.path.join(STATIC_DIR, "js", "phone-settings.js")],
+                               capture_output=True, encoding="utf-8", timeout=30)
+        self.assertEqual(probe.returncode, 0, probe.stderr[-500:])
+        result = json.loads(probe.stdout)
+        result["by_label"] = {c["label"]: c for c in result["checks"]}
+        return result
+
+    def test_plain_http_phone_shows_exactly_what_is_missing(self):
+        result = self.checks(secure=False)
+        got = result["by_label"]
+        self.assertFalse(got["Dirección segura"]["ok"])
+        self.assertIn("http", got["Dirección segura"]["detail"])
+        self.assertFalse(got["Service worker"]["ok"])
+        self.assertIn("no lo ofrece", got["Service worker"]["detail"])
+        self.assertTrue(got["Manifiesto"]["ok"])
+        self.assertFalse(got["Chrome ofrece instalar"]["ok"])
+        self.assertIn("FALLA Dirección segura", result["report"])
+        self.assertIn("Android 14", result["report"])  # the browser is in the report, so it can be diagnosed remotely
+
+    def test_an_installable_phone_passes_everything_but_being_open_as_an_app(self):
+        result = self.checks(secure=True, serviceWorker=True, registration={"active": {}}, prompt=True)
+        failed = [c["label"] for c in result["checks"] if not c["ok"]]
+        self.assertEqual(failed, ["Abierta como app"])
+
+    def test_the_reason_a_service_worker_failed_is_reported(self):
+        result = self.checks(secure=True, serviceWorker=True, registration=None,
+                             swState={"ok": False, "message": "SecurityError: certificate"})
+        self.assertIn("SecurityError: certificate", result["by_label"]["Service worker"]["detail"])
+
+    def test_unreadable_manifest_and_missing_icons_are_flagged(self):
+        broken = self.checks(secure=True, manifestBroken=True)
+        self.assertFalse(broken["by_label"]["Manifiesto"]["ok"])
+        self.assertNotIn("Iconos", broken["by_label"])  # nothing to load without a manifest
+        icons = self.checks(secure=True, iconBroken=True)
+        self.assertFalse(icons["by_label"]["Iconos"]["ok"])
+        self.assertEqual(icons["by_label"]["Iconos"]["detail"], "1 de 2 cargan")
+
+    def test_report_markup_escapes_what_it_shows(self):
+        result = self.checks(secure=True, serviceWorker=True, registration=None,
+                             swState={"ok": False, "message": "<img src=x onerror=alert(1)>"})
+        self.assertNotIn("<img src=x", result["html"])
+
+
 class PhoneLayoutTests(unittest.TestCase):
     def test_portrait_flows_the_same_cells_into_three_columns(self):
         css = read("css/style.css")

@@ -266,6 +266,14 @@ header {
 .sheet-check { display: flex; align-items: center; gap: 10px; margin-top: 10px; color: var(--text-2); font-size: 13px; }
 .sheet-check input { width: 20px; height: 20px; accent-color: var(--accent); }
 .sheet-buttons { display: grid; gap: 8px; }
+.sheet-check-button { margin-top: 10px; }
+.sheet-checks { display: grid; gap: 6px; margin: 12px 0; padding: 0; list-style: none; }
+.sheet-checks li { display: grid; grid-template-columns: 22px 1fr; gap: 0 8px; padding: 9px 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
+.sheet-checks li::before { content: "✓"; grid-row: span 2; color: var(--ok); font-weight: 800; }
+.sheet-checks li.bad::before { content: "✕"; color: var(--danger); }
+.sheet-checks li.bad { border-color: var(--danger); }
+.sheet-checks strong { font-size: 13px; }
+.sheet-checks span { color: var(--text-2); font-size: 12px; word-break: break-word; }
 .sheet .btn-primary, .sheet .btn-secondary, .sheet .btn-danger { width: 100%; min-height: 46px; }
 
 /* ---------- Banners and toast ---------- */
