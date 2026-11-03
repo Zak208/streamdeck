@@ -31,7 +31,7 @@ Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollad
 
 ### 4. 🔄 Auto-Actualizador Integrado con GitHub
 - En la barra superior del PC Studio se encuentra el **cilindro indicador de estado de versión**:
-  - `🟢 v2.8.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
+  - `🟢 v2.9.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
   - `🟡 ¡Actualización en GitHub! [Actualizar 🚀]`: El sistema detecta automáticamente nuevos commits en `https://github.com/Zak208/streamdeck`.
 - Al pulsar el botón de actualizar, el sistema ejecuta `/api/system/apply-update` sincronizando el código automáticamente sin necesidad de reinstalar manualmente.
 
@@ -116,6 +116,7 @@ En Studio, selecciona una casilla y abre la pestaña **Conectores**. Cada servic
 - **Discord:**
   - **Silenciar y ensordecer** pulsan los atajos globales que tú defines una vez (por defecto `CTRL+ALT+F9` y `CTRL+ALT+F10`) y creas también en Discord.
   - **Soundboard de tus servidores:** en Studio pulsa *Buscar mis sonidos*. StreamDesk lee el panel de sonidos de **tu** Discord (con la accesibilidad de Windows, UI Automation), lista los sonidos de cada servidor (se preselecciona el del canal de voz en el que estés) y al pulsar el botón pulsa ese sonido en el panel, igual que harías con el ratón, sin mover el cursor ni quitarte el foco. No usa tu cuenta, ni su token, ni bots, ni envía nada a Discord.
+  - **Una página por servidor:** en la lista de sonidos de un servidor marca los que quieras (hasta 12) y pulsa *Crear página*. Esa página se abre sola en el móvil cuando entras a un canal de voz de ese servidor (lee el nombre del servidor en la barra de voz de Discord cada pocos segundos, y solo mientras exista alguna página así). Si mueves tú el móvil a otra página, no te lo deshace hasta que cambies de servidor o salgas y vuelvas a entrar. También se puede asignar a mano en los ajustes de cualquier página (⚙).
   - **Requisitos y límites:** Discord abierto (puede estar detrás de otras ventanas, no minimizado ni cerrado a la bandeja) y tú dentro de un canal de voz. Lee los textos de Discord en **español** («Reproducir…», «Abrir panel de sonidos»); en otro idioma habría que cambiarlos en `server/discord_ui.py`. Un rediseño de Discord puede romperlo: los errores dicen qué no encuentra. Los sonidos se buscan por su nombre, así que si los renombras hay que volver a buscarlos.
 
 Las contraseñas y tokens se guardan en `config/settings.json` dentro de tu carpeta de datos y nunca se envían al navegador ni al móvil.

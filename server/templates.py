@@ -64,6 +64,20 @@ def _page(slots: Dict[int, Dict[str, Any]], faders: List[List[Dict[str, Any]]]) 
     return layout
 
 
+def discord_server_page(server: str, labels: List[str]) -> Dict[str, Any]:
+    """A page of Discord sounds that opens by itself when the user is in a voice channel of `server`."""
+    from server.discord_ui import split_label
+    if not 1 <= len(labels) <= 12:
+        raise ValueError("Elige entre 1 y 12 sonidos para la página")
+    prefix = f"dc_{uuid.uuid4().hex[:6]}"
+    slots = {}
+    for index, label in enumerate(labels):
+        emoji, name = split_label(label)
+        slots[index] = _button(index, prefix, (name or label)[:32], server[:36], "/static/icons/soundboard.svg", "#5865f2",
+                               "discord_sound", label, {"section": server})
+    return {"id": f"page_{uuid.uuid4().hex[:6]}", "name": server[:40], "auto_discord": server, "slots": _page(slots, [])}
+
+
 def _by_id(templates: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     return {t["id"]: t for t in templates}
 

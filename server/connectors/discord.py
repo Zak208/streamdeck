@@ -80,4 +80,7 @@ def options(name: str) -> List[Dict[str, Any]]:
             raise RuntimeError("No se pudo leer el panel de sonidos de Discord. Comprueba que está abierto y a la vista.") from exc
         return [{**sound, "emoji": discord_ui.split_label(sound["label"])[0], "name": discord_ui.split_label(sound["label"])[1]}
                 for sound in sounds]
+    if name == "voice":
+        server = discord_ui.current_voice_server()
+        return [{"server": server}] if server else []
     return []

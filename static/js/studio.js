@@ -1335,22 +1335,64 @@ function renderDiscordSounds(area, ctx) {
   area.innerHTML = `
     <label for="dc-guild">Sonidos de este servidor</label>
     <select id="dc-guild">${sections.map(name => `<option value="${escapeHtml(name)}" ${name === current ? "selected" : ""}>${escapeHtml(name)}${name === current ? " (donde estás)" : ""}</option>`).join("")}</select>
-    <div class="option-list" id="dc-sounds"></div>`;
+    <div class="option-list" id="dc-sounds"></div>
+    <button class="btn-primary" id="dc-make-page" disabled></button>
+    <p class="integration-hint">Marca los sonidos que quieras de este servidor (hasta 12) y crea su página: se abrirá sola en el móvil cuando entres a un canal de voz de ese servidor.</p>`;
   const select = area.querySelector("#dc-guild");
   const list = area.querySelector("#dc-sounds");
+  const makePage = area.querySelector("#dc-make-page");
+  const picked = new Map(sections.map(name => [name, new Set()]));
   let shown = [];
 
+  const updateMakePage = () => {
+    const count = picked.get(select.value).size;
+    makePage.disabled = count === 0;
+    makePage.textContent = count ? `Crear página de «${select.value}» con ${count} sonido${count === 1 ? "" : "s"}` : "Marca sonidos para crear la página";
+  };
   const showSection = () => {
     shown = discordSounds.filter(s => s.section === select.value);
     list.innerHTML = shown.map((sound, i) => `
       <div class="option-row">
-        <span>${escapeHtml(sound.label)}</span>
+        <label class="inline-row" style="flex:1;min-width:0;align-items:center;gap:8px;margin:0">
+          <input type="checkbox" data-pick="${i}" ${picked.get(select.value).has(sound.label) ? "checked" : ""}>
+          <span>${escapeHtml(sound.label)}</span>
+        </label>
         <span class="inline-row">
           <button class="btn-secondary" data-test="${i}">Probar</button>
           <button class="btn-primary" data-assign="${i}">Asignar</button>
         </span>
       </div>`).join("");
+    updateMakePage();
   };
+  list.addEventListener("change", (event) => {
+    const box = event.target.closest("[data-pick]");
+    if (!box) return;
+    const set = picked.get(select.value);
+    const label = shown[Number(box.dataset.pick)].label;
+    if (box.checked && set.size >= 12) {
+      box.checked = false;
+      return showToast("Una página tiene 12 casillas: quita algún sonido antes de añadir otro");
+    }
+    if (box.checked) set.add(label); else set.delete(label);
+    updateMakePage();
+  });
+  const createPage = async (replace) => {
+    const server = select.value;
+    try {
+      const result = await postJson("/api/discord/server-page", { server, sounds: [...picked.get(server)], replace });
+      await loadConfig();
+      await switchPage(result.index);
+      showToast(`Página «${server}» ${result.replaced ? "actualizada" : "creada"}. Se abrirá sola cuando entres a un canal de voz de ese servidor.`);
+    } catch (err) {
+      if (!replace && err.message.startsWith("Ya hay una página")) {
+        const ok = await askConfirm({ title: "Reemplazar la página", message: `Ya tienes una página para «${server}». Se cambiarán sus botones por estos sonidos.`, confirmLabel: "Reemplazar" });
+        if (ok) await createPage(true);
+      } else {
+        showToast(err.message);
+      }
+    }
+  };
+  makePage.addEventListener("click", () => createPage(false));
   const actionOf = (sound) => ({ action_type: "discord_sound", target: sound.label, extra: { section: sound.section } });
   list.addEventListener("click", (event) => {
     const button = event.target.closest("button");
@@ -1377,6 +1419,7 @@ function connectorBodyDiscord(c, body, ctx) {
     ${statusLine(c)}
     <span class="section-label">Soundboard de tus servidores</span>
     <p class="integration-hint">StreamDesk lee el panel de sonidos de tu Discord y pulsa el sonido que elijas, igual que harías tú con el ratón. No usa tu cuenta ni bots. Discord tiene que estar abierto (puede quedar detrás de otras ventanas, pero no minimizado) y tú dentro de un canal de voz.</p>
+    <p class="integration-hint" id="dc-voice">Mirando en qué canal de voz estás...</p>
     <button class="btn-primary" id="dc-scan">${discordSounds ? "Volver a buscar mis sonidos" : "Buscar mis sonidos"}</button>
     <div id="dc-sounds-area"></div>
     <span class="section-label">Silenciar y ensordecer</span>
@@ -1397,6 +1440,11 @@ function connectorBodyDiscord(c, body, ctx) {
     });
     await ctx.refresh();
   }, "Atajos guardados"));
+
+  connectorApi("/discord/options/voice").then(({ options }) => {
+    const line = body.querySelector("#dc-voice");
+    if (line) line.textContent = options.length ? `Ahora estás en un canal de voz de «${options[0].server}».` : "Ahora no estás en ningún canal de voz (o Discord está minimizado).";
+  }).catch(() => {});
 
   const area = body.querySelector("#dc-sounds-area");
   if (discordSounds) renderDiscordSounds(area, ctx);

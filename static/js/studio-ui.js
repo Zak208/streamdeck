@@ -127,6 +127,7 @@ function openPageSettings() {
   const page = config.pages[activePageIndex];
   const programs = [...new Set([...detectedSystemApps.map(a => a.exe_name), ...audioSessions.map(s => s.process_name)].filter(Boolean))]
     .sort((a, b) => a.localeCompare(b));
+  const servers = typeof discordSounds !== "undefined" && discordSounds ? [...new Set(discordSounds.map(s => s.section))] : [];
   openModal({
     title: "Ajustes de la página",
     body: `
@@ -140,6 +141,12 @@ function openPageSettings() {
         <datalist id="ps-programs">${programs.map(p => `<option value="${escapeHtml(p)}"></option>`).join("")}</datalist>
         <p class="integration-hint">Es como los perfiles inteligentes de Stream Deck: al cambiar de programa en tu PC, el móvil salta a esta página. Si lo mueves tú a otra página, no te lo deshace hasta que cambies de programa.</p>
       </div>
+      <div class="dialog-field" style="margin-top: 16px;">
+        <label class="section-label" for="ps-discord" style="margin: 0;">Abrir esta página sola cuando estés en un canal de voz de este servidor de Discord</label>
+        <input type="text" id="ps-discord" list="ps-servers" maxlength="80" value="${escapeHtml(page.auto_discord || "")}" placeholder="Nombre del servidor. Vacío para no usarlo.">
+        <datalist id="ps-servers">${servers.map(name => `<option value="${escapeHtml(name)}"></option>`).join("")}</datalist>
+        <p class="integration-hint">Escribe el nombre tal como lo ves en Discord (o busca tus sonidos en Conectores para que aparezcan aquí). Lo más fácil es crear la página desde la lista de sonidos de ese servidor.</p>
+      </div>
       <div class="inline-row" style="margin-top: 16px;">
         <button class="btn-secondary" id="ps-duplicate">Duplicar página</button>
         <button class="btn-danger" id="ps-delete" style="width: auto; margin-top: 0;">Eliminar página</button>
@@ -151,12 +158,16 @@ function openPageSettings() {
         onClick: async (modal) => {
           const name = modal.el.querySelector("#ps-name").value.trim();
           const program = modal.el.querySelector("#ps-app").value.trim();
+          const server = modal.el.querySelector("#ps-discord").value.trim();
           if (!name) return showToast("La página necesita un nombre");
+          const serverClash = config.pages.find((p, i) => i !== activePageIndex && server && (p.auto_discord || "").toLowerCase() === server.toLowerCase());
+          if (serverClash) return showToast(`"${serverClash.name}" ya se abre con ese servidor`);
           const clash = config.pages.find((p, i) => i !== activePageIndex && program && (p.auto_app || "").toLowerCase() === program.toLowerCase());
           if (clash) return showToast(`"${clash.name}" ya se abre con ese programa`);
-          const before = { name: page.name, auto_app: page.auto_app };
+          const before = { name: page.name, auto_app: page.auto_app, auto_discord: page.auto_discord };
           page.name = name;
           if (program) page.auto_app = program; else delete page.auto_app;
+          if (server) page.auto_discord = server; else delete page.auto_discord;
           if (await saveConfigToServer({ immediate: true })) {
             renderPageTabs();
             modal.close();
@@ -165,6 +176,7 @@ function openPageSettings() {
             // The server refused it. Do not keep the bad value, or every later autosave would fail too.
             page.name = before.name;
             if (before.auto_app) page.auto_app = before.auto_app; else delete page.auto_app;
+            if (before.auto_discord) page.auto_discord = before.auto_discord; else delete page.auto_discord;
           }
         },
       },

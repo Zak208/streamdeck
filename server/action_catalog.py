@@ -243,6 +243,9 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
             auto_app = _text(page["auto_app"], "aplicación de la página", 128, allow_empty=False)
             if not SAFE_PROCESS.fullmatch(auto_app):
                 raise ValueError("La aplicación de la página no es válida")
+        auto_discord = ""
+        if page.get("auto_discord"):
+            auto_discord = _text(page["auto_discord"], "servidor de Discord de la página", 80, allow_empty=False)
         slots = page.get("slots")
         if not isinstance(slots, list) or len(slots) != 12:
             raise ValueError("Cada página debe tener exactamente doce casillas")
@@ -311,6 +314,8 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
         clean_page: Dict[str, Any] = {"id": page_id, "name": page_name, "slots": clean_slots}
         if auto_app:
             clean_page["auto_app"] = auto_app  # switch to this page when this program is in the foreground
+        if auto_discord:
+            clean_page["auto_discord"] = auto_discord  # ...or when the user joins a voice channel of this Discord server
         clean_pages.append(clean_page)
 
     current_page = raw_config.get("current_page", 0)

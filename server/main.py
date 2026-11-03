@@ -45,7 +45,7 @@ from server.audio_controller import audio_controller
 from server.com_worker import com_worker
 from server.actions import execute_action
 from server.auth import auth_manager
-from server import diagnostics, firewall, templates
+from server import diagnostics, discord_ui, firewall, templates
 from server.action_catalog import validate_deck_config
 from server.config_manager import CONFIG_FILE, config_manager
 from server.connectors import spotify, windows
@@ -204,13 +204,31 @@ def page_for_app(pages: list, process_name: str):
     return next((i for i, page in enumerate(pages) if wanted and (page.get("auto_app") or "").lower() == wanted), None)
 
 
-async def smart_page_loop():
-    """Open the page of the program you are using, like Stream Deck's Smart Profiles.
+def page_for_discord(pages: list, server: str):
+    """Index of the page set to open for this Discord server, or None."""
+    wanted = (server or "").strip().lower()
+    return next((i for i, page in enumerate(pages) if wanted and (page.get("auto_discord") or "").strip().lower() == wanted), None)
 
-    It reacts when the foreground program changes, not on every tick, so moving the phone to
-    another page by hand is not undone a second later.
+
+async def _open_page(index: int) -> None:
+    if index != config_manager.get_config().get("current_page", 0) and config_manager.set_active_page(index):
+        await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+
+
+DISCORD_POLL_EVERY = 3  # loop ticks (seconds) between looks at Discord's voice bar
+
+
+async def smart_page_loop():
+    """Open the page of the program you are using, or of the Discord server you are talking in.
+
+    Like Stream Deck's Smart Profiles. It reacts when the foreground program or the voice server
+    changes, not on every tick, so moving the phone to another page by hand is not undone a second
+    later. Discord is only looked at while some page asks for it, because reading its window keeps
+    Discord's accessibility on.
     """
     last = None
+    last_server = None
+    tick = 0
     while True:
         try:
             pages = config_manager.get_config().get("pages", [])
@@ -219,11 +237,21 @@ async def smart_page_loop():
                 if name and name != last:
                     last = name
                     index = page_for_app(pages, name)
-                    if index is not None and index != config_manager.get_config().get("current_page", 0):
-                        if config_manager.set_active_page(index):
-                            await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+                    if index is not None:
+                        await _open_page(index)
+            if any(page.get("auto_discord") for page in pages):
+                if tick % DISCORD_POLL_EVERY == 0:
+                    server = await asyncio.to_thread(discord_ui.current_voice_server)
+                    if server != last_server:  # joining, moving to another server, or leaving (None)
+                        last_server = server
+                        index = page_for_discord(pages, server) if server else None
+                        if index is not None:
+                            await _open_page(index)
+            else:
+                last_server = None
         except Exception:
             pass
+        tick += 1
         await asyncio.sleep(1.0)
 
 
@@ -437,6 +465,35 @@ async def apply_template(values: Dict[str, Any] = Body(...), _: None = Depends(r
     return {"success": True, "index": len(config_manager.get_config()["pages"]) - 1}
 
 
+@app.post("/api/discord/server-page")
+async def create_discord_server_page(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    """A page with the chosen sounds of one Discord server, opened by itself when the user is talking there."""
+    server = str(values.get("server") or "").strip()
+    labels = values.get("sounds")
+    if not server or not isinstance(labels, list) or not all(isinstance(label, str) and label.strip() for label in labels):
+        raise HTTPException(status_code=422, detail="Falta el servidor o los sonidos")
+    try:
+        page = templates.discord_server_page(server, [label.strip() for label in labels])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    cfg = copy.deepcopy(config_manager.get_config())
+    pages = cfg["pages"]
+    existing = page_for_discord(pages, server)
+    if existing is not None:
+        if not values.get("replace"):
+            raise HTTPException(status_code=409, detail=f"Ya hay una página para «{server}»")
+        page["id"], page["name"] = pages[existing]["id"], pages[existing]["name"]  # keep what the user may have renamed
+        pages[existing] = page
+        index = existing
+    else:
+        pages.append(page)
+        index = len(pages) - 1
+    if not config_manager.save_config(cfg):
+        raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo crear la página")
+    await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+    return {"success": True, "index": index, "replaced": existing is not None}
+
+
 @app.get("/api/profile/export")
 def export_profile(_: None = Depends(require_local_request)):
     """The whole profile as a file. It holds layouts only: no passwords, tokens or paired phones."""
@@ -485,6 +542,7 @@ async def duplicate_deck_page(page_index: int = Body(..., embed=True), _: None =
     clone["id"] = f"page_{uuid.uuid4().hex[:6]}"
     clone["name"] = f"{clone['name']} (copia)"[:40]
     clone.pop("auto_app", None)  # two pages for the same program would be ambiguous
+    clone.pop("auto_discord", None)  # and so would two for the same Discord server
     pages.insert(page_index + 1, clone)
     if not config_manager.save_config(cfg):
         raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo duplicar la página")

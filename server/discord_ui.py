@@ -28,8 +28,11 @@ PANEL_ANCHOR = "Volumen del panel de sonidos"
 # Sections that repeat sounds already listed under their server.
 ALIAS_SECTIONS = ("Favoritos", "Usados frecuentemente")
 ALIAS_PREFIX = "Sonidos más usados"
+# The voice bar (bottom left): a button "Detalles de voz Voz conectada" with a link "<canal> / <servidor> <tiempo>" under it.
+VOICE_STATUS = "Detalles de voz Voz conectada"
+VOICE_TIMER = re.compile(r"\s+\d{1,2}(:\d{2}){1,2}$")
 
-UIA_BUTTON, UIA_IMAGE, UIA_LISTITEM, UIA_TEXT = 50000, 50006, 50007, 50020
+UIA_BUTTON, UIA_HYPERLINK, UIA_IMAGE, UIA_LISTITEM, UIA_TEXT = 50000, 50005, 50006, 50007, 50020
 INVOKE_PATTERN, SCROLL_PATTERN = 10000, 10004
 
 # Its own thread: reading the panel takes a few seconds and must not stall the volume faders.
@@ -77,8 +80,8 @@ def _find_window() -> int:
     return found[0]
 
 
-class _Panel:
-    """One session with the soundboard panel. Create and use it on the ui_worker thread only."""
+class _Window:
+    """Windows UI Automation over Discord's main window. Create and use it on the ui_worker thread only."""
 
     def __init__(self) -> None:
         import comtypes.client
@@ -90,12 +93,7 @@ class _Panel:
         self.cache = self.auto.CreateCacheRequest()
         for prop in (UIA.UIA_NamePropertyId, UIA.UIA_BoundingRectanglePropertyId, UIA.UIA_ControlTypePropertyId):
             self.cache.AddProperty(prop)
-        self.rect: Rect = (0, 0, 0, 0)
-        self.scroll = None
-        self._wait_for_tree()
-        self._open_panel()
 
-    # ---- reading the window
     def _all(self, control_type: int, root=None) -> List[Tuple[Any, str, Rect]]:
         condition = self.auto.CreatePropertyCondition(self.UIA.UIA_ControlTypePropertyId, control_type)
         found = (root or self.root).FindAllBuildCache(self.UIA.TreeScope_Descendants, condition, self.cache)
@@ -125,6 +123,17 @@ class _Panel:
         if not pattern:
             raise DiscordUiError("Discord no deja pulsar ese botón.")
         pattern.QueryInterface(self.UIA.IUIAutomationInvokePattern).Invoke()
+
+
+class _Panel(_Window):
+    """One session with the soundboard panel."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rect: Rect = (0, 0, 0, 0)
+        self.scroll = None
+        self._wait_for_tree()
+        self._open_panel()
 
     # ---- the panel
     def _open_panel(self) -> None:
@@ -228,6 +237,30 @@ class _Panel:
             time.sleep(0.3)
 
 
+def parse_voice_link(name: str) -> Optional[str]:
+    """The server in the voice bar's link: "Sala / Mi servidor 02:20:32" gives "Mi servidor"."""
+    text = VOICE_TIMER.sub("", name.strip())
+    if " / " not in text:
+        return None
+    return text.rsplit(" / ", 1)[1].strip() or None
+
+
+def _voice_server() -> Optional[str]:
+    try:
+        window = _Window()
+    except DiscordUiError:
+        return None  # Discord closed or minimized: nothing to read, and nothing to react to
+    if len(window._all(UIA_BUTTON)) <= 5:
+        return None  # the accessibility tree is only built after the first look; the next one finds it
+    status = next((r for _, n, r in window._all(UIA_BUTTON) if n == VOICE_STATUS), None)
+    if status is None:
+        return None  # not connected to a voice channel
+    for _, name, r in window._all(UIA_HYPERLINK):
+        if abs(r[0] - status[0]) <= 8 and 0 <= r[1] - status[1] <= 40:
+            return parse_voice_link(name)
+    return None
+
+
 def _is_alias(name: str) -> bool:
     return name in ALIAS_SECTIONS or name.startswith(ALIAS_PREFIX)
 
@@ -284,6 +317,11 @@ def _play(section: str, label: str) -> None:
 def list_sounds() -> List[Dict[str, Any]]:
     """Every sound of every server in the panel, as {"section", "label", "current"}. Takes a few seconds."""
     return ui_worker.call(_scan, timeout=90)
+
+
+def current_voice_server() -> Optional[str]:
+    """Name of the server whose voice channel the user is in, or None (also when Discord cannot be read)."""
+    return ui_worker.call(_voice_server, timeout=8)
 
 
 def play(section: str, label: str) -> None:
