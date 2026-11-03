@@ -160,15 +160,17 @@ class _Panel:
     def rail(self) -> List[Tuple[str, Any]]:
         """(section name, tab) for every tab on the left of the panel, top to bottom."""
         left = self.rect[0]
-        tabs = [(e, r) for e, _, r in self._all(UIA_LISTITEM)
-                if _inside(r, self.rect) and r[2] - r[0] <= 48 and r[0] - left < 48]
-        images = [(n, r) for _, n, r in self._all(UIA_IMAGE) if n and _inside(r, self.rect) and r[2] - r[0] >= 28]  # the icon, not a badge on it
-        labels = [(n, r) for _, n, r in self._all(UIA_TEXT) if n and _inside(r, self.rect)]
+        def in_rail(r: Rect) -> bool:
+            return self.rect[1] <= (r[1] + r[3]) // 2 <= self.rect[3] and left - 4 <= r[0] and r[0] - left < 48
+
+        tabs = [(e, r) for e, _, r in self._all(UIA_LISTITEM) if in_rail(r) and r[2] - r[0] <= 48]
+        images = [(n, r) for _, n, r in self._all(UIA_IMAGE) if n and in_rail(r) and r[2] - r[0] >= 28]  # the icon, not a badge on it
+        labels = [(n, r) for _, n, r in self._all(UIA_TEXT) if n and in_rail(r)]
         named = []
         for element, r in sorted(tabs, key=lambda tab: tab[1][1]):
             # A server's tab carries its icon, named after the server. The other tabs (Discord's own sounds,
             # favourites...) have a text label right under them instead.
-            name = next((n for n, ir in images if _inside(ir, r)), "")
+            name = next((n for n, ir in images if abs(ir[1] - r[1]) <= 6 and abs(ir[0] - r[0]) <= 6), "")
             if not name:
                 name = next((n for n, lr in labels if abs(lr[0] - r[0]) <= 2 and abs(lr[1] - (r[1] + 37)) <= 4), "")
             named.append((name, element))
@@ -200,8 +202,12 @@ class _Panel:
 
     def pages(self, section: str):
         """Selects a section's tab and yields (headers, sounds) for each screen of the panel, top to bottom."""
-        tabs = self.rail()
-        element = next((e for label, e in tabs if label == section), None)
+        element = None
+        for _ in range(8):  # the tabs are redrawn after every click: give Discord a moment before giving up
+            element = next((e for label, e in self.rail() if label == section), None)
+            if element is not None:
+                break
+            time.sleep(0.25)
         if element is None:
             raise DiscordUiError(f"No encuentro «{section}» en el panel de sonidos.")
         self._invoke(element)
