@@ -21,7 +21,6 @@ const appListItems = document.getElementById("app-list-items");
 const deckGrid = document.getElementById("deck-grid");
 const deckContainer = document.getElementById("deck-container");
 const btnInstallPwa = document.getElementById("btn-install-pwa");
-const iosInstallModal = document.getElementById("ios-install-modal");
 const currentPageName = document.getElementById("current-page-name");
 const pageDots = document.getElementById("page-dots");
 const btnPrevPage = document.getElementById("btn-prev-page");
@@ -52,12 +51,14 @@ btnInstallPwa?.addEventListener('click', async () => {
     }
     deferredInstallPrompt = null;
   } else {
-    if (iosInstallModal) iosInstallModal.style.display = 'flex';
+    openSettingsSheet("install");
   }
 });
 
-document.getElementById('btn-close-ios-modal')?.addEventListener('click', () => {
-  if (iosInstallModal) iosInstallModal.style.display = 'none';
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  if (btnInstallPwa) btnInstallPwa.style.display = 'none';
+  showMobileToast("StreamDesk instalado. Ábrelo desde tu pantalla de inicio.");
 });
 
 // Screen Wake Lock
@@ -387,24 +388,25 @@ function renderDeck(config) {
       continue;
     }
 
+    // Position goes in CSS variables rather than inline grid styles: in landscape the cells use
+    // them as they are (6 x 2), and in portrait the stylesheet lets them flow into 3 columns.
+    let cell;
+    let rowStart = row;
+    let span = 1;
     if (slot.type === "button") {
-      const btnEl = createButtonElement(slot);
-      btnEl.style.gridColumn = `${col}`;
-      btnEl.style.gridRow = `${row}`;
-      deckGrid.appendChild(btnEl);
+      cell = createButtonElement(slot);
     } else if (slot.type === "slider") {
-      const faderEl = createFaderElement(slot);
-      faderEl.style.gridColumn = `${col}`;
-      faderEl.style.gridRow = "1 / span 2"; // Spans both vertical rows!
-      deckGrid.appendChild(faderEl);
+      cell = createFaderElement(slot);
+      rowStart = 1;
+      span = 2; // a fader takes both rows of its column
     } else {
-      // Empty slot
-      const emptyEl = document.createElement("div");
-      emptyEl.className = "deck-slot-empty";
-      emptyEl.style.gridColumn = `${col}`;
-      emptyEl.style.gridRow = `${row}`;
-      deckGrid.appendChild(emptyEl);
+      cell = document.createElement("div");
+      cell.className = "deck-slot-empty";
     }
+    cell.style.setProperty("--col", col);
+    cell.style.setProperty("--row", rowStart);
+    cell.style.setProperty("--span", span);
+    deckGrid.appendChild(cell);
   }
 
   // The faders were just created with placeholder values. Paint what the PC is doing now, otherwise
@@ -429,6 +431,7 @@ function applyMicState(mic) {
 function applyTheme(theme) {
   if (theme !== "ctma" && theme !== "cian") return;
   document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "cian" ? "#080a10" : "#0a0a0a");
   try { localStorage.setItem("streamdesk_theme", theme); } catch (e) {}
 }
 
@@ -840,13 +843,8 @@ function showPinModal(canClose = true) {
   }, 100);
 }
 
-document.getElementById("btn-status-badge")?.addEventListener("click", () => {
-  showPinModal(true);
-});
-
-document.getElementById("btn-open-settings")?.addEventListener("click", () => {
-  showPinModal(true);
-});
+document.getElementById("btn-status-badge")?.addEventListener("click", () => openSettingsSheet());
+document.getElementById("btn-open-settings")?.addEventListener("click", () => openSettingsSheet());
 
 document.getElementById("btn-fullscreen")?.addEventListener("click", () => {
   if (!document.fullscreenElement) {

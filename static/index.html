@@ -3,18 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>StreamDesk Mobile Pro</title>
+  <title>StreamDesk</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0a0a0a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <meta name="apple-mobile-web-app-title" content="StreamDesk">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="/static/icons/icon-192.png">
   <script>
     // Same theme as Studio, remembered from the last connection, applied before first paint.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.5.0">
-  <link rel="stylesheet" href="/static/css/style.css?v=2.5.0">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.6.0">
+  <link rel="stylesheet" href="/static/css/style.css?v=2.6.0">
 </head>
 <body>
   <!-- Top bar -->
@@ -27,7 +30,7 @@
     <div class="page-nav" id="page-nav">
       <button class="page-nav-arrow" id="btn-prev-page" title="Página Anterior">‹</button>
       <div class="page-dots" id="page-dots"></div>
-      <span class="page-name-badge" id="current-page-name">Principal</span>
+      <button class="page-name-badge" id="current-page-name" title="Elegir página">Principal</button>
       <button class="page-nav-arrow" id="btn-next-page" title="Página Siguiente">›</button>
     </div>
 
@@ -42,17 +45,15 @@
         <span id="status-text">Conectando...</span>
       </div>
 
-      <button class="icon-btn" id="btn-open-settings" title="Ajustes y Vinculación PIN">
+      <button class="icon-btn" id="btn-open-settings" title="Ajustes, páginas e instalación">
         <img src="/static/icons/gear.svg" alt="Ajustes">
       </button>
 
-      <button class="icon-btn" id="btn-fullscreen" title="Pantalla Completa">
-        ⛶
+      <button class="icon-btn" id="btn-fullscreen" title="Pantalla completa" aria-label="Pantalla completa">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
       </button>
     </div>
   </header>
-
-  <div class="rotate-hint">Gira el móvil en horizontal para ver todo el panel</div>
 
   <!-- Reconnection Alert Banner -->
   <div id="reconnect-banner" class="reconnect-banner" style="display: none;">
@@ -83,17 +84,17 @@
     </div>
   </div>
 
-  <!-- iOS PWA Install Instructions Modal -->
-  <div class="modal-overlay" id="ios-install-modal" style="display: none;">
-    <div class="modal-card">
-      <div class="modal-title">Instalar en tu móvil</div>
-      <div class="modal-desc" style="text-align: left; font-size: 0.85rem; line-height: 1.6;">
-        Para instalar StreamDesk a pantalla completa como una app real:<br><br>
-        1. Pulsa el botón <strong>Compartir (⎋)</strong> en la barra de tu navegador (Safari/Chrome).<br>
-        2. Selecciona <strong>"Añadir a la pantalla de inicio" (+)</strong>.<br>
-        3. Abre la app desde el icono en tu pantalla y ¡listo!
+  <!-- Settings sheet: connection, pages, screen and installing the app -->
+  <div class="sheet-overlay" id="settings-sheet" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <div class="sheet-header">
+        <h2 id="sheet-title">Ajustes</h2>
+        <button class="close-btn" id="btn-close-sheet" aria-label="Cerrar">✕</button>
       </div>
-      <button class="btn-primary" id="btn-close-ios-modal">Entendido</button>
+      <section class="sheet-section"><h3>Páginas</h3><div id="sheet-pages" class="sheet-pages"></div></section>
+      <section class="sheet-section"><h3>Pantalla</h3><div id="sheet-screen"></div></section>
+      <section class="sheet-section"><h3>Instalar como app</h3><div id="sheet-install"></div></section>
+      <section class="sheet-section"><h3>Conexión</h3><div id="sheet-connection"></div></section>
     </div>
   </div>
 
@@ -113,6 +114,7 @@
   <!-- Action Result & Error Toast -->
   <div id="mobile-toast" class="mobile-toast"></div>
 
-  <script src="/static/js/streamdeck.js?v=2.5.0"></script>
+  <script src="/static/js/streamdeck.js?v=2.6.0"></script>
+  <script src="/static/js/phone-settings.js?v=2.6.0"></script>
 </body>
 </html>

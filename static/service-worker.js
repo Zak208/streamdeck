@@ -1,5 +1,5 @@
 // StreamDesk Service Worker for PWA installation & caching
-const CACHE_NAME = 'streamdesk-v2.5.0';
+const CACHE_NAME = 'streamdesk-v2.6.0';
 const ASSETS_TO_CACHE = [
   '/',
   '/static/css/tokens.css',
@@ -8,6 +8,9 @@ const ASSETS_TO_CACHE = [
   '/static/manifest.json',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png',
+  '/static/icons/icon-maskable-192.png',
+  '/static/icons/icon-maskable-512.png',
+  '/static/icons/apple-touch-icon.png',
   '/static/icons/discord.svg',
   '/static/icons/spotify.svg',
   '/static/icons/obs.svg',
@@ -62,8 +65,11 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       })
-      .catch(() => {
-        return caches.match(event.request);
+      .catch(async () => {
+        // Offline: the saved copy, and for a page load the saved start page, so the app still opens.
+        const saved = await caches.match(event.request);
+        if (saved) return saved;
+        return event.request.mode === 'navigate' ? caches.match('/') : Response.error();
       })
   );
 });

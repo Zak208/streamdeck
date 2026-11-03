@@ -31,7 +31,7 @@ Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollad
 
 ### 4. 🔄 Auto-Actualizador Integrado con GitHub
 - En la barra superior del PC Studio se encuentra el **cilindro indicador de estado de versión**:
-  - `🟢 v2.5.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
+  - `🟢 v2.6.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
   - `🟡 ¡Actualización en GitHub! [Actualizar 🚀]`: El sistema detecta automáticamente nuevos commits en `https://github.com/Zak208/streamdeck`.
 - Al pulsar el botón de actualizar, el sistema ejecuta `/api/system/apply-update` sincronizando el código automáticamente sin necesidad de reinstalar manualmente.
 
@@ -71,6 +71,16 @@ Si prefieres ejecutar el proyecto desde el código fuente o los scripts auxiliar
      👉 `http://localhost:48291/studio`
 
 ---
+
+## 📲 Instalar StreamDesk en el móvil como app
+
+Abre la dirección que muestra Studio (o escanea el QR) y pulsa el engranaje: **Ajustes > Instalar como app** te da los pasos exactos para tu móvil.
+
+- **iPhone (Safari):** Compartir > *Añadir a pantalla de inicio*. Funciona sin más. La app instalada guarda sus datos aparte de Safari, así que pedirá el PIN una vez.
+- **Android (Chrome):** Chrome solo ofrece *Instalar app* en webs **https**, y StreamDesk se sirve por `http` dentro de tu red. Para activarlo una vez: abre `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, pega la dirección de StreamDesk (por ejemplo `http://192.168.2.81:48291`), pon *Enabled* y pulsa *Relaunch*. Si la IP de tu PC cambia, repite el paso con la nueva (conviene fijarla en el router).
+- **Sin instalar:** menú ⋮ > *Añadir a la pantalla de inicio* crea un acceso directo, y el botón de **pantalla completa** quita las barras. En `http` Chrome no permite mantener la pantalla encendida.
+
+**Móvil en vertical u horizontal:** en vertical los botones se reorganizan en 3 columnas; en horizontal se aprovecha toda la altura. El menú de ajustes del móvil permite saltar de página, ver el estado de la conexión y vincular con otro PC.
 
 ## 🧩 Acciones al estilo Stream Deck
 
