@@ -129,6 +129,16 @@ class PageAndLockActionTests(unittest.TestCase):
         ]})
         self.assertEqual([a["action_type"] for a in macro["extra"]["actions"]], ["hotkey", "text"])
 
+    def test_a_failed_macro_step_is_reported_with_its_reason(self):
+        steps = [{"action_type": "sound", "target": "beep", "extra": {}, "delay_ms": 0},
+                 {"action_type": "sound", "target": "beep", "extra": {}, "delay_ms": 0}]
+        outcomes = [{"success": True}, {"success": False, "error": "Enlace no permitido"}]
+        with mock.patch.object(actions, "validate_action", return_value={"extra": {"actions": steps}}),              mock.patch.object(actions, "execute_single_action", side_effect=outcomes):
+            result = actions.execute_action("multi", "m", {})
+        self.assertFalse(result["success"])
+        self.assertIn("paso 2 de 2", result["error"])
+        self.assertIn("Enlace no permitido", result["error"])
+
     def test_a_page_button_cannot_run_outside_the_phone_connection(self):
         self.assertFalse(actions.execute_action("page", "next")["success"])
 

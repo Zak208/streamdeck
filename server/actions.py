@@ -272,4 +272,9 @@ def execute_action(action_type: str, target: str, extra: Dict[str, Any] | None =
         delay = child.get("delay_ms", 150) / 1000.0
         if delay:
             time.sleep(delay)
-    return {"success": all(result.get("success") for result in results), "type": "multi", "results": results}
+    outcome = {"success": all(result.get("success") for result in results), "type": "multi", "results": results}
+    if not outcome["success"]:
+        # The phone shows this text, so say which step failed and why.
+        step, failed = next((n, r) for n, r in enumerate(results, 1) if not r.get("success"))
+        outcome["error"] = f"Falló el paso {step} de {len(results)}: {failed.get('error') or 'no se pudo ejecutar'}"
+    return outcome
