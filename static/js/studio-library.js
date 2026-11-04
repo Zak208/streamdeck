@@ -36,6 +36,34 @@ function builtInLibrary() {
     ] },
     { category: "Multimedia", items: media },
     { category: "Monitores del PC", items: monitors },
+    { category: "Atajos de Windows", items: [
+      appKey("win_screenshot", "Captura de pantalla", "Win+Mayús+S", "WIN+SHIFT+S", "video"),
+      appKey("win_desktop", "Mostrar el escritorio", "Win+D", "WIN+D", "folder"),
+      appKey("win_explorer", "Abrir el Explorador", "Win+E", "WIN+E", "folder"),
+      appKey("win_tasks", "Vista de tareas", "Win+Tab", "WIN+TAB", "sliders"),
+      appKey("win_desk_next", "Escritorio virtual siguiente", "Win+Ctrl+Flecha der.", "WIN+CTRL+RIGHT", "chevron_right"),
+      appKey("win_desk_prev", "Escritorio virtual anterior", "Win+Ctrl+Flecha izq.", "WIN+CTRL+LEFT", "chevron_left"),
+      appKey("win_settings", "Ajustes de Windows", "Win+I", "WIN+I", "gear"),
+      appKey("win_switch", "Cambiar de ventana", "Alt+Tab", "ALT+TAB", "next"),
+      appKey("win_close", "Cerrar la ventana", "Alt+F4", "ALT+F4", "power"),
+    ] },
+    { category: "Edición y portapapeles", items: [
+      appKey("edit_copy", "Copiar", "Ctrl+C", "CTRL+C", "notes"),
+      appKey("edit_cut", "Cortar", "Ctrl+X", "CTRL+X", "trash"),
+      appKey("edit_paste", "Pegar", "Ctrl+V", "CTRL+V", "plus"),
+      appKey("edit_undo", "Deshacer", "Ctrl+Z", "CTRL+Z", "prev"),
+      appKey("edit_redo", "Rehacer", "Ctrl+Y", "CTRL+Y", "next"),
+      appKey("edit_all", "Seleccionar todo", "Ctrl+A", "CTRL+A", "macro"),
+      appKey("edit_save", "Guardar", "Ctrl+S", "CTRL+S", "notes"),
+      appKey("edit_find", "Buscar", "Ctrl+F", "CTRL+F", "link"),
+    ] },
+    { category: "Música y reproductores", items: [
+      appKey("mp_vol_up", "Subir volumen (ventana activa)", "Flecha arriba", "UP", "volume_up"),
+      appKey("mp_vol_down", "Bajar volumen (ventana activa)", "Flecha abajo", "DOWN", "mute"),
+      appKey("mp_seek_fwd", "Adelantar (ventana activa)", "Flecha derecha", "RIGHT", "next"),
+      appKey("mp_seek_back", "Atrasar (ventana activa)", "Flecha izquierda", "LEFT", "prev"),
+      appKey("mp_mute", "Silenciar (ventana activa)", "M", "M", "mute"),
+    ] },
     { category: "Reuniones (app a la vista)", items: [
       appKey("zoom_mute", "Zoom: micrófono", "Alt+A", "ALT+A", "mic_off"),
       appKey("zoom_video", "Zoom: cámara", "Alt+V", "ALT+V", "video"),
@@ -101,6 +129,7 @@ async function loadLibrary() {
         items: c.actions.map(a => ({
           id: `${c.id}_${a.id}`, label: a.label, sub: a.sublabel, icon: a.icon, color: a.color,
           action_type: a.action_type, target: a.target, extra: a.extra,
+          connector: c.id, configure: a.configure, confirm_default: a.confirm_default, fields: a.fields,
         })),
       }));
     // Spotify and the Discord soundboard need a choice, so they open the Connectors tab.
@@ -151,6 +180,7 @@ function renderLibrary() {
       dragSourceType = "library";
       draggedLibraryItem = item;
       event.dataTransfer.effectAllowed = "copy";
+      setDragGhost(event, "button", { label: item.label, sublabel: item.sub, image: item.icon, color: item.color });
       event.dataTransfer.setData("text/plain", item.label);
     });
     el.addEventListener("dragend", () => {
@@ -178,6 +208,7 @@ function placeLibraryItem(index, item) {
     color: item.color, action_type: item.action_type, target: item.target,
     extra: JSON.parse(JSON.stringify(item.extra || {})),
   };
+  if (item.confirm_default) slots[index].confirm = true; // e.g. console commands: ask before running
   if (item.opensTab) {
     activeInspectorTab = item.opensTab;
     if (item.openConnector) openConnectorId = item.openConnector;
@@ -201,6 +232,10 @@ function describeAction(a) {
     case "text": return `Escribe «${t.length > 28 ? t.slice(0, 28) + "…" : t}»${a.extra?.press_enter ? " y Enter" : ""}`;
     case "url": return `Abre ${t.replace(/^https?:\/\//, "")}`;
     case "folder": return `Abre la carpeta ${t}`;
+    case "command": {
+      const count = a.extra?.commands?.length || 0;
+      return `Ejecuta ${count} comando${count === 1 ? "" : "s"} de ${t === "cmd" ? "cmd" : "PowerShell"}`;
+    }
     case "page": {
       const names = { next: "la página siguiente", prev: "la página anterior", first: "la primera página" };
       return `Va a ${names[t] || `«${pages.find(p => p.id === t)?.name || "página borrada"}»`}`;
@@ -290,6 +325,8 @@ const ACTION_EDITORS = {
     el.querySelector("#url-input").addEventListener("input", (event) => { btn.target = event.target.value.trim(); commitAction(btn); });
   },
 
+  command(el, btn) { renderCommandEditor(el, btn); },
+
   folder(el, btn) {
     el.innerHTML = `
       <label for="fd-input">Carpeta del PC</label>
@@ -312,7 +349,8 @@ const ACTION_EDITORS = {
 };
 
 function renderTabAction(container, btn, index) {
-  const editor = ACTION_EDITORS[btn.action_type];
+  const fieldSpec = fieldsForButton(btn);
+  const editor = ACTION_EDITORS[btn.action_type] || (fieldSpec ? (el, b) => renderFieldsEditor(el, b, fieldSpec) : null);
   container.innerHTML = `
     <div class="action-summary">
       <span class="section-label" style="margin: 0 0 4px;">Este botón</span>
@@ -324,6 +362,157 @@ function renderTabAction(container, btn, index) {
   editor?.(container.querySelector("#action-editor"), btn, index);
   const gestures = container.querySelector("#gesture-section");
   if (gestures) renderGestureSection(gestures, btn);
+}
+
+// ---------------------------------------------------------------- console commands
+
+const COMMANDS_MAX = 8;
+
+// The opt-in switch. Commands do nothing until it is on, and it is off by default.
+function commandsSwitchHtml(suffix) {
+  return `
+    <label class="check-row"><input type="checkbox" data-commands-switch id="cmd-allow-${suffix}"> Permitir comandos de consola en este PC</label>
+    <p class="integration-hint command-warning">Un comando se ejecuta con los permisos de tu usuario de Windows, sin preguntar nada más. Cualquiera que pueda pulsar el botón (cualquier móvil emparejado) lo lanza. Actívalo solo si confías en tus móviles y en los perfiles que cargues.</p>`;
+}
+
+async function wireCommandsSwitch(root) {
+  const boxes = root.querySelectorAll("[data-commands-switch]");
+  if (!boxes.length) return;
+  try {
+    const { enabled } = await apiJson("/api/settings/commands");
+    boxes.forEach(box => { box.checked = Boolean(enabled); });
+  } catch (err) {
+    boxes.forEach(box => { box.disabled = true; });
+  }
+  boxes.forEach(box => box.addEventListener("change", async () => {
+    try {
+      const result = await postJson("/api/settings/commands", { enabled: box.checked });
+      const enabled = result.enabled ?? box.checked;
+      document.querySelectorAll("[data-commands-switch]").forEach(other => { other.checked = Boolean(enabled); });
+      showToast(enabled ? "Comandos de consola activados" : "Comandos de consola desactivados");
+    } catch (err) {
+      box.checked = !box.checked;
+      showToast(err.message);
+    }
+  }));
+}
+
+function renderCommandEditor(el, btn) {
+  btn.extra = btn.extra || {};
+  // The rows being edited. Empty rows are only kept here: the profile only ever holds filled-in commands.
+  const rows = Array.isArray(btn.extra.commands) && btn.extra.commands.length ? [...btn.extra.commands] : ["Get-Date"];
+  if (btn.target !== "cmd") btn.target = "powershell";
+
+  const sync = () => {
+    const filled = rows.map(r => r.trim()).filter(Boolean);
+    const hint = el.querySelector("#cmd-empty-hint");
+    if (hint) hint.hidden = filled.length > 0;
+    if (!filled.length) return; // keep the last valid list until there is a command to save
+    btn.extra.commands = filled;
+    commitAction(btn);
+  };
+
+  const draw = () => {
+    el.innerHTML = `
+      <label for="cmd-shell">Se ejecuta con</label>
+      <select id="cmd-shell">
+        <option value="powershell" ${btn.target === "powershell" ? "selected" : ""}>PowerShell</option>
+        <option value="cmd" ${btn.target === "cmd" ? "selected" : ""}>Símbolo del sistema (cmd)</option>
+      </select>
+      <label style="margin-top: 12px;">Comandos (en este orden)</label>
+      <div class="step-list">
+        ${rows.map((row, i) => `
+          <div class="step-row">
+            <span class="step-num">${i + 1}</span>
+            <div class="step-body"><input class="step-input command-input" data-row="${i}" value="${escapeHtml(row)}" maxlength="500" spellcheck="false" aria-label="Comando ${i + 1}" placeholder="Escribe un comando"></div>
+            <div class="step-controls">
+              <button class="icon-mini" data-up="${i}" ${i === 0 ? "disabled" : ""} title="Subir">↑</button>
+              <button class="icon-mini" data-down="${i}" ${i === rows.length - 1 ? "disabled" : ""} title="Bajar">↓</button>
+              <button class="icon-mini" data-remove="${i}" ${rows.length === 1 ? "disabled" : ""} title="Quitar">✕</button>
+            </div>
+          </div>`).join("")}
+      </div>
+      <button class="btn-secondary" id="cmd-add" ${rows.length >= COMMANDS_MAX ? "disabled" : ""}>+ Añadir otro comando</button>
+      <p class="integration-hint">Se ejecutan en este orden; si uno falla, se detiene y el móvil dice cuál. Máximo ${COMMANDS_MAX}, de hasta 500 caracteres cada uno.</p>
+      <p class="integration-hint command-warning" id="cmd-empty-hint" hidden>Escribe al menos un comando para guardar el botón.</p>
+      ${commandsSwitchHtml("action")}`;
+
+    el.querySelector("#cmd-shell").addEventListener("change", (event) => { btn.target = event.target.value; sync(); });
+    el.querySelectorAll("[data-row]").forEach(input => input.addEventListener("input", () => { rows[Number(input.dataset.row)] = input.value; sync(); }));
+    const move = (from, to) => { [rows[from], rows[to]] = [rows[to], rows[from]]; sync(); draw(); };
+    el.querySelectorAll("[data-up]").forEach(b => b.addEventListener("click", () => move(Number(b.dataset.up), Number(b.dataset.up) - 1)));
+    el.querySelectorAll("[data-down]").forEach(b => b.addEventListener("click", () => move(Number(b.dataset.down), Number(b.dataset.down) + 1)));
+    el.querySelectorAll("[data-remove]").forEach(b => b.addEventListener("click", () => { rows.splice(Number(b.dataset.remove), 1); sync(); draw(); }));
+    el.querySelector("#cmd-add").addEventListener("click", () => { if (rows.length < COMMANDS_MAX) { rows.push(""); draw(); el.querySelectorAll("[data-row]")[rows.length - 1]?.focus(); } });
+    wireCommandsSwitch(el);
+  };
+  draw();
+}
+
+// ---------------------------------------------------------------- the fields an action asks for
+
+// What the server keeps in `extra` until the user chooses (so the profile is valid meanwhile).
+const NOT_CHOSEN = "Elige";
+
+// The catalog item behind a button that needs choices (a scene, a source...), with the connector it belongs to.
+function fieldsForButton(btn) {
+  const item = libraryCategories.flatMap(c => c.items).find(i => i.fields && i.action_type === btn.action_type && i.target === btn.target);
+  return item ? { fields: item.fields, connector: item.connector } : null;
+}
+
+function renderFieldsEditor(el, btn, { fields, connector }) {
+  btn.extra = btn.extra || {};
+  const loaded = {}; // options name -> promise of its list, asked once per editor
+  const optionsOf = (name) => (loaded[name] ??= connectorApi(`/${connector}/options/${name}`).then(data => data.options));
+
+  el.innerHTML = fields.map(f => `
+      <label for="fld-${escapeHtml(f.name)}">${escapeHtml(f.label)}</label>
+      <div id="fld-box-${escapeHtml(f.name)}"></div>`).join("") + `<p class="integration-hint" id="fld-missing"></p>`;
+
+  const chosen = (name) => (btn.extra[name] && btn.extra[name] !== NOT_CHOSEN ? btn.extra[name] : "");
+  const updateMissing = () => {
+    const missing = fields.filter(f => f.required && !chosen(f.name)).map(f => f.label);
+    const line = el.querySelector("#fld-missing");
+    if (line) line.textContent = missing.length ? `Falta elegir: ${missing.join(", ")}.` : "";
+  };
+  const set = (field, value) => {
+    btn.extra[field.name] = value || NOT_CHOSEN;
+    // A choice that depends on this one (the sources of a scene) starts over.
+    fields.filter(f => f.filter_by === field.name).forEach(dep => { btn.extra[dep.name] = NOT_CHOSEN; draw(dep); });
+    commitAction(btn);
+    updateMissing();
+  };
+
+  async function draw(field) {
+    const box = el.querySelector(`#fld-box-${field.name}`);
+    if (!box) return;
+    const current = chosen(field.name);
+    const asText = (reason) => {
+      box.innerHTML = `<input type="text" id="fld-${escapeHtml(field.name)}" maxlength="80" value="${escapeHtml(current)}" placeholder="Escríbelo aquí">
+        ${reason ? `<p class="integration-hint">${escapeHtml(reason)}</p>` : ""}`;
+      box.querySelector("input").addEventListener("input", (event) => set(field, event.target.value.trim()));
+    };
+    if (!field.options) return asText("");
+    box.innerHTML = `<select disabled><option>Cargando...</option></select>`;
+    try {
+      let options = await optionsOf(field.options);
+      if (field.filter_by) {
+        const parent = chosen(field.filter_by);
+        options = parent ? options.filter(o => o.scene === parent) : [];
+      }
+      const names = [...new Set(options.map(o => o.name))];
+      if (current && !names.includes(current)) names.unshift(current); // keep a choice OBS no longer lists
+      box.innerHTML = `<select id="fld-${escapeHtml(field.name)}">
+        <option value="">${field.filter_by && !chosen(field.filter_by) ? "Elige antes la opción anterior" : "Elige..."}</option>
+        ${names.map(n => `<option value="${escapeHtml(n)}" ${n === current ? "selected" : ""}>${escapeHtml(n)}</option>`).join("")}
+      </select>`;
+      box.querySelector("select").addEventListener("change", (event) => set(field, event.target.value));
+    } catch (err) {
+      asText(`No se pudo leer la lista (${err.message}). Escríbelo a mano.`);
+    }
+  }
+  fields.forEach(draw);
+  updateMissing();
 }
 
 // ---------------------------------------------------------------- long press, double tap, confirm, off

@@ -8,8 +8,8 @@
     // Apply the saved theme before first paint so the window does not flash the wrong colours.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.12.0">
-  <link rel="stylesheet" href="/static/css/studio.css?v=2.12.0">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.13.0">
+  <link rel="stylesheet" href="/static/css/studio.css?v=2.13.0">
 </head>
 <body>
 
@@ -119,6 +119,7 @@
       <div class="preview-container">
         <div class="phone-mockup">
           <div class="preview-label">Así se verá en tu móvil</div>
+          <div class="drag-delete-hint" id="drag-delete-hint" aria-hidden="true">Suelta fuera de la cuadrícula para eliminar</div>
           <div class="phone-screen-wrapper">
             <div class="phone-status-bar">
               <span>StreamDesk</span>
@@ -150,9 +151,9 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/monitors.js?v=2.12.0"></script>
-  <script src="/static/js/studio.js?v=2.12.0"></script>
-  <script src="/static/js/studio-library.js?v=2.12.0"></script>
-  <script src="/static/js/studio-ui.js?v=2.12.0"></script>
+  <script src="/static/js/monitors.js?v=2.13.0"></script>
+  <script src="/static/js/studio.js?v=2.13.0"></script>
+  <script src="/static/js/studio-library.js?v=2.13.0"></script>
+  <script src="/static/js/studio-ui.js?v=2.13.0"></script>
 </body>
 </html>

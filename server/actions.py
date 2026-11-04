@@ -14,7 +14,7 @@ from server.action_catalog import (
     validate_action,
     validate_hotkey,
 )
-from server import discord_ui
+from server import discord_ui, shell_actions
 from server.connectors import spotify, windows
 from server.system_scanner import system_scanner
 
@@ -232,6 +232,9 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
                 return {"success": False, "error": "Enlace no permitido"}
             webbrowser.open(target)
             return {"success": True, "action": action_type, "target": target}
+
+        if action_type == "command":
+            return shell_actions.run(target, extra["commands"])
 
         if action_type == "folder":
             if not os.path.isdir(target):

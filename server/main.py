@@ -11,6 +11,7 @@ import subprocess
 import time
 import urllib.request
 import mimetypes
+import re
 from urllib.parse import urlparse
 from contextlib import asynccontextmanager
 from typing import Set, Dict, Any, List, Optional
@@ -47,7 +48,7 @@ from server.audio_controller import audio_controller
 from server.com_worker import com_worker
 from server.actions import execute_action
 from server.auth import auth_manager
-from server import diagnostics, discord_ui, firewall, layouts, templates
+from server import diagnostics, discord_ui, firewall, layouts, shell_actions, templates, updater
 from server.action_catalog import GESTURES, validate_deck_config
 from server.config_manager import CONFIG_FILE, config_manager
 from server.connectors import spotify, windows
@@ -305,12 +306,15 @@ def _is_loopback(host: str) -> bool:
 LOCAL_HOST_NAMES = {"localhost", "127.0.0.1", "::1"}
 
 
+LOCAL_HOST_HEADER = re.compile(r"(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?", re.ASCII)
+
+
 def _host_name(header: str) -> str:
-    """The host part of a Host header, without the port ("localhost:48291" -> "localhost", "[::1]:48291" -> "::1")."""
+    """The name in a Host header ("localhost:48291" -> "localhost", "[::1]:48291" -> "::1"), or "" when the
+    header is not exactly a local name with an optional numeric port (so "localhost:1.evil.com" is not local)."""
     header = (header or "").strip().lower()
-    if header.startswith("["):
-        return header[1:].split("]", 1)[0]
-    return header.rsplit(":", 1)[0] if header.count(":") == 1 else header
+    match = LOCAL_HOST_HEADER.fullmatch(header)
+    return match.group(1).strip("[]") if match else ""
 
 
 def _local_browser_request(headers, client_host: str) -> bool:
@@ -322,6 +326,8 @@ def _local_browser_request(headers, client_host: str) -> bool:
     """
     if not _is_loopback(client_host) or _host_name(headers.get("host", "")) not in LOCAL_HOST_NAMES:
         return False
+    if headers.get("sec-fetch-site", "").lower() == "cross-site":
+        return False  # the browser itself says another site started this request
     origin = headers.get("origin")
     return not origin or urlparse(origin).netloc.lower() == headers.get("host", "").strip().lower()
 
@@ -405,7 +411,7 @@ async def check_token(token: str = Query(default=None), _: None = Depends(requir
     authorized = auth_manager.is_token_authorized(token)
     return {"authorized": authorized, "valid": authorized}
 
-THEMES = ("ctma", "cian")
+THEMES = ("ctma", "cian", "violeta", "verde", "rojo", "rosa", "naranja")
 
 
 def current_theme() -> str:
@@ -485,20 +491,24 @@ def _grid() -> tuple:
 @app.get("/api/layouts")
 def list_layouts(_: None = Depends(require_local_request)):
     current = config_manager.get_config().get("layout") or layouts.layout_dict(layouts.DEFAULT_LAYOUT)
+    presets = [{"id": name, **layouts.layout_dict(name)} for name in layouts.LAYOUTS]
     return {
         "current": layouts.layout_name(current["rows"], current["columns"]),
-        "layouts": [{"id": name, **layouts.layout_dict(name)} for name in layouts.LAYOUTS],
+        "layout": current,
+        "presets": presets,
+        "layouts": presets,
+        "limits": layouts.LIMITS,
     }
 
 
 @app.post("/api/layout")
 async def set_layout(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
-    """Change the grid size. Every page is converted; the old profile is kept as a backup first."""
-    name = str(values.get("layout", ""))
-    if name not in layouts.LAYOUTS:
-        raise HTTPException(status_code=422, detail="Esa cuadrícula no está disponible")
+    """Change the grid size (a quick pick, "<columns>x<rows>" or columns and rows).
+
+    Every page is converted; the old profile is kept as a backup first."""
+    spec = values.get("layout") if "layout" in values else values
     try:
-        converted, dropped = layouts.convert_config(config_manager.get_config(), name)
+        converted, dropped = layouts.convert_config(config_manager.get_config(), spec)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     if converted["layout"] != config_manager.get_config().get("layout"):
@@ -507,6 +517,22 @@ async def set_layout(values: Dict[str, Any] = Body(...), _: None = Depends(requi
         raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo cambiar la cuadrícula")
     await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
     return {"success": True, "config": config_manager.get_config(), "dropped": dropped}
+
+
+@app.get("/api/settings/commands")
+def get_command_settings(_: None = Depends(require_local_request)):
+    return {"enabled": shell_actions.enabled()}
+
+
+@app.post("/api/settings/commands")
+async def set_command_settings(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    """Switch console commands (PowerShell and cmd buttons) on or off. They are off until the user turns them on here."""
+    enabled = values.get("enabled")
+    if not isinstance(enabled, bool):
+        raise HTTPException(status_code=422, detail="«enabled» debe ser verdadero o falso")
+    shell_actions.set_enabled(enabled)
+    diagnostics.record("info", "Comandos de consola " + ("activados" if enabled else "desactivados") + " desde Studio")
+    return {"enabled": shell_actions.enabled()}
 
 
 @app.get("/api/templates")
@@ -803,7 +829,14 @@ def _is_git_checkout() -> bool:
 
 @app.get("/api/system/check-update")
 def check_github_update(_: None = Depends(require_local_request)):
-    """Compares this checkout with the latest commit on GitHub."""
+    """The installed app compares itself with the latest GitHub release; a git checkout, with the latest commit."""
+    if FROZEN:
+        try:
+            info = updater.updater.release_info(VERSION)
+        except Exception as exc:
+            return {"current_version": VERSION, "update_available": False, "can_update": True, "mode": "release",
+                    "status": "offline", "info": str(exc)}
+        return {**info, "can_update": True, "mode": "release", "commit_message": f"v{info['latest_version']}"}
     status_info: Dict[str, Any] = {"current_version": VERSION, "update_available": False, "can_update": _is_git_checkout()}
     if not status_info["can_update"]:
         # An installed build has no git history, so there is nothing to pull.
@@ -834,7 +867,10 @@ def check_github_update(_: None = Depends(require_local_request)):
 
 @app.post("/api/system/apply-update")
 def apply_github_update(_: None = Depends(require_local_request)):
-    """Fast-forwards this checkout to the latest commit on GitHub."""
+    """The installed app downloads and runs the new installer; a git checkout fast-forwards to the latest commit."""
+    if FROZEN:
+        started = updater.updater.start(VERSION)
+        return {"success": True, "started": started, "mode": "release"}
     if not _is_git_checkout():
         return {
             "success": False,
@@ -845,6 +881,12 @@ def apply_github_update(_: None = Depends(require_local_request)):
         return {"success": res.returncode == 0, "output": res.stdout + res.stderr}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system/update-status")
+def update_status(_: None = Depends(require_local_request)):
+    """Progress of an update that is downloading or installing (installed app only)."""
+    return updater.updater.status()
+
 
 # --- WebSocket Channel ---
 

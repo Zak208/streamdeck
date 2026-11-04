@@ -37,17 +37,17 @@ let liveAudio = { master: null };
 let liveTelemetry = null;
 let studioSocket = null;
 
-// Curated 8 Vibrant Color Swatches for instant styling
-const COLOR_SWATCHES = [
-  "#0ea5e9", // Electric Blue
-  "#06b6d4", // Cyan
-  "#a855f7", // Neon Purple
-  "#10b981", // Emerald Green
-  "#f59e0b", // Amber / Gold
-  "#ef4444", // Crimson Red
-  "#f43f5e", // Rose Pink
-  "#64748b"  // Slate Dark
+// Button colours for instant styling, grouped by hue. All of them read well on the dark keycaps.
+const COLOR_GROUPS = [
+  ["Corporativos", ["#f8c700", "#ffd633", "#ffffff", "#c4c4c4", "#8c8c8c", "#555555"]],
+  ["Rojos y rosas", ["#ef4444", "#dc2626", "#f43f5e", "#fb7185", "#ec4899", "#f472b6"]],
+  ["Naranjas y amarillos", ["#f97316", "#fb923c", "#f59e0b", "#fbbf24", "#eab308", "#facc15"]],
+  ["Verdes", ["#10b981", "#22c55e", "#4ade80", "#84cc16", "#14b8a6", "#1db954"]],
+  ["Azules", ["#0ea5e9", "#38bdf8", "#06b6d4", "#3b82f6", "#6366f1", "#5865f2"]],
+  ["Violetas", ["#a855f7", "#8b5cf6", "#a78bfa", "#d946ef", "#c084fc", "#7c3aed"]],
+  ["Neutros fríos", ["#64748b", "#94a3b8", "#78716c", "#a8a29e", "#302e31", "#171a21"]],
 ];
+const COLOR_SWATCHES = COLOR_GROUPS.flatMap(([, colours]) => colours);
 
 // Clean Vector SVG Library (30 Available Icons)
 const SVG_ICONS = [
@@ -126,19 +126,27 @@ document.getElementById("btn-refresh-pin")?.addEventListener("click", () => {
   regenerateAuthPin();
 });
 
-// Check GitHub Updates
+// Check GitHub Updates. The installed app looks at the project's releases ("release" mode); a source checkout
+// looks at the latest commit. Both end in the same button.
+let updateMode = "";
 async function checkGitHubUpdates() {
   try {
     const res = await fetch("/api/system/check-update");
     const data = await res.json();
+    updateMode = data.mode || "";
     if (data.update_available) {
       updateCylinder.className = "update-cylinder update-ready";
-      updateStatusText.textContent = `Hay una versión nueva: ${data.commit_message || "actualización disponible"}`;
+      updateStatusText.textContent = data.mode === "release"
+        ? `Hay una versión nueva: v${data.latest_version} (tienes la v${data.current_version})`
+        : `Hay una versión nueva: ${data.commit_message || "actualización disponible"}`;
+      updateStatusText.title = data.notes || "";
+      btnApplyUpdate.textContent = "Actualizar";
       btnApplyUpdate.style.display = "inline-block";
     } else {
       updateCylinder.className = "update-cylinder";
       const suffix = data.status === "offline" ? "sin conexión" : (data.can_update === false ? "" : "al día");
       updateStatusText.textContent = `v${data.current_version || ""}${suffix ? ` · ${suffix}` : ""}`;
+      updateStatusText.title = "";
       btnApplyUpdate.style.display = "none";
     }
   } catch (e) {
@@ -146,11 +154,44 @@ async function checkGitHubUpdates() {
   }
 }
 
+// Follows the download and the installation of a new version until the app closes itself or it fails.
+async function followReleaseUpdate() {
+  for (;;) {
+    await new Promise(resolve => setTimeout(resolve, 700));
+    let status;
+    try {
+      status = await (await fetch("/api/system/update-status")).json();
+    } catch (err) {
+      updateStatusText.textContent = "Instalando: StreamDesk se está reiniciando...";
+      return; // the server went away because the installer closed the app
+    }
+    if (status.state === "downloading") {
+      updateStatusText.textContent = `Descargando la nueva versión ${Math.round((status.progress || 0) * 100)} %`;
+    } else if (status.state === "verifying" || status.state === "installing") {
+      updateStatusText.textContent = status.message;
+    } else if (status.state === "error") {
+      updateStatusText.textContent = "No se pudo actualizar";
+      btnApplyUpdate.disabled = false;
+      showToast(status.message || "No se pudo actualizar");
+      return;
+    } else {
+      return;
+    }
+  }
+}
+
 btnApplyUpdate?.addEventListener("click", async () => {
-  updateStatusText.textContent = "Actualizando desde GitHub...";
+  btnApplyUpdate.disabled = true;
+  updateStatusText.textContent = updateMode === "release" ? "Preparando la actualización..." : "Actualizando desde GitHub...";
   try {
     const res = await fetch("/api/system/apply-update", { method: "POST" });
     const data = await res.json();
+    if (data.mode === "release") {
+      if (data.started === false) showToast("Ya se está actualizando");
+      await followReleaseUpdate();
+      return;
+    }
+    btnApplyUpdate.disabled = false;
     if (data.success) {
       showToast("¡Actualizado con éxito desde GitHub! Reiniciando...");
       setTimeout(() => window.location.reload(), 1500);
@@ -158,9 +199,13 @@ btnApplyUpdate?.addEventListener("click", async () => {
       showToast("Aviso: " + (data.output || "Error al actualizar"));
     }
   } catch (err) {
+    btnApplyUpdate.disabled = false;
     showToast("Error de conexión al actualizar");
   }
 });
+
+// Look again every few hours while Studio stays open, so a release published later still shows up.
+setInterval(checkGitHubUpdates, 6 * 60 * 60 * 1000);
 
 // Load System Apps
 async function loadSystemApps() {
@@ -327,6 +372,9 @@ function renderPhoneScreen() {
 
   phoneScreen.style.setProperty("--cols", gridCols());
   phoneScreen.style.setProperty("--rows", gridRows());
+  // Many columns or rows: smaller cells, and a wider preview so the buttons stay readable.
+  phoneScreen.classList.toggle("is-dense", gridCols() > 6 || gridRows() > 3);
+  phoneScreen.closest(".phone-mockup")?.classList.toggle("is-wide", gridCols() > 6);
   for (let i = 0; i < gridTotal(); i++) {
     const slot = currentSlots[i] || { index: i, type: "empty" };
     const col = (i % gridCols()) + 1;
@@ -373,8 +421,9 @@ function renderPhoneScreen() {
     });
 
     cell.addEventListener("drop", (e) => {
-      e.preventDefault();
+      e.preventDefault(); // also for a file or text from elsewhere, so the browser does not open it
       clearAllDragHighlights();
+      if (!dragSourceType) return; // not one of our own drags
       handleDropOnSlot(i);
     });
 
@@ -482,6 +531,136 @@ function isDraggingFader() {
   return false;
 }
 
+// ---- Dragging: what the drag looks like, and dropping a slot outside the grid to delete it ----
+
+let slotDragHandled = false;   // a drop on a cell or the trash already dealt with this drag
+let slotDragCancelled = false; // Escape was pressed during the drag
+window.addEventListener("keydown", (e) => { if (e.key === "Escape" && dragSourceType) slotDragCancelled = true; }, true);
+
+// The drag image is a copy of the real control: a keycap or a tall fader, with its icon, name and colour.
+function setDragGhost(event, kind, data, size) {
+  if (!event.dataTransfer?.setDragImage) return;
+  const width = size?.width || (kind === "fader" ? 92 : 116);
+  const height = size?.height || (kind === "fader" ? 232 : 116);
+  const ghost = document.createElement("div");
+  ghost.className = "drag-ghost";
+  ghost.style.width = `${width}px`;
+  ghost.style.height = `${height}px`;
+  const colour = escapeHtml(data.color || "#f8c700");
+  const icon = escapeHtml(data.image || data.icon || (kind === "fader" ? "/static/icons/volume_up.svg" : "/static/icons/power.svg"));
+  ghost.innerHTML = kind === "fader" ? `
+    <div class="slot-fader">
+      <div class="slot-fader-head"><img src="${icon}" alt=""><span>${escapeHtml(data.label || "Volumen")}</span></div>
+      <div class="slot-fader-track"><div class="slot-fader-fill" style="height: 60%; background: ${colour};"></div></div>
+      <div class="slot-fader-val">60%</div>
+    </div>` : `
+    <div class="slot-keycap">
+      <div class="slot-keycap-inner">
+        <div class="slot-accent" style="background: ${colour};"></div>
+        <img src="${icon}" class="slot-keycap-img" alt="">
+        <div class="slot-keycap-title">${escapeHtml(data.label || "Botón")}</div>
+        <div class="slot-keycap-sub">${escapeHtml(data.sublabel || data.sub || "")}</div>
+      </div>
+    </div>`;
+  document.body.appendChild(ghost);
+  event.dataTransfer.setDragImage(ghost, width / 2, height / 2);
+  setTimeout(() => ghost.remove(), 0); // the browser has taken its snapshot by then
+}
+
+function startSlotDrag(event, index, wrap, kind, data) {
+  dragSourceType = "slot";
+  draggedSlotIndex = index;
+  slotDragHandled = false;
+  slotDragCancelled = false;
+  event.dataTransfer.effectAllowed = "move";
+  const box = wrap.getBoundingClientRect();
+  setDragGhost(event, kind, data, { width: box.width, height: box.height });
+  wrap.classList.add("dragging");
+  document.getElementById(`cell_slot_${index}`)?.classList.add("is-source-dragging");
+  document.body.classList.add("is-dragging-slot"); // shows the "drop outside to delete" hint
+}
+
+function finishSlotDrag(event, index, wrap) {
+  wrap.classList.remove("dragging");
+  document.getElementById(`cell_slot_${index}`)?.classList.remove("is-source-dragging");
+  document.body.classList.remove("is-dragging-slot");
+  const handled = slotDragHandled, cancelled = slotDragCancelled;
+  slotDragHandled = false;
+  slotDragCancelled = false;
+  // Nothing of this drag may outlive it: a later drop of text or a file must not find a stale slot to move.
+  dragSourceType = null;
+  draggedSlotIndex = null;
+  clearAllDragHighlights();
+  // A drop on a cell or on the trash already ran. Anywhere else the browser reports dropEffect "none":
+  // that deletes the slot, unless Escape cancelled the drag or it was released outside the window.
+  if (handled || cancelled || event.dataTransfer?.dropEffect !== "none") return;
+  const { clientX: x, clientY: y } = event;
+  if ((x === 0 && y === 0) || x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return;
+  // The gaps between cells and the frame's padding are not "outside": there it is just a drop that missed.
+  const frame = document.querySelector(".phone-screen-wrapper")?.getBoundingClientRect();
+  const margin = 16;
+  if (frame && x >= frame.left - margin && x <= frame.right + margin && y >= frame.top - margin && y <= frame.bottom + margin) return;
+  deleteSlotByDrag(index);
+}
+
+// What was removed last (a button, or a fader with the cell under it), so Ctrl+Z can bring it back.
+let lastDeleted = null;
+
+function rememberDeleted(pageIndex, slots, indices) {
+  lastDeleted = { page: pageIndex, cells: indices.map(index => ({ index, slot: JSON.parse(JSON.stringify(slots[index])) })) };
+}
+
+function undoLastDelete() {
+  if (!lastDeleted || !config?.pages?.[lastDeleted.page]) return false;
+  const { page, cells } = lastDeleted;
+  const slots = config.pages[page].slots;
+  // Only into cells that are still empty: undoing must never overwrite what was put there since.
+  if (cells.some(({ index }) => slots[index] && slots[index].type !== "empty")) {
+    showToast("No se puede deshacer: esa casilla ya tiene otra cosa");
+    lastDeleted = null;
+    return true;
+  }
+  if (page !== activePageIndex) switchPage(page);
+  cells.forEach(({ index, slot }) => { slots[index] = slot; });
+  lastDeleted = null;
+  renderPhoneScreen();
+  selectSlot(cells[0].index);
+  saveConfigToServer();
+  showToast("Deshecho: casilla recuperada");
+  return true;
+}
+
+// Ctrl+Z brings back the last deleted button or fader, except while typing in a field.
+window.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.key.toLowerCase() !== "z") return;
+  const el = document.activeElement;
+  if (el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable)) return;
+  if (lastDeleted) {
+    e.preventDefault();
+    undoLastDelete();
+  }
+});
+
+function deleteSlotByDrag(index) {
+  const slots = config?.pages?.[activePageIndex]?.slots;
+  const slot = slots?.[index];
+  if (!slot || slot.type === "empty" || slot.type === "occupied_by_slider") return;
+  const name = slot.label || (slot.type === "slider" ? "Fader" : "Botón");
+  if (slot.type === "slider") {
+    const col = index % gridCols();
+    rememberDeleted(activePageIndex, slots, [col, col + gridCols()]);
+    clearColumn(slots, col);
+  } else {
+    rememberDeleted(activePageIndex, slots, [index]);
+    slots[index] = { index, type: "empty" };
+  }
+  selectedSlotIndex = null;
+  renderPhoneScreen();
+  resetInspectorDrawer();
+  saveConfigToServer();
+  showToast(`Eliminado: ${name} (Ctrl+Z para deshacer)`);
+}
+
 function clearAllDragHighlights() {
   document.querySelectorAll(".slot-cell").forEach(cell => {
     cell.classList.remove("drag-over", "drag-over-fader-top", "drag-over-fader-bottom");
@@ -528,11 +707,13 @@ function emptySlotByIndex(idx) {
   if (!slot || slot.type === "empty") return;
 
   if (slot.type === "slider" || slot.type === "occupied_by_slider" || inFaderColumn(currentSlots, idx)) {
+    rememberDeleted(activePageIndex, currentSlots, [col, col + gridCols()]);
     clearColumn(currentSlots, col);
-    showToast(`Columna #${col + 1} vaciada`);
+    showToast(`Columna #${col + 1} vaciada (Ctrl+Z para deshacer)`);
   } else {
+    rememberDeleted(activePageIndex, currentSlots, [idx]);
     currentSlots[idx] = { index: idx, type: "empty" };
-    showToast(`Casilla #${idx + 1} vaciada`);
+    showToast(`Casilla #${idx + 1} vaciada (Ctrl+Z para deshacer)`);
   }
   renderPhoneScreen();
   selectSlot(idx);
@@ -584,21 +765,8 @@ function createStudioButtonKeycap(btn, index) {
   wrap.className = "slot-keycap";
   wrap.draggable = true;
 
-  wrap.addEventListener("dragstart", (e) => {
-    dragSourceType = "slot";
-    draggedSlotIndex = index;
-    e.dataTransfer.effectAllowed = "move";
-    wrap.classList.add("dragging");
-    const cell = document.getElementById(`cell_slot_${index}`);
-    if (cell) cell.classList.add("is-source-dragging");
-  });
-
-  wrap.addEventListener("dragend", () => {
-    wrap.classList.remove("dragging");
-    const cell = document.getElementById(`cell_slot_${index}`);
-    if (cell) cell.classList.remove("is-source-dragging");
-    clearAllDragHighlights();
-  });
+  wrap.addEventListener("dragstart", (e) => startSlotDrag(e, index, wrap, "button", btn));
+  wrap.addEventListener("dragend", (e) => finishSlotDrag(e, index, wrap));
 
   if (btn.action_type === "hardware_monitor") {
     wrap.innerHTML = `
@@ -631,21 +799,8 @@ function createStudioFaderCard(slider, index) {
   wrap.className = "slot-fader";
   wrap.draggable = true;
 
-  wrap.addEventListener("dragstart", (e) => {
-    dragSourceType = "slot";
-    draggedSlotIndex = index;
-    e.dataTransfer.effectAllowed = "move";
-    wrap.classList.add("dragging");
-    const cell = document.getElementById(`cell_slot_${index}`);
-    if (cell) cell.classList.add("is-source-dragging");
-  });
-
-  wrap.addEventListener("dragend", () => {
-    wrap.classList.remove("dragging");
-    const cell = document.getElementById(`cell_slot_${index}`);
-    if (cell) cell.classList.remove("is-source-dragging");
-    clearAllDragHighlights();
-  });
+  wrap.addEventListener("dragstart", (e) => startSlotDrag(e, index, wrap, "fader", slider));
+  wrap.addEventListener("dragend", (e) => finishSlotDrag(e, index, wrap));
 
   wrap.dataset.sliderType = isMaster ? "master" : "app";
   wrap.dataset.targetApp = slider.target_app || "";
@@ -668,6 +823,7 @@ function createStudioFaderCard(slider, index) {
 
 // Drag & Drop Handling on Slots
 function handleDropOnSlot(targetIndex) {
+  slotDragHandled = true; // a drop on a cell is a move, never a delete
   clearAllDragHighlights();
   const col = targetIndex % gridCols();
   const topSlot = col;
@@ -817,6 +973,7 @@ function setupTrashDropZone() {
   trashZone.addEventListener("drop", (e) => {
     e.preventDefault();
     trashZone.classList.remove("trash-drag-over");
+    slotDragHandled = true;
     if (dragSourceType === "slot" && draggedSlotIndex !== null) {
       emptySlotByIndex(draggedSlotIndex);
       dragSourceType = null;
@@ -839,10 +996,12 @@ if (paletteNewBtn) {
   paletteNewBtn.addEventListener("dragstart", (e) => {
     dragSourceType = "palette_btn";
     e.dataTransfer.effectAllowed = "copy";
+    setDragGhost(e, "button", { label: "Nueva Acción", sublabel: "App / Media", image: "/static/icons/discord.svg", color: "#5865f2" });
     paletteNewBtn.classList.add("is-dragging");
   });
   paletteNewBtn.addEventListener("dragend", () => {
     paletteNewBtn.classList.remove("is-dragging");
+    dragSourceType = null;
     clearAllDragHighlights();
   });
 }
@@ -852,10 +1011,12 @@ if (paletteNewSlider) {
   paletteNewSlider.addEventListener("dragstart", (e) => {
     dragSourceType = "palette_slider";
     e.dataTransfer.effectAllowed = "copy";
+    setDragGhost(e, "fader", { label: "Volumen", image: "/static/icons/volume_up.svg", color: "#0ea5e9" });
     paletteNewSlider.classList.add("is-dragging");
   });
   paletteNewSlider.addEventListener("dragend", () => {
     paletteNewSlider.classList.remove("is-dragging");
+    dragSourceType = null;
     clearAllDragHighlights();
   });
 }
@@ -1004,6 +1165,14 @@ const INSPECTOR_TABS = [
   ["design", "Aspecto"],
 ];
 
+// One line under the tabs, so it is clear what each one is for.
+const INSPECTOR_TAB_HINTS = {
+  apps: "Apps: el botón solo abre el programa que elijas.",
+  integrations: "Conectores: acciones dentro de un programa (silenciar, escenas, sonidos...). Si el botón abre una app, solo se ven las de esa app.",
+  action: "Acción: los ajustes de lo que hace este botón y sus gestos.",
+  design: "Aspecto: título, color e icono.",
+};
+
 function renderButtonInspector(btn, index) {
   const currentSlots = config.pages[activePageIndex].slots;
   if (!INSPECTOR_TABS.some(([id]) => id === activeInspectorTab)) {
@@ -1026,6 +1195,8 @@ function renderButtonInspector(btn, index) {
     <div class="inspector-tabs" role="tablist">
       ${INSPECTOR_TABS.map(([id, name]) => `<button class="inspector-tab-btn ${activeInspectorTab === id ? 'active' : ''}" role="tab" data-tab="${id}">${name}</button>`).join("")}
     </div>
+
+    <p class="tab-hint" id="inspector-tab-hint">${escapeHtml(INSPECTOR_TAB_HINTS[activeInspectorTab] || "")}</p>
 
     <div id="inspector-tab-content"></div>
 
@@ -1143,7 +1314,9 @@ function assignFromTemplate(btn, index, template, overrides = {}) {
   btn.color = t.color;
   btn.action_type = t.action_type;
   btn.target = t.target;
-  btn.extra = t.extra || {};
+  btn.extra = JSON.parse(JSON.stringify(t.extra || {}));
+  if (t.confirm_default) btn.confirm = true; // e.g. console commands: ask before running
+  if (t.configure) activeInspectorTab = "action"; // it asks for choices (a scene, a source, commands...)
   renderPhoneScreen();
   renderButtonInspector(btn, index);
   saveConfigToServer();
@@ -1353,18 +1526,30 @@ function renderDiscordSounds(area, ctx) {
     <label for="dc-guild">Sonidos de este servidor</label>
     <select id="dc-guild">${sections.map(name => `<option value="${escapeHtml(name)}" ${name === current ? "selected" : ""}>${escapeHtml(name)}${name === current ? " (donde estás)" : ""}</option>`).join("")}</select>
     <div class="option-list" id="dc-sounds"></div>
-    <button class="btn-primary" id="dc-make-page" disabled></button>
-    <p class="integration-hint">Marca los sonidos que quieras de este servidor (hasta ${gridTotal()}) y crea su página: se abrirá sola en el móvil cuando entres a un canal de voz de ese servidor.</p>`;
+    <div class="dc-multi" id="dc-multi">
+      <button class="btn-primary" id="dc-make-page" disabled></button>
+      <button class="btn-secondary" id="dc-fill-cells" hidden></button>
+      <button class="btn-secondary" id="dc-one-button" hidden></button>
+    </div>
+    <p class="integration-hint">Marca los sonidos que quieras de este servidor (hasta ${gridTotal()}). Con varios marcados puedes crear una página que se abre sola cuando entras a un canal de voz de ese servidor, repartirlos en casillas libres desde la que has elegido, o juntarlos en un solo botón que los reproduce en orden.</p>`;
   const select = area.querySelector("#dc-guild");
   const list = area.querySelector("#dc-sounds");
   const makePage = area.querySelector("#dc-make-page");
+  const fillCells = area.querySelector("#dc-fill-cells");
+  const oneButton = area.querySelector("#dc-one-button");
   const picked = new Map(sections.map(name => [name, new Set()]));
   let shown = [];
 
   const updateMakePage = () => {
     const count = picked.get(select.value).size;
     makePage.disabled = count === 0;
-    makePage.textContent = count ? `Crear página de «${select.value}» con ${count} sonido${count === 1 ? "" : "s"}` : "Marca sonidos para crear la página";
+    makePage.textContent = count === 0 ? "Marca sonidos para crear la página"
+      : count === 1 ? `Crear página de «${select.value}» con 1 sonido`
+      : `Crear página con estos sonidos (${count})`;
+    // Placing them elsewhere only makes sense with more than one: with a single sound use its «Asignar».
+    fillCells.hidden = oneButton.hidden = count < 2;
+    fillCells.textContent = "Poner en casillas libres desde la elegida";
+    oneButton.textContent = "Un solo botón con todos en orden";
   };
   const showSection = () => {
     shown = discordSounds.filter(s => s.section === select.value);
@@ -1411,6 +1596,49 @@ function renderDiscordSounds(area, ctx) {
   };
   makePage.addEventListener("click", () => createPage(false));
   const actionOf = (sound) => ({ action_type: "discord_sound", target: sound.label, extra: { section: sound.section } });
+  const pickedSounds = () => {
+    const labels = picked.get(select.value);
+    return discordSounds.filter(s => s.section === select.value && labels.has(s.label));
+  };
+
+  // Each ticked sound becomes its own button, in order, from the chosen cell on. Filled cells and cells under a fader are skipped.
+  fillCells.addEventListener("click", () => {
+    const sounds = pickedSounds();
+    const slots = config.pages[activePageIndex].slots;
+    let placed = 0;
+    for (let i = ctx.index; i < gridTotal() && placed < sounds.length; i++) {
+      const slot = slots[i];
+      const free = i === ctx.index || slot?.type === "empty";
+      if (!free || inFaderColumn(slots, i)) continue;
+      const sound = sounds[placed];
+      slots[i] = {
+        index: i, type: "button", id: `btn_${Date.now()}_${placed}`,
+        label: sound.name.slice(0, 32), sublabel: sound.section.slice(0, 36), icon: "", image: "/static/icons/soundboard.svg",
+        color: "#5865f2", ...actionOf(sound),
+      };
+      placed++;
+    }
+    const left = sounds.length - placed;
+    renderPhoneScreen();
+    selectSlot(ctx.index);
+    saveConfigToServer();
+    showToast(left ? `${placed} sonidos puestos. ${left} no cabían en las casillas libres que quedan` : `${placed} sonidos puestos en casillas libres`);
+  });
+
+  // One button that plays them one after another (a multi-action of at most 8 steps).
+  oneButton.addEventListener("click", () => {
+    const sounds = pickedSounds();
+    const steps = sounds.slice(0, 8);
+    assignFromTemplate(ctx.btn, ctx.index, {
+      label: `${steps.length} sonidos`, sublabel: select.value, icon: "/static/icons/soundboard.svg", color: "#5865f2",
+      action_type: "multi", target: "macro",
+      extra: { actions: steps.map(sound => ({ ...actionOf(sound), delay_ms: 1500 })) },
+    });
+    // After the assignment: it shows its own toast, which would hide this one.
+    showToast(sounds.length > 8
+      ? `Una multiacción admite 8 pasos: se usan los 8 primeros de los ${sounds.length} que marcaste`
+      : `Botón con ${steps.length} sonidos en orden, 1,5 s entre uno y otro`);
+  });
   list.addEventListener("click", (event) => {
     const button = event.target.closest("button");
     if (!button) return;
@@ -1482,16 +1710,38 @@ function connectorBodyDiscord(c, body, ctx) {
 
 const CONNECTOR_BODIES = { windows: connectorBodyWindows, obs: connectorBodyObs, spotify: connectorBodySpotify, discord: connectorBodyDiscord };
 
+// Which connector belongs to a button. An app launcher belongs to the connector of that app (or to none).
+// A button that already runs an action of a connector belongs to it. Anything else belongs to no one.
+const APP_CONNECTORS = { discord: "discord", spotify: "spotify", obs: "obs", obs64: "obs", obs32: "obs" };
+const ACTION_CONNECTORS = { obs_action: "obs", discord_hotkey: "discord", discord_sound: "discord", spotify_uri: "spotify", windows: "windows", command: "windows" };
+
+function connectorScope(btn) {
+  if (btn.action_type === "preset_app" || btn.action_type === "launch") {
+    return { connector: APP_CONNECTORS[String(btn.target || "").toLowerCase()] || null, app: String(btn.label || btn.target || "esta aplicación") };
+  }
+  if (ACTION_CONNECTORS[btn.action_type]) return { connector: ACTION_CONNECTORS[btn.action_type], app: null };
+  return null; // an empty or generic button: every connector
+}
+
 function renderTabConnectors(container, btn, index) {
   const ctx = { btn, index, refresh: null };
+  const scope = connectorScope(btn);
+  let showAll = !scope;
+  if (scope?.connector) openConnectorId = scope.connector;
 
-  const draw = (connectors) => {
+  const draw = (allConnectors) => {
     if (!container.isConnected) return;
+    const connectors = showAll || !scope ? allConnectors : allConnectors.filter(c => c.id === scope.connector);
+    const scopeNote = !scope ? "" : showAll
+      ? `<button class="btn-secondary" id="conn-only-app">Ver solo los de ${escapeHtml(scope.connector ? (allConnectors.find(c => c.id === scope.connector)?.name || scope.connector) : "esta app")}</button>`
+      : `${scope.connector ? "" : `<p class="integration-hint">${escapeHtml(scope.app)}: esta aplicación no tiene acciones propias en StreamDesk. Solo se puede abrir (pestaña Apps).</p>`}
+         <button class="btn-secondary" id="conn-show-all">Ver todos los conectores</button>`;
     container.innerHTML = `
       <div class="integration-intro">
-        <strong>Conecta tus apps</strong>
+        <strong>${scope && !showAll ? "Acciones de esta app" : "Conecta tus apps"}</strong>
         <span>Elige un servicio, configúralo una vez y asigna sus acciones a esta casilla con un clic.</span>
       </div>
+      ${scopeNote}
       ${connectors.map(c => `
         <section class="connector-card ${c.id === openConnectorId ? "open" : ""}">
           <button class="connector-head" data-connector="${escapeHtml(c.id)}">
@@ -1501,6 +1751,8 @@ function renderTabConnectors(container, btn, index) {
           </button>
           ${c.id === openConnectorId ? `<div class="connector-body" id="connector-body-${escapeHtml(c.id)}"></div>` : ""}
         </section>`).join("")}`;
+    container.querySelector("#conn-show-all")?.addEventListener("click", () => { showAll = true; draw(connectorCache); });
+    container.querySelector("#conn-only-app")?.addEventListener("click", () => { showAll = false; draw(connectorCache); });
     container.querySelectorAll("[data-connector]").forEach(head => head.addEventListener("click", () => {
       openConnectorId = openConnectorId === head.dataset.connector ? null : head.dataset.connector;
       draw(connectorCache);
@@ -1524,11 +1776,19 @@ function renderTabConnectors(container, btn, index) {
   });
 }
 
+// The colour palette as labelled rows, the current colour marked.
+function colorSwatchesHtml(current) {
+  const now = String(current || "").toLowerCase();
+  return COLOR_GROUPS.map(([name, colours]) => `
+    <div class="swatch-group">
+      <span class="swatch-group-name">${escapeHtml(name)}</span>
+      <div class="swatch-row">${colours.map(c => `<button class="color-swatch-btn ${now === c ? "active" : ""}" data-color="${c}" style="background: ${c};" title="${c}" aria-label="${c}"></button>`).join("")}</div>
+    </div>`).join("");
+}
+
 // Aspect tab: title, colour and icon.
 function renderTabDesign(container, btn, index) {
-  const swatchesHtml = COLOR_SWATCHES.map(c => `
-    <button class="color-swatch-btn ${btn.color === c ? 'active' : ''}" data-color="${c}" style="background: ${c};" title="${c}"></button>
-  `).join("");
+  const swatchesHtml = colorSwatchesHtml(btn.color);
 
   const iconsHtml = SVG_ICONS.map(ic => `
     <button class="icon-choice-btn ${btn.image === `/static/icons/${ic}.svg` ? 'active' : ''}" data-icon="/static/icons/${ic}.svg" title="${ic}">
@@ -1584,6 +1844,8 @@ function renderTabDesign(container, btn, index) {
 
   colorPicker.addEventListener("input", (e) => {
     btn.color = e.target.value;
+    // Mark the swatch with this exact colour, or none when it is a custom one.
+    container.querySelectorAll(".color-swatch-btn").forEach(s => s.classList.toggle("active", s.dataset.color.toLowerCase() === e.target.value.toLowerCase()));
     renderPhoneScreen();
     saveConfigToServer();
   });
@@ -1655,9 +1917,7 @@ function renderSliderInspector(slider, index) {
         <span class="app-card-badge">${Number(s.volume)}%</span>
       </div>`).join("");
 
-  const swatchesHtml = COLOR_SWATCHES.map(c => `
-    <button class="color-swatch-btn ${slider.color === c ? 'active' : ''}" data-color="${c}" style="background: ${c};" title="${c}"></button>
-  `).join("");
+  const swatchesHtml = colorSwatchesHtml(slider.color);
 
   inspectorContent.innerHTML = `
     <div class="inspector-preview-card">

@@ -1,9 +1,12 @@
 ; Script de Instalación para StreamDesk Pro (Aplicación de Escritorio Nativa)
 #define MyAppName "StreamDesk Pro"
-#define MyAppVersion "2.12.0"
+#define MyAppVersion "2.13.0"
 #define MyAppPublisher "Zak208"
 #define MyAppURL "https://github.com/Zak208/streamdeck"
 #define MyAppExeName "StreamDesk.exe"
+#ifndef DistDir
+  #define DistDir "..\dist\StreamDesk"
+#endif
 
 [Setup]
 AppId={{5E97D453-6523-49A3-97BA-912A8F349580}
@@ -31,11 +34,11 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "..\dist\StreamDesk\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#DistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall

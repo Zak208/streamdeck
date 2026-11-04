@@ -209,6 +209,10 @@ main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overf
 .phone-screen-wrapper { padding: 14px; background: var(--bg-raised); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow); }
 .phone-status-bar { display: flex; justify-content: space-between; padding: 0 6px 12px; color: var(--text-3); font-size: 11px; }
 .phone-screen { display: grid; grid-template-columns: repeat(var(--cols, 6), minmax(0, 1fr)); grid-template-rows: repeat(var(--rows, 2), minmax(110px, 1fr)); gap: 10px; }
+.phone-mockup.is-wide { width: min(100%, 1040px); }
+.phone-screen.is-dense { gap: 6px; grid-template-rows: repeat(var(--rows, 2), minmax(72px, 1fr)); }
+.phone-screen.is-dense .slot-keycap-sub { display: none; }
+@container (max-height: 84px) { .slot-keycap-sub { display: none; } .slot-keycap-img { width: 22px; height: 22px; } }
 .kbd-shortcuts-badge { margin-top: 14px; color: var(--text-3); font-size: 12px; text-align: center; }
 kbd { padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); color: var(--text-2); font: 11px var(--mono); }
 
@@ -217,6 +221,16 @@ kbd { padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 5px
 .slot-cell.selected { box-shadow: 0 0 0 2px var(--accent); }
 .slot-cell.drag-over, .slot-cell.drag-over-fader-top, .slot-cell.drag-over-fader-bottom { box-shadow: 0 0 0 2px var(--accent); background: var(--accent-soft); }
 .slot-cell.is-source-dragging { opacity: 0.4; }
+
+/* The drag image: an off-screen copy of the control being dragged. */
+.drag-ghost { position: fixed; top: -9999px; left: -9999px; pointer-events: none; container-type: size; }
+.drag-ghost .slot-keycap, .drag-ghost .slot-fader { height: 100%; }
+
+/* While a slot of the grid is being dragged: say how to delete it and mark the trash. */
+.drag-delete-hint { display: none; margin: -4px auto 12px; padding: 6px 12px; width: max-content; max-width: 100%; border: 1px dashed var(--danger); border-radius: 999px; background: rgba(255, 97, 89, 0.08); color: var(--danger); font-size: 12px; font-weight: 700; }
+body.is-dragging-slot .drag-delete-hint { display: block; }
+body.is-dragging-slot .preview-label { display: none; }
+body.is-dragging-slot .trash-dropzone { border-color: var(--danger); }
 .slot-cell.slot-drop-bounce { animation: land 0.3s ease-out; }
 @keyframes land { 0% { transform: scale(0.92); } 60% { transform: scale(1.04); } 100% { transform: scale(1); } }
 .slot-empty-add {
@@ -389,7 +403,18 @@ body.resizing-inspector { cursor: col-resize; user-select: none; }
 .quick-action-name { font-size: 12px; font-weight: 700; }
 .quick-action-sub { color: var(--text-3); font-size: 11px; }
 
-.color-swatches-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.color-swatches-grid { display: flex; flex-direction: column; gap: 10px; }
+.tab-hint { margin: 0 0 12px; color: var(--text-3); font-size: 12px; line-height: 1.45; }
+.grid-custom { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-top: 10px; }
+.grid-custom label { display: grid; gap: 4px; color: var(--text-2); font-size: 12px; }
+.grid-custom input { width: 84px; }
+.dc-multi { display: grid; gap: 8px; margin-top: 10px; }
+.dc-multi button[hidden] { display: none; }
+.command-warning { color: var(--accent); }
+.command-input { font-family: var(--mono); }
+.swatch-group { display: grid; gap: 5px; }
+.swatch-group-name { color: var(--text-3); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.swatch-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .color-swatch-btn { width: 28px; height: 28px; border: 2px solid transparent; border-radius: 50%; }
 .color-swatch-btn.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg); }
 .icon-picker-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }

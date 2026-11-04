@@ -11,12 +11,13 @@ import re
 from typing import Any, Dict, List
 from urllib.parse import urlparse
 
+from server.shell_actions import SHELLS, validate_commands
 from server.layouts import LAYOUTS, layout_dict, layout_name, size_of
 
 
 ACTION_TYPES = frozenset({
     "preset_app", "launch", "media", "url", "obs_action", "hardware_monitor",
-    "sound", "multi", "spotify_uri", "discord_hotkey", "discord_sound", "windows", "hotkey", "text", "page", "folder",
+    "sound", "multi", "spotify_uri", "discord_hotkey", "discord_sound", "windows", "hotkey", "text", "page", "folder", "command",
 })
 GESTURES = ("long_press", "double_tap")  # extra actions a button can run on a long press or a double tap
 WINDOWS_TARGETS = frozenset({"mic_mute", "app_mute", "output_device", "lock_pc"})
@@ -32,7 +33,21 @@ HOTKEY_KEYS = frozenset(
 )
 WINDOWS_DEVICE_ID = re.compile(r"^\{[0-9A-Fa-f.]{1,40}\}\.\{[0-9A-Fa-f-]{36}\}$")
 MEDIA_TARGETS = frozenset({"play_pause", "play", "next", "next_track", "prev", "previous", "prev_track", "stop", "mute"})
-OBS_TARGETS = frozenset({"record_toggle", "toggle_record", "record", "record_pause", "pause_record", "stream_toggle", "toggle_stream", "stream", "next_scene", "prev_scene", "mute_mic", "toggle_mute_mic"})
+OBS_TARGETS = frozenset({
+    "record_toggle", "toggle_record", "record", "record_pause", "pause_record", "stream_toggle", "toggle_stream", "stream",
+    "next_scene", "prev_scene", "mute_mic", "toggle_mute_mic",
+    "record_start", "record_stop", "stream_start", "stream_stop", "studio_mode_toggle", "studio_transition",
+    "replay_toggle", "replay_save", "virtualcam_toggle", "record_chapter", "record_split",
+})
+# OBS actions that need to be told which scene, source, transition or hotkey: target -> the names kept in `extra`.
+OBS_TARGETS_WITH_FIELDS = {
+    "preview_scene": ("scene_name",),
+    "set_transition": ("transition_name",),
+    "source_toggle": ("scene_name", "source_name"),
+    "input_mute": ("source_name",),
+    "hotkey": ("hotkey_name",),
+}
+OBS_HOTKEY_NAME = re.compile(r"^[A-Za-z0-9_.:\- ]{1,100}$")
 HARDWARE_TARGETS = frozenset({"cpu", "ram", "disk", "gpu", "vram", "net", "disk_speed"})
 SOUND_TARGETS = frozenset({"beep", "asterisk", "exclamation"})
 DISCORD_TARGETS = frozenset({"mute", "deafen", "sound"})
@@ -55,6 +70,8 @@ def _text(value: Any, field: str, maximum: int, *, allow_empty: bool = True) -> 
         raise ValueError(f"{field} no tiene una longitud válida")
     if any(char in value for char in "<>"):
         raise ValueError(f"{field} contiene caracteres no permitidos")
+    if any(ord(char) < 32 or 0x7F <= ord(char) <= 0x9F or char in "\u2028\u2029" for char in value):
+        raise ValueError(f"{field} contiene caracteres de control no permitidos")
     return value
 
 
@@ -153,6 +170,12 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
             raise ValueError("La carpeta debe ser una ruta local de un disco, por ejemplo D:\\Proyectos")
         target_text = folder
         clean_extra = {}
+    elif action_type == "command":
+        # Runs only when the user has switched console commands on (see shell_actions); the lines are validated here.
+        if target_text.lower() not in SHELLS:
+            raise ValueError("Elige PowerShell o cmd")
+        target_text = target_text.lower()
+        clean_extra = {"commands": validate_commands(action_extra.get("commands"))}
     elif action_type == "spotify_uri":
         target_text = normalize_spotify_uri(target_text)
         clean_extra = {}
@@ -196,6 +219,12 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
         if target_text.lower().startswith("scene_"):
             scene_name = _text(action_extra.get("scene_name", target_text[6:]), "escena de OBS", 80, allow_empty=False)
             clean_extra = {"scene_name": scene_name}
+        elif target_text.lower() in OBS_TARGETS_WITH_FIELDS:
+            clean_extra = {}
+            for field in OBS_TARGETS_WITH_FIELDS[target_text.lower()]:
+                clean_extra[field] = _text(action_extra.get(field), field.replace("_", " "), 100, allow_empty=False)
+            if "hotkey_name" in clean_extra and not OBS_HOTKEY_NAME.fullmatch(clean_extra["hotkey_name"]):
+                raise ValueError("El nombre del atajo de OBS no es válido")
         elif target_text.lower() in OBS_TARGETS:
             clean_extra = {}
             if target_text.lower() in {"mute_mic", "toggle_mute_mic"} and action_extra.get("source_name"):

@@ -40,6 +40,23 @@ def status() -> Dict[str, Any]:
     return obs_client.status()
 
 
+def _action(action_id, label, sublabel, icon, color, target, fields=None):
+    """One OBS button template. `fields` lists what the user must choose (a scene, a source...) and is
+    kept in the button's `extra` under each field's name."""
+    action = {"id": action_id, "label": label, "sublabel": sublabel, "icon": icon, "color": color,
+              "action_type": "obs_action", "target": target, "extra": {}}
+    if fields:
+        action["fields"] = fields
+        action["configure"] = True
+        # Valid until the user chooses: OBS answers "not found" if the button is pressed before that.
+        action["extra"] = {field["name"]: PLACEHOLDER for field in fields}
+    return action
+
+
+PLACEHOLDER = "Elige"
+SCENE = {"name": "scene_name", "label": "Escena", "options": "scenes", "filter_by": None, "required": True}
+
+
 def actions() -> List[Dict[str, Any]]:
     return [
         {"id": "record", "label": "Grabar", "sublabel": "OBS", "icon": "/static/icons/video.svg", "color": "#ef4444",
@@ -52,6 +69,26 @@ def actions() -> List[Dict[str, Any]]:
          "action_type": "obs_action", "target": "next_scene", "extra": {}},
         {"id": "prev_scene", "label": "Escena anterior", "sublabel": "OBS", "icon": "/static/icons/prev.svg", "color": "#38bdf8",
          "action_type": "obs_action", "target": "prev_scene", "extra": {}},
+        _action("record_start", "Iniciar grabación", "OBS", "/static/icons/video.svg", "#ef4444", "record_start"),
+        _action("record_stop", "Parar grabación", "OBS", "/static/icons/video.svg", "#ef4444", "record_stop"),
+        _action("record_chapter", "Marcar capítulo", "OBS 30.2 o más", "/static/icons/notes.svg", "#f59e0b", "record_chapter"),
+        _action("record_split", "Partir grabación", "OBS 30.2 o más", "/static/icons/macro.svg", "#f59e0b", "record_split"),
+        _action("stream_start", "Iniciar directo", "OBS", "/static/icons/broadcast.svg", "#8b5cf6", "stream_start"),
+        _action("stream_stop", "Terminar directo", "OBS", "/static/icons/broadcast.svg", "#8b5cf6", "stream_stop"),
+        _action("studio_mode", "Modo estudio", "OBS", "/static/icons/sliders.svg", "#38bdf8", "studio_mode_toggle"),
+        _action("studio_transition", "Hacer la transición", "OBS (modo estudio)", "/static/icons/play.svg", "#38bdf8", "studio_transition"),
+        _action("preview_scene", "Escena en previsualización", "OBS (modo estudio)", "/static/icons/gamepad.svg", "#38bdf8", "preview_scene", [SCENE]),
+        _action("set_transition", "Elegir transición", "OBS", "/static/icons/next.svg", "#38bdf8", "set_transition",
+                [{"name": "transition_name", "label": "Transición", "options": "transitions", "filter_by": None, "required": True}]),
+        _action("source_toggle", "Mostrar u ocultar fuente", "OBS", "/static/icons/video.svg", "#10b981", "source_toggle",
+                [SCENE, {"name": "source_name", "label": "Fuente", "options": "scene_items", "filter_by": "scene_name", "required": True}]),
+        _action("input_mute", "Silenciar una fuente de audio", "OBS", "/static/icons/mute.svg", "#ef4444", "input_mute",
+                [{"name": "source_name", "label": "Fuente de audio", "options": "inputs", "filter_by": None, "required": True}]),
+        _action("replay_toggle", "Búfer de repetición", "OBS", "/static/icons/pause.svg", "#f59e0b", "replay_toggle"),
+        _action("replay_save", "Guardar repetición", "OBS", "/static/icons/play.svg", "#f59e0b", "replay_save"),
+        _action("virtualcam", "Cámara virtual", "OBS", "/static/icons/video.svg", "#10b981", "virtualcam_toggle"),
+        _action("hotkey", "Atajo de OBS por nombre", "OBS", "/static/icons/keyboard.svg", "#a855f7", "hotkey",
+                [{"name": "hotkey_name", "label": "Nombre del atajo (por ejemplo OBSBasic.StartRecording)", "options": None, "filter_by": None, "required": True}]),
     ]
 
 
@@ -61,4 +98,8 @@ def options(name: str) -> List[Dict[str, Any]]:
         return [{"name": scene} for scene in obs_client.list_scenes()]
     if name == "inputs":
         return obs_client.list_inputs()
+    if name == "transitions":
+        return obs_client.list_transitions()
+    if name == "scene_items":
+        return obs_client.list_scene_items()
     return []

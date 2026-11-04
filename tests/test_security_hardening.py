@@ -97,6 +97,57 @@ class HostAndOriginTests(unittest.TestCase):
         self.assertEqual(self.request("/")[2].get("x-content-type-options"), "nosniff")
 
 
+class HostParsingTests(unittest.TestCase):
+    def test_only_a_local_name_with_a_numeric_port_counts_as_local(self):
+        for good in ("localhost", "LOCALHOST:48291", "127.0.0.1", "127.0.0.1:1", "[::1]:48291"):
+            with self.subTest(host=good):
+                self.assertNotEqual(main._host_name(good), "")
+        for bad in ("localhost:48323.evil.com", "[::1]x", "evil.com", "localhost@evil.com", "localhost:", "localhost:123456",
+                    "127.0.0.1.nip.io", "localhost.evil.com", "", " ", "localhost:80:80", "2130706433", "0.0.0.0"):
+            with self.subTest(host=bad):
+                self.assertEqual(main._host_name(bad), "")
+
+    def test_a_request_the_browser_marks_cross_site_is_refused(self):
+        headers = {"host": "127.0.0.1:48291", "sec-fetch-site": "cross-site"}
+        self.assertFalse(main._local_browser_request(headers, "127.0.0.1"))
+        for site in ("same-origin", "none", "same-site"):
+            self.assertTrue(main._local_browser_request({"host": "127.0.0.1:48291", "sec-fetch-site": site}, "127.0.0.1"))
+        self.assertTrue(main._local_browser_request({"host": "127.0.0.1:48291"}, "127.0.0.1"))
+
+
+class TextHardeningTests(unittest.TestCase):
+    def test_control_characters_are_refused_in_every_text_of_a_profile(self):
+        for bad in ("a\nb", "a\x00b", "a\u2028b", "a\u2029b", "a\x85b", "a\x7fb", "a\x1bb"):
+            with self.subTest(text=repr(bad)), self.assertRaises(ValueError):
+                validate_action("obs_action", "preview_scene", {"scene_name": bad})
+            profile = default_profile()
+            profile["pages"][0]["slots"][0]["label"] = bad
+            with self.subTest(label=repr(bad)), self.assertRaises(ValueError):
+                validate_deck_config(profile)
+
+    def test_emoji_and_accents_still_work(self):
+        for text in ("Fuego \U0001F525", "C\u00e1mara", "\U0001F468\u200d\U0001F469\u200d\U0001F467 Familia", "\u65e5\u672c\u8a9e", "a\ufe0fb"):
+            with self.subTest(text=ascii(text)):
+                validate_action("obs_action", "preview_scene", {"scene_name": text})
+
+    def test_layout_digits_must_be_ascii(self):
+        from server import layouts
+        for bad in ("\u0664x\u0668", "\uff14x\uff18"):
+            with self.subTest(spec=ascii(bad)), self.assertRaises(ValueError):
+                layouts.parse_layout(bad)
+
+
+class BackupTests(unittest.TestCase):
+    def test_backups_made_within_the_same_second_do_not_overwrite_each_other(self):
+        from server.config_manager import config_manager
+        paths = {config_manager.backup_profile("prueba") for _ in range(6)}
+        self.assertNotIn("", paths)
+        self.assertEqual(len(paths), 6)
+        import os
+        for path in paths:
+            os.remove(path)
+
+
 class MalformedMessageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

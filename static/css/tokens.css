@@ -41,6 +41,101 @@
   --danger: #f87171;
 }
 
+/* More palettes: the same tokens, another accent. The phone follows the one chosen in Studio. */
+:root[data-theme="violeta"] {
+  --bg: #0b0912;
+  --bg-raised: #120f1c;
+  --surface: #191528;
+  --surface-2: #221c36;
+  --surface-3: #2d2547;
+  --line: #2a2342;
+  --line-strong: #4f4478;
+  --text: #f6f3ff;
+  --text-2: #bdb4d8;
+  --text-3: #887fa5;
+  --accent: #a78bfa;
+  --accent-hover: #c4b5fd;
+  --accent-ink: #120a24;
+  --accent-soft: rgba(167, 139, 250, 0.14);
+  --ok: #34d399;
+  --danger: #f87171;
+}
+
+:root[data-theme="verde"] {
+  --bg: #08100c;
+  --bg-raised: #0d1812;
+  --surface: #12211a;
+  --surface-2: #192d23;
+  --surface-3: #223a2e;
+  --line: #1f3328;
+  --line-strong: #3f6652;
+  --text: #f1faf5;
+  --text-2: #a9c4b6;
+  --text-3: #75917f;
+  --accent: #22c55e;
+  --accent-hover: #4ade80;
+  --accent-ink: #04150b;
+  --accent-soft: rgba(34, 197, 94, 0.14);
+  --ok: #86efac;
+  --danger: #f87171;
+}
+
+:root[data-theme="rojo"] {
+  --bg: #100808;
+  --bg-raised: #1a0e0e;
+  --surface: #241313;
+  --surface-2: #301919;
+  --surface-3: #3d2121;
+  --line: #3a1f1f;
+  --line-strong: #6e3a3a;
+  --text: #fdf3f3;
+  --text-2: #d0a9a9;
+  --text-3: #9e7b7b;
+  --accent: #ef4444;
+  --accent-hover: #f87171;
+  --accent-ink: #1a0505;
+  --accent-soft: rgba(239, 68, 68, 0.14);
+  --ok: #4ade80;
+  --danger: #ffb4a8;
+}
+
+:root[data-theme="rosa"] {
+  --bg: #120912;
+  --bg-raised: #1c0e1b;
+  --surface: #271428;
+  --surface-2: #331b35;
+  --surface-3: #422444;
+  --line: #3d2140;
+  --line-strong: #744478;
+  --text: #fff3fb;
+  --text-2: #d6aacb;
+  --text-3: #9f7b9c;
+  --accent: #ec4899;
+  --accent-hover: #f472b6;
+  --accent-ink: #1f0615;
+  --accent-soft: rgba(236, 72, 153, 0.14);
+  --ok: #34d399;
+  --danger: #f87171;
+}
+
+:root[data-theme="naranja"] {
+  --bg: #100b06;
+  --bg-raised: #1a120a;
+  --surface: #251a0f;
+  --surface-2: #322214;
+  --surface-3: #422d1a;
+  --line: #3a2918;
+  --line-strong: #6e4d2a;
+  --text: #fff7ee;
+  --text-2: #d4b898;
+  --text-3: #9c8268;
+  --accent: #f97316;
+  --accent-hover: #fb923c;
+  --accent-ink: #1f0c02;
+  --accent-soft: rgba(249, 115, 22, 0.14);
+  --ok: #4ade80;
+  --danger: #f87171;
+}
 :root {
   --radius-sm: 8px;
   --radius-md: 12px;

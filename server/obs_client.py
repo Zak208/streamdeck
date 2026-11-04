@@ -118,6 +118,23 @@ class OBSClient:
         inputs = res.get("responseData", {}).get("inputs", [])
         return [{"name": i["inputName"], "kind": i.get("inputKind", "")} for i in inputs]
 
+    def list_transitions(self) -> List[Dict[str, Any]]:
+        res = self.request("GetSceneTransitionList")
+        if not _request_ok(res):
+            raise RuntimeError(self.failure(res)["error"])
+        return [{"name": t["transitionName"]} for t in res.get("responseData", {}).get("transitions", [])]
+
+    def list_scene_items(self) -> List[Dict[str, Any]]:
+        """Every source of every scene, as {"name": source, "scene": scene}: what 'show or hide a source' needs."""
+        items: List[Dict[str, Any]] = []
+        for scene in self.list_scenes():
+            res = self.request("GetSceneItemList", {"sceneName": scene})
+            if not _request_ok(res):
+                raise RuntimeError(self.failure(res)["error"])
+            for item in res.get("responseData", {}).get("sceneItems", []):
+                items.append({"name": item.get("sourceName", ""), "scene": scene})
+        return items
+
     # --- Actions ---
 
     def execute_obs_action(self, target: str, extra: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -180,6 +197,81 @@ class OBSClient:
                 if muted is not None:
                     result.update({"muted": bool(muted), "active": bool(muted)})
                 return result
+
+            elif cmd in ("record_start", "record_stop", "stream_start", "stream_stop"):
+                kind = "Record" if cmd.startswith("record") else "Stream"
+                starting = cmd.endswith("start")
+                res = call(("Start" if starting else "Stop") + kind)
+                if not _request_ok(res):
+                    return failure(res)
+                if kind == "Record":
+                    self.is_recording = starting
+                else:
+                    self.is_streaming = starting
+                return {"success": True, "action": f"obs_{cmd}", "active": starting}
+
+            elif cmd == "studio_mode_toggle":
+                state = call("GetStudioModeEnabled")
+                if not _request_ok(state):
+                    return failure(state)
+                enabled = not state.get("responseData", {}).get("studioModeEnabled", False)
+                res = call("SetStudioModeEnabled", {"studioModeEnabled": enabled})
+                return {"success": True, "action": "obs_studio_mode", "active": enabled} if _request_ok(res) else failure(res)
+
+            elif cmd == "studio_transition":
+                res = call("TriggerStudioModeTransition")
+                return {"success": True, "action": "obs_studio_transition"} if _request_ok(res) else failure(res)
+
+            elif cmd == "preview_scene":
+                res = call("SetCurrentPreviewScene", {"sceneName": extra.get("scene_name", "")})
+                return {"success": True, "action": "obs_preview_scene", "scene": extra.get("scene_name")} if _request_ok(res) else failure(res)
+
+            elif cmd == "set_transition":
+                res = call("SetCurrentSceneTransition", {"transitionName": extra.get("transition_name", "")})
+                return {"success": True, "action": "obs_set_transition", "transition": extra.get("transition_name")} if _request_ok(res) else failure(res)
+
+            elif cmd in ("replay_toggle", "virtualcam_toggle"):
+                res = call("ToggleReplayBuffer" if cmd == "replay_toggle" else "ToggleVirtualCam")
+                if not _request_ok(res):
+                    return failure(res)
+                active = bool(res.get("responseData", {}).get("outputActive", False))
+                return {"success": True, "action": f"obs_{cmd}", "active": active}
+
+            elif cmd == "replay_save":
+                res = call("SaveReplayBuffer")
+                return {"success": True, "action": "obs_replay_save"} if _request_ok(res) else failure(res)
+
+            elif cmd == "record_chapter":
+                res = call("CreateRecordChapter")  # OBS 30.2 or newer, recording in Hybrid MP4
+                return {"success": True, "action": "obs_record_chapter"} if _request_ok(res) else failure(res)
+
+            elif cmd == "record_split":
+                res = call("SplitRecordFile")  # OBS 30.2 or newer
+                return {"success": True, "action": "obs_record_split"} if _request_ok(res) else failure(res)
+
+            elif cmd == "source_toggle":
+                scene, source = extra.get("scene_name", ""), extra.get("source_name", "")
+                found = call("GetSceneItemId", {"sceneName": scene, "sourceName": source})
+                if not _request_ok(found):
+                    return failure(found)
+                item_id = found.get("responseData", {}).get("sceneItemId")
+                current = call("GetSceneItemEnabled", {"sceneName": scene, "sceneItemId": item_id})
+                if not _request_ok(current):
+                    return failure(current)
+                visible = not current.get("responseData", {}).get("sceneItemEnabled", False)
+                res = call("SetSceneItemEnabled", {"sceneName": scene, "sceneItemId": item_id, "sceneItemEnabled": visible})
+                return {"success": True, "action": "obs_source_toggle", "active": visible} if _request_ok(res) else failure(res)
+
+            elif cmd == "input_mute":
+                res = call("ToggleInputMute", {"inputName": extra.get("source_name", "")})
+                if not _request_ok(res):
+                    return failure(res)
+                muted = bool(res.get("responseData", {}).get("inputMuted", False))
+                return {"success": True, "action": "obs_input_mute", "muted": muted, "active": muted}
+
+            elif cmd == "hotkey":
+                res = call("TriggerHotkeyByName", {"hotkeyName": extra.get("hotkey_name", "")})
+                return {"success": True, "action": "obs_hotkey"} if _request_ok(res) else failure(res)
 
             return {"success": False, "error": f"Acción OBS desconocida: {cmd}"}
         except Exception as e:

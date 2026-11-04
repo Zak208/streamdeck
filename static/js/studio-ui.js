@@ -4,6 +4,11 @@
 const THEMES = [
   { id: "ctma", name: "Negro y amarillo", swatches: ["#0a0a0a", "#555555", "#ffffff", "#f8c700"] },
   { id: "cian", name: "Azul noche y cian", swatches: ["#080a10", "#41536a", "#f4f7fb", "#38bdf8"] },
+  { id: "violeta", name: "Noche y violeta", swatches: ["#0b0912", "#4f4478", "#f6f3ff", "#a78bfa"] },
+  { id: "verde", name: "Bosque y verde", swatches: ["#08100c", "#3f6652", "#f1faf5", "#22c55e"] },
+  { id: "rojo", name: "Carbón y rojo", swatches: ["#100808", "#6e3a3a", "#fdf3f3", "#ef4444"] },
+  { id: "rosa", name: "Ciruela y rosa", swatches: ["#120912", "#744478", "#fff3fb", "#ec4899"] },
+  { id: "naranja", name: "Café y naranja", swatches: ["#100b06", "#6e4d2a", "#fff7ee", "#f97316"] },
 ];
 
 // ---------- Modal helpers ----------
@@ -215,7 +220,7 @@ async function saveProfileCopy() {
 // How many actions of a profile file act on the PC itself (keys, typed text, folders), looking inside
 // macros and long-press / double-tap actions. A profile from someone else could use them to run things.
 function riskyActionsIn(profile) {
-  const risky = new Set(["hotkey", "text", "folder"]);
+  const risky = new Set(["hotkey", "text", "folder", "command"]);
   const count = (action) => {
     if (!action || typeof action !== "object") return 0;
     let total = risky.has(action.action_type) ? 1 : 0;
@@ -239,7 +244,7 @@ async function loadProfileCopy(file) {
     return showToast("Ese archivo no es un perfil de StreamDesk");
   }
   const risky = riskyActionsIn(profile);
-  const warning = risky ? ` ATENCIÓN: contiene ${risky} acciones que pulsan teclas, escriben texto o abren carpetas, y funcionarán en tu PC cuando se pulsen desde el móvil. Cárgalo solo si confías en quien te lo dio.` : "";
+  const warning = risky ? ` ATENCIÓN: contiene ${risky} acciones que pulsan teclas, escriben texto, abren carpetas o ejecutan comandos, y funcionarán en tu PC cuando se pulsen desde el móvil. Cárgalo solo si confías en quien te lo dio.` : "";
   const confirmed = await askConfirm({
     title: "Cargar este perfil",
     message: `Se reemplazarán todas tus páginas y botones por los de "${file.name}". Antes se guarda una copia de los actuales.${warning}`,
@@ -285,20 +290,23 @@ function gridPresetLabel(p) {
   return `${p.columns} columnas x ${p.rows} filas (${p.columns * p.rows})`;
 }
 
-async function changeGridLayout(preset, select) {
+// Limits of a custom size; the server sends the real ones with GET /api/layouts.
+let gridLimits = { min_columns: 2, max_columns: 10, min_rows: 2, max_rows: 8, max_total: 64 };
+
+// `spec` is a preset name ("6x2") or { columns, rows }. `restore` puts the controls back if nothing changes.
+async function changeGridLayout(spec, restore) {
   const current = `${gridCols()}x${gridRows()}`;
-  if (preset === current) return;
+  const body = typeof spec === "string" ? { layout: spec } : { columns: spec.columns, rows: spec.rows };
+  const wanted = typeof spec === "string" ? spec : `${spec.columns}x${spec.rows}`;
+  if (wanted === current) return restore?.();
   const confirmed = await askConfirm({
     title: "Cambiar la cuadrícula",
-    message: "Los botones se quedan en su casilla si caben en la nueva cuadrícula. Los que no caben se quitan, aunque antes se guarda una copia del perfil. Los faders ocupan siempre las dos primeras filas de su columna.",
+    message: "Cada botón conserva su fila y columna si existen en la nueva cuadrícula; si no, pasa a la primera casilla libre. Los faders ocupan siempre las dos primeras filas de su columna y, si pierden su columna, pasan a las de más a la derecha. Se guarda una copia del perfil anterior.",
     confirmLabel: "Cambiar",
   });
-  if (!confirmed) {
-    select.value = current;
-    return;
-  }
+  if (!confirmed) return restore?.();
   try {
-    const result = await postJson("/api/layout", { layout: preset });
+    const result = await postJson("/api/layout", body);
     config = result.config;
     activePageIndex = Math.min(config.current_page || 0, (config.pages || []).length - 1);
     selectedSlotIndex = null;
@@ -308,10 +316,58 @@ async function changeGridLayout(preset, select) {
     showToast(result.dropped > 0
       ? `Cuadrícula cambiada. ${result.dropped} elemento${result.dropped === 1 ? "" : "s"} no cabía${result.dropped === 1 ? "" : "n"} y se ${result.dropped === 1 ? "quitó" : "quitaron"}. Tienes una copia del perfil anterior`
       : "Cuadrícula cambiada");
+    restore?.();
   } catch (err) {
-    select.value = current;
+    restore?.();
     showToast(err.message);
   }
+}
+
+// The size controls of Ajustes: the presets, plus any columns x rows within the limits.
+function wireGridControls(root) {
+  const select = root.querySelector("#settings-grid");
+  const columns = root.querySelector("#grid-cols");
+  const rows = root.querySelector("#grid-rows");
+  const apply = root.querySelector("#grid-apply");
+  const hint = root.querySelector("#grid-hint");
+  const customOption = `<option value="custom">Personalizada</option>`;
+
+  const sync = () => {
+    const current = `${gridCols()}x${gridRows()}`;
+    columns.value = gridCols();
+    rows.value = gridRows();
+    select.value = [...select.options].some(o => o.value === current) ? current : "custom";
+    check();
+  };
+  const check = () => {
+    const c = Number(columns.value), r = Number(rows.value);
+    const L = gridLimits;
+    let problem = "";
+    if (!Number.isInteger(c) || c < L.min_columns || c > L.max_columns) problem = `Columnas: entre ${L.min_columns} y ${L.max_columns}.`;
+    else if (!Number.isInteger(r) || r < L.min_rows || r > L.max_rows) problem = `Filas: entre ${L.min_rows} y ${L.max_rows}.`;
+    else if (c * r > L.max_total) problem = `Como mucho ${L.max_total} casillas en total.`;
+    hint.textContent = problem || `${c} columnas x ${r} filas = ${c * r} casillas`;
+    hint.classList.toggle("command-warning", Boolean(problem));
+    apply.disabled = Boolean(problem) || `${c}x${r}` === `${gridCols()}x${gridRows()}`;
+  };
+  columns.addEventListener("input", check);
+  rows.addEventListener("input", check);
+  select.addEventListener("change", () => {
+    if (select.value === "custom") return columns.focus();
+    changeGridLayout(select.value, sync);
+  });
+  apply.addEventListener("click", () => changeGridLayout({ columns: Number(columns.value), rows: Number(rows.value) }, sync));
+
+  // Presets and limits come from the server; the built-in list is the fallback when it does not answer.
+  apiJson("/api/layouts").then(data => {
+    if (data.limits) gridLimits = data.limits;
+    columns.min = gridLimits.min_columns; columns.max = gridLimits.max_columns;
+    rows.min = gridLimits.min_rows; rows.max = gridLimits.max_rows;
+    const presets = (data.presets || []).map(p => ({ id: p.id, columns: p.columns, rows: p.rows }));
+    if (presets.length) select.innerHTML = presets.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(gridPresetLabel(p))}</option>`).join("") + customOption;
+    sync();
+  }).catch(() => sync());
+  sync();
 }
 
 // ---------- Settings ----------
@@ -337,7 +393,19 @@ function openSettings() {
         <p>Cuántos botones caben en cada página, en el móvil y aquí. Al cambiarla se convierten todas tus páginas: los botones que caben se quedan donde están y los faders ocupan las dos primeras filas de su columna.</p>
         <select id="settings-grid" aria-label="Tamaño de la cuadrícula">
           ${GRID_PRESETS.map(p => `<option value="${p.id}" ${p.id === `${gridCols()}x${gridRows()}` ? "selected" : ""}>${gridPresetLabel(p)}</option>`).join("")}
+          <option value="custom">Personalizada</option>
         </select>
+        <div class="grid-custom">
+          <label>Columnas <input type="number" id="grid-cols" min="2" max="10" step="1" inputmode="numeric"></label>
+          <label>Filas <input type="number" id="grid-rows" min="2" max="8" step="1" inputmode="numeric"></label>
+          <button class="btn-secondary" id="grid-apply" type="button">Aplicar</button>
+        </div>
+        <p class="integration-hint" id="grid-hint"></p>
+      </section>
+      <section class="settings-section">
+        <h3>Comandos de consola</h3>
+        <p>Los botones de PowerShell o cmd solo funcionan si lo permites aquí. Está desactivado por defecto.</p>
+        ${commandsSwitchHtml("settings")}
       </section>
       <section class="settings-section">
         <h3>Móviles emparejados</h3>
@@ -375,8 +443,8 @@ function openSettings() {
         m.el.querySelectorAll("[data-theme-id]").forEach(o => o.classList.toggle("active", o === option));
         try { await postJson("/api/ui", { theme: option.dataset.themeId }); } catch (err) { showToast(err.message); }
       }));
-      const gridSelect = m.el.querySelector("#settings-grid");
-      gridSelect.addEventListener("change", () => changeGridLayout(gridSelect.value, gridSelect));
+      wireGridControls(m.el);
+      wireCommandsSwitch(m.el);
       m.el.querySelector("#settings-welcome").addEventListener("click", () => { m.close(); openWelcome(); });
       m.el.querySelector("#settings-check-update").addEventListener("click", async () => {
         await checkGitHubUpdates();

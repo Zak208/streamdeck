@@ -391,11 +391,17 @@ function renderDeck(config) {
   const total = config.layout?.total_slots || columns * rows;
   deckGrid.style.setProperty("--cols", columns);
   deckGrid.style.setProperty("--rows", rows);
-  // Portrait flows the cells into at most three columns (see style.css).
-  const portraitCols = Math.min(columns, 3);
-  deckGrid.style.setProperty("--pcols", portraitCols);
-  deckGrid.style.setProperty("--prows", Math.ceil(total / portraitCols));
-  deckGrid.toggleAttribute("data-custom", !(portraitCols === 3 && Math.ceil(total / portraitCols) === 4));
+  // The original 6 x 2 deck flows into 3 wide columns in portrait. Any other size keeps its own columns there,
+  // with smaller cells (see style.css).
+  const isDefault = columns === 6 && rows === 2;
+  deckGrid.style.setProperty("--pcols", columns);
+  deckGrid.style.setProperty("--prows", rows);
+  deckGrid.toggleAttribute("data-custom", !isDefault);
+  // A big deck (many columns or rows) keeps usable cells and scrolls when they do not fit the screen.
+  deckGrid.toggleAttribute("data-big", columns > 6 || rows > 4);
+  // Up to 8 columns the cells shrink to fit a 390 px screen; only 9 or 10 columns scroll sideways.
+  deckGrid.style.setProperty("--min-col", columns > 8 ? "42px" : "36px");
+  deckGrid.style.setProperty("--min-row", rows > 4 ? "56px" : "60px");
 
   for (let idx = 0; idx < total; idx++) {
     const slot = slots[idx] || { index: idx, type: "empty" };
@@ -447,10 +453,13 @@ function applyMicState(mic) {
 }
 
 // Studio owns the theme. The phone follows it and remembers it for the next load.
+const KNOWN_THEMES = ["ctma", "cian", "violeta", "verde", "rojo", "rosa", "naranja"];
 function applyTheme(theme) {
-  if (theme !== "ctma" && theme !== "cian") return;
+  if (!KNOWN_THEMES.includes(theme)) return;
   document.documentElement.dataset.theme = theme;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "cian" ? "#080a10" : "#0a0a0a");
+  // The browser bar takes the page background, whichever palette that is.
+  const background = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+  if (background) document.querySelector('meta[name="theme-color"]')?.setAttribute("content", background);
   try { localStorage.setItem("streamdesk_theme", theme); } catch (e) {}
 }
 

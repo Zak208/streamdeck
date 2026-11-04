@@ -129,6 +129,10 @@ def actions() -> List[Dict[str, Any]]:
         {"id": "lock_pc", "label": "Bloquear PC", "sublabel": "Windows", "icon": "/static/icons/lock.svg",
          "color": "#f8c700", "action_type": "windows", "target": "lock_pc", "extra": {},
          "description": "Bloquea la sesión de Windows, como Win+L."},
+        {"id": "command", "label": "Comandos de consola", "sublabel": "PowerShell o cmd", "icon": "/static/icons/sliders.svg",
+         "color": "#a855f7", "action_type": "command", "target": "powershell", "extra": {"commands": ["Get-Date"]},
+         "configure": True, "confirm_default": True,
+         "description": "Ejecuta uno o varios comandos de PowerShell o cmd, en orden. Hay que activarlos antes en Ajustes."},
     ]
 
 

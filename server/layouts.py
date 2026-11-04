@@ -8,10 +8,11 @@ first two rows of its column: the slider sits at index `column` and the cell und
 from __future__ import annotations
 
 import copy
+import re
 import uuid
 from typing import Any, Dict, List, Tuple
 
-# name -> (rows, columns). A fader needs two rows, so every layout has at least two.
+# Quick picks, name -> (rows, columns). Names read "<columns>x<rows>". Any size inside LIMITS is also allowed.
 LAYOUTS: Dict[str, Tuple[int, int]] = {
     "6x2": (2, 6),
     "5x3": (3, 5),
@@ -21,17 +22,46 @@ LAYOUTS: Dict[str, Tuple[int, int]] = {
 }
 DEFAULT_LAYOUT = "6x2"
 
+# A fader needs two rows, so a grid has at least two. The phone is small: keep the total reasonable.
+LIMITS = {"min_columns": 2, "max_columns": 10, "min_rows": 2, "max_rows": 8, "max_total": 64}
 
-def layout_dict(name: str) -> Dict[str, int]:
-    rows, columns = LAYOUTS[name]
-    return {"rows": rows, "columns": columns, "total_slots": rows * columns}
+
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def valid_size(rows: Any, columns: Any) -> bool:
+    return (_is_int(rows) and _is_int(columns)
+            and LIMITS["min_rows"] <= rows <= LIMITS["max_rows"]
+            and LIMITS["min_columns"] <= columns <= LIMITS["max_columns"]
+            and rows * columns <= LIMITS["max_total"])
+
+
+def parse_layout(spec: Any) -> Tuple[int, int]:
+    """(rows, columns) from "<columns>x<rows>" (e.g. "4x8") or {"columns": 4, "rows": 8}. Raises ValueError."""
+    rows = columns = None
+    if isinstance(spec, str):
+        match = re.fullmatch(r"\s*([0-9]{1,2})\s*[xX]\s*([0-9]{1,2})\s*", spec, re.ASCII)
+        if match:
+            columns, rows = int(match.group(1)), int(match.group(2))
+    elif isinstance(spec, dict):
+        rows, columns = spec.get("rows"), spec.get("columns")
+    if not valid_size(rows, columns):
+        raise ValueError(
+            f"La cuadrícula debe tener entre {LIMITS['min_columns']} y {LIMITS['max_columns']} columnas, "
+            f"entre {LIMITS['min_rows']} y {LIMITS['max_rows']} filas y como máximo {LIMITS['max_total']} casillas")
+    return rows, columns
 
 
 def layout_name(rows: int, columns: int) -> str:
-    for name, size in LAYOUTS.items():
-        if size == (rows, columns):
-            return name
-    raise ValueError("Esa cuadrícula no está disponible")
+    if not valid_size(rows, columns):
+        raise ValueError("Esa cuadrícula no está disponible")
+    return f"{columns}x{rows}"
+
+
+def layout_dict(spec: Any) -> Dict[str, int]:
+    rows, columns = LAYOUTS[spec] if isinstance(spec, str) and spec in LAYOUTS else parse_layout(spec)
+    return {"rows": rows, "columns": columns, "total_slots": rows * columns}
 
 
 def size_of(raw: Any) -> Tuple[int, int]:
@@ -40,11 +70,7 @@ def size_of(raw: Any) -> Tuple[int, int]:
         return LAYOUTS[DEFAULT_LAYOUT]
     if not isinstance(raw, dict):
         raise ValueError("La cuadrícula no es válida")
-    rows, columns = raw.get("rows"), raw.get("columns")
-    if not isinstance(rows, int) or not isinstance(columns, int) or isinstance(rows, bool) or isinstance(columns, bool):
-        raise ValueError("La cuadrícula no es válida")
-    layout_name(rows, columns)  # raises when it is not one of the offered sizes
-    return rows, columns
+    return parse_layout(raw)
 
 
 def _occupied(column: int, columns: int) -> Dict[str, Any]:
@@ -119,18 +145,19 @@ def convert_slots(slots: List[Dict[str, Any]], old: Tuple[int, int], new: Tuple[
     return [cell if cell is not None else {"index": i, "type": "empty"} for i, cell in enumerate(placed)], dropped
 
 
-def convert_config(config: Dict[str, Any], name: str) -> Tuple[Dict[str, Any], int]:
-    """A copy of the whole profile in another grid size, and the number of items that did not fit."""
-    if name not in LAYOUTS:
-        raise ValueError("Esa cuadrícula no está disponible")
+def convert_config(config: Dict[str, Any], spec: Any) -> Tuple[Dict[str, Any], int]:
+    """A copy of the whole profile in another grid size, and the number of items that did not fit.
+
+    `spec` is a quick-pick name or "<columns>x<rows>" or {"columns": n, "rows": n}."""
+    new_layout = layout_dict(spec)
     old = size_of(config.get("layout"))
-    new = LAYOUTS[name]
+    new = (new_layout["rows"], new_layout["columns"])
     converted = copy.deepcopy(config)
     dropped = 0
     if old != new:
         for page in converted["pages"]:
             page["slots"], lost = convert_slots(page["slots"], old, new)
             dropped += lost
-    converted["layout"] = layout_dict(name)
+    converted["layout"] = new_layout
     converted["slots"] = copy.deepcopy(converted["pages"][converted.get("current_page", 0)]["slots"])
     return converted, dropped

@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import itertools
 import shutil
 import time
 from typing import Dict, Any, List
@@ -8,6 +9,7 @@ from server.action_catalog import validate_deck_config
 from server.paths import CONFIG_DIR
 
 CONFIG_FILE = os.path.join(CONFIG_DIR, "deck_config.json")
+_BACKUP_COUNTER = itertools.count()  # the clock ticks every ~15 ms on Windows: names must not depend on it alone
 
 def generate_default_pages() -> List[Dict[str, Any]]:
     # Page 1: Principal (Apps & Faders)
@@ -145,7 +147,7 @@ class ConfigManager:
         """Keep a copy of the saved profile next to it before a change that rearranges it. Returns its path."""
         if not os.path.exists(CONFIG_FILE):
             return ""
-        path = f"{CONFIG_FILE}.{tag}-{int(time.time())}"
+        path = f"{CONFIG_FILE}.{tag}-{time.time_ns()}-{next(_BACKUP_COUNTER)}"
         try:
             shutil.copyfile(CONFIG_FILE, path)
         except OSError:
