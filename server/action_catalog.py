@@ -11,11 +11,14 @@ import re
 from typing import Any, Dict, List
 from urllib.parse import urlparse
 
+from server.layouts import LAYOUTS, layout_dict, layout_name, size_of
+
 
 ACTION_TYPES = frozenset({
     "preset_app", "launch", "media", "url", "obs_action", "hardware_monitor",
-    "sound", "multi", "spotify_uri", "discord_hotkey", "discord_sound", "windows", "hotkey", "text", "page",
+    "sound", "multi", "spotify_uri", "discord_hotkey", "discord_sound", "windows", "hotkey", "text", "page", "folder",
 })
+GESTURES = ("long_press", "double_tap")  # extra actions a button can run on a long press or a double tap
 WINDOWS_TARGETS = frozenset({"mic_mute", "app_mute", "output_device", "lock_pc"})
 PAGE_KEYWORDS = frozenset({"next", "prev", "first"})
 MAX_TEXT_LENGTH = 300
@@ -37,6 +40,7 @@ SLOT_TYPES = frozenset({"button", "slider", "empty", "occupied_by_slider"})
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 SAFE_APP_TARGET = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 SAFE_PROCESS = re.compile(r"^[A-Za-z0-9_. -]{1,128}$")
+FOLDER_PATH = re.compile(r'^[A-Za-z]:\\[^<>:"/|?*\x00-\x1f]*$')
 SAFE_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 SPOTIFY_URI = re.compile(r"^spotify:(playlist|album|artist|track):([A-Za-z0-9]{10,64})$")
 
@@ -108,7 +112,7 @@ def _image_path(value: Any) -> str:
     path = _text(value, "imagen", 180)
     if not path:
         return ""
-    if not path.startswith(("/static/icons/", "/static/uploads/", "/uploads/")) or ".." in path:
+    if not path.startswith(("/static/icons/", "/static/uploads/", "/uploads/")) or ".." in path             or not re.fullmatch(r"[A-Za-z0-9_./-]+", path):
         raise ValueError("La imagen debe ser un icono local de StreamDesk")
     return path
 
@@ -139,8 +143,15 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
         clean_extra = {}
     elif action_type == "url":
         parsed = urlparse(target_text)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("Solo se permiten enlaces http o https")
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or any(not char.isprintable() or char.isspace() for char in target_text):
+            raise ValueError("Solo se permiten enlaces http o https, sin espacios ni saltos de línea")
+        clean_extra = {}
+    elif action_type == "folder":
+        # A local drive path only: a network (UNC) path would make Windows send credentials to another computer.
+        folder = target_text.replace("/", "\\").rstrip()
+        if not FOLDER_PATH.fullmatch(folder) or ".." in folder.split("\\") or len(folder) > 240:
+            raise ValueError("La carpeta debe ser una ruta local de un disco, por ejemplo D:\\Proyectos")
+        target_text = folder
         clean_extra = {}
     elif action_type == "spotify_uri":
         target_text = normalize_spotify_uri(target_text)
@@ -226,6 +237,9 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
     if not isinstance(raw_config, dict):
         raise ValueError("La configuración debe ser un objeto")
 
+    rows, columns = size_of(raw_config.get("layout"))
+    total_slots = rows * columns
+
     pages = raw_config.get("pages")
     if not isinstance(pages, list) or not 1 <= len(pages) <= 20:
         raise ValueError("El perfil necesita entre una y veinte páginas")
@@ -247,8 +261,8 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
         if page.get("auto_discord"):
             auto_discord = _text(page["auto_discord"], "servidor de Discord de la página", 80, allow_empty=False)
         slots = page.get("slots")
-        if not isinstance(slots, list) or len(slots) != 12:
-            raise ValueError("Cada página debe tener exactamente doce casillas")
+        if not isinstance(slots, list) or len(slots) != total_slots:
+            raise ValueError(f"Cada página debe tener exactamente {total_slots} casillas")
 
         clean_slots: List[Dict[str, Any]] = []
         slot_ids = set()
@@ -272,9 +286,11 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
             slot_ids.add(slot_id)
             clean_slot["id"] = slot_id
 
+            if slot_type == "slider" and slot_index >= columns:
+                raise ValueError("Un fader solo puede ir en la primera fila")
             if slot_type == "occupied_by_slider":
                 parent_slot = slot.get("parent_slot")
-                if not isinstance(parent_slot, int) or not 0 <= parent_slot < 6:
+                if not isinstance(parent_slot, int) or not 0 <= parent_slot < columns:
                     raise ValueError("La casilla ocupada no referencia un fader válido")
                 clean_slot["parent_slot"] = parent_slot
                 clean_slots.append(clean_slot)
@@ -292,6 +308,20 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
 
             if slot_type == "button":
                 clean_slot.update(validate_action(slot.get("action_type"), slot.get("target"), slot.get("extra")))
+                for gesture in GESTURES:
+                    raw_gesture = slot.get(gesture)
+                    if not raw_gesture:
+                        continue
+                    if not isinstance(raw_gesture, dict):
+                        raise ValueError("La acción de toque largo o doble toque no es válida")
+                    clean_slot[gesture] = validate_action(
+                        raw_gesture.get("action_type"), raw_gesture.get("target"), raw_gesture.get("extra"))
+                for flag in ("confirm", "disabled"):
+                    value = slot.get(flag)
+                    if value not in (None, True, False, 0, 1) or isinstance(value, str):
+                        raise ValueError("«confirmar» y «desactivado» deben ser verdadero o falso")
+                    if value:
+                        clean_slot[flag] = True  # confirm: the phone asks first; disabled: kept, but does nothing
             else:
                 slider_type = _text(slot.get("slider_type", "master"), "tipo de fader", 30, allow_empty=False)
                 if slider_type not in {"master", "app_dynamic"}:
@@ -304,8 +334,12 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
                 clean_slot.update({"slider_type": slider_type, "target_app": target_app if slider_type == "app_dynamic" else None, "row_span": 2})
             clean_slots.append(clean_slot)
 
-        for column in range(6):
-            top, bottom = clean_slots[column], clean_slots[column + 6]
+        for index, slot in enumerate(clean_slots):
+            # A fader's second cell is always the one right under it, on the second row.
+            if slot["type"] == "occupied_by_slider" and index != slot["parent_slot"] + columns:
+                raise ValueError("Una casilla ocupada tiene que estar justo debajo de su fader")
+        for column in range(columns):
+            top, bottom = clean_slots[column], clean_slots[column + columns]
             if top["type"] == "slider":
                 if bottom["type"] != "occupied_by_slider" or bottom.get("parent_slot") != column:
                     raise ValueError("Cada fader debe ocupar las dos casillas de su columna")
@@ -319,13 +353,13 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
         clean_pages.append(clean_page)
 
     current_page = raw_config.get("current_page", 0)
-    if not isinstance(current_page, int) or not 0 <= current_page < len(clean_pages):
+    if not isinstance(current_page, int) or isinstance(current_page, bool) or not 0 <= current_page < len(clean_pages):
         raise ValueError("La página activa no es válida")
 
     return {
         "schema_version": 2,
         "deck_name": _text(raw_config.get("deck_name", "StreamDesk"), "nombre del deck", 48, allow_empty=False),
-        "layout": {"rows": 2, "columns": 6, "total_slots": 12},
+        "layout": layout_dict(layout_name(rows, columns)),
         "current_page": current_page,
         "pages": clean_pages,
         "slots": copy.deepcopy(clean_pages[current_page]["slots"]),

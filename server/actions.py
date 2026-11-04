@@ -233,6 +233,12 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
             webbrowser.open(target)
             return {"success": True, "action": action_type, "target": target}
 
+        if action_type == "folder":
+            if not os.path.isdir(target):
+                return {"success": False, "error": f"La carpeta {target} no existe en este PC"}
+            os.startfile(target)  # a directory only opens in Explorer; it never runs anything
+            return {"success": True, "action": action_type, "target": target}
+
         if action_type == "obs_action":
             from server.obs_client import obs_client
             return obs_client.execute_obs_action(target, extra)

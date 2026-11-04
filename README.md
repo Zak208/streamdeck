@@ -1,6 +1,6 @@
 # 🎛️ StreamDesk Pro: Controlador Táctil 6x2 para PC desde Móvil
 
-**StreamDesk Pro** convierte un smartphone o una tablet en una superficie de control táctil e inalámbrica para un PC con Windows, con una **cuadrícula de 6x2 (12 casillas; los faders verticales ocupan 2 casillas)**, faders de volumen, detección de las aplicaciones instaladas y conectores para OBS, Spotify y Discord.
+**StreamDesk Pro** convierte un smartphone o una tablet en una superficie de control táctil e inalámbrica para un PC con Windows, con una **cuadrícula de 6x2 por defecto (12 casillas; los faders verticales ocupan 2 casillas), configurable en Ajustes**, faders de volumen, detección de las aplicaciones instaladas y conectores para OBS, Spotify y Discord.
 
 Incluye una **aplicación de escritorio** (FastAPI y WebView2) que aloja el servidor y el editor Studio, sin consolas abiertas ni navegador externo. Su aspecto es oscuro y minimalista, con la paleta corporativa de CTMA (negro, gris y amarillo); la organización del editor (biblioteca de acciones a un lado, cuadrícula en el centro, propiedades al otro) sigue la lógica de la aplicación de Elgato, no la de Spotify.
 
@@ -30,7 +30,7 @@ Incluye una **aplicación de escritorio** (FastAPI y WebView2) que aloja el serv
 - Soporte para muteo táctil con feedback visual del estado del micrófono o volumen de Windows.
 
 ### 4. 🔄 Actualización desde GitHub (solo modo desarrollador)
-- La barra superior de Studio muestra la versión (`v2.11.0`) y compara tu copia con el último commit de `https://github.com/Zak208/streamdeck`.
+- La barra superior de Studio muestra la versión (`v2.12.0`) y compara tu copia con el último commit de `https://github.com/Zak208/streamdeck`.
 - El botón de actualizar ejecuta `git pull --ff-only` (`/api/system/apply-update`), así que **solo funciona si ejecutas StreamDesk desde un clon del repositorio**.
 - En la versión instalada o compilada no hay carpeta `.git`: ahí Studio avisa de que hay que descargar un instalador nuevo.
 
@@ -90,6 +90,15 @@ Inspirado en la aplicación oficial de Elgato:
 - **Páginas inteligentes:** en los ajustes de una página (⚙ junto a las pestañas) eliges un programa, y el móvil salta a esa página cuando ese programa pasa a primer plano. Si la cambias tú a mano no te la deshace hasta que cambies de programa.
 - **Duplicar páginas** y **guardar o cargar una copia del perfil** (Ajustes > Perfil). La copia no incluye contraseñas, móviles emparejados ni las imágenes que hayas subido; al cargar una se guarda antes una copia del perfil actual.
 
+## 🖐️ Gestos, confirmación y cuadrícula
+
+- **Pulsación larga y doble toque:** en la pestaña *Acción* de una casilla marcas «Pulsación larga» o «Doble toque» y eliges qué hace cada uno (atajo, texto, web, carpeta, aplicación, multiacción...). El móvil lo avisa con dos puntitos en la casilla. Un botón con gestos espera unas décimas de segundo (280 ms para el doble toque, 500 ms para la pulsación larga) para saber cuál haces; los botones sin gestos siguen actuando al tocarlos.
+- **Pedir confirmación:** el móvil pregunta «¿Ejecutar...?» antes de lanzar el botón (útil para bloquear el PC o cerrar un directo).
+- **Desactivar un botón** sin borrarlo: se ve apagado en el móvil y el servidor rechaza la pulsación aunque llegue.
+- **Abrir una carpeta:** en la biblioteca (Sistema). Solo rutas con letra de unidad (`D:\Proyectos`); se rechazan las rutas de red de tipo `\servidor\recurso` y las que contienen `..`. Una unidad de red mapeada con letra sí se aceptaría.
+- **Atajos por aplicación:** en la biblioteca hay paquetes para Zoom, Teams, Meet, VLC, PowerPoint, DaVinci Resolve, Photoshop, Audacity y el navegador. Son atajos de teclado que van a la ventana que tenga el foco, así que **la aplicación tiene que estar a la vista** en el PC; si cambias los atajos en la propia aplicación, edítalos en la casilla. Los atajos son los que cada programa trae por defecto, no los he probado dentro de cada uno.
+- **Cuadrícula configurable** (Ajustes > Cuadrícula): 6x2 (por defecto), 5x3, 4x3, 3x3 y 4x2. Al cambiar, cada botón conserva su casilla si existe en la nueva cuadrícula; los faders ocupan siempre las dos primeras filas de su columna, y si se quedan sin columna toman las de más a la derecha y los botones que estaban ahí bajan a una casilla libre. Si algo no cabe (por ejemplo, pasar a 4x2), Studio te dice cuántos elementos se han quedado fuera. Antes de convertir se guarda una copia del perfil junto a `deck_config.json`.
+
 ## 📊 Monitores del sistema
 
 Las casillas de monitor muestran en vivo: **CPU**, **RAM**, **GPU** y **VRAM** (tarjetas NVIDIA, leídas con su librería `nvml.dll`; con otras marcas muestran *N/D*), **Red** (descarga y subida de la tarjeta que usa tu red local) y **Disco** (velocidad de lectura y escritura). El porcentaje de disco ocupado sigue disponible como acción, pero ya no está en la página Sistema por defecto.
@@ -140,6 +149,9 @@ Las contraseñas y tokens se guardan en `config/settings.json` dentro de tu carp
 ## 🔒 Seguridad
 
 - **Studio y la configuración solo se abren desde el propio PC.** Todas las rutas de administración (configuración, subida de imágenes, PIN, actualización, conectores, perfil) responden `403` a cualquier cliente que no sea `localhost`. El móvil solo usa el WebSocket con su token.
+- **Otras webs no pueden usar `localhost`:** las rutas de administración y el WebSocket local comprueban que la petición se dirige a `localhost`, `127.0.0.1` o `::1` y, en el WebSocket, que el `Origin` coincide con el servidor. Así una página abierta en tu navegador no puede pulsar botones ni leer tu perfil (ni siquiera con DNS rebinding).
+- **Iconos y subidas:** las rutas de imagen solo admiten `[A-Za-z0-9_./-]`, los textos del perfil se escapan al pintarlos en el móvil, y las subidas se validan por sus primeros bytes (PNG, JPG o WEBP), no por el tipo que declare el navegador. No se publica la documentación interactiva de la API.
+- **Perfiles de otra persona:** al cargar un perfil con atajos de teclado, texto o carpetas, Studio avisa antes de importarlo, porque esas acciones se ejecutan en tu PC.
 - **CORS limitado** a `http://localhost` y `http://127.0.0.1` en el puerto de StreamDesk.
 - **PIN de 6 dígitos** generado con `secrets`, comparado en tiempo constante y con límite de 5 intentos por IP cada 10 minutos.
 - **Móviles revocables** desde Ajustes. Contraseñas y tokens de conectores se guardan en `config/settings.json` y no se envían al navegador.

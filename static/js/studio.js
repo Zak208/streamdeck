@@ -1,5 +1,15 @@
 // StreamDesk Studio Pro — UI/UX Overhaul & 1-Click App Linking
 let config = null;
+
+// Size of the deck, from the profile (older profiles have no layout: 2 rows of 6).
+function gridCols() { return config?.layout?.columns || 6; }
+function gridRows() { return config?.layout?.rows || 2; }
+function gridTotal() { return config?.layout?.total_slots || gridCols() * gridRows(); }
+// A fader takes the first two rows of its column. True when this cell is part of one (or could hold one).
+function inFaderColumn(slots, index) {
+  const col = index % gridCols();
+  return Math.floor(index / gridCols()) < 2 && (slots[col]?.type === "slider" || slots[index]?.type === "occupied_by_slider");
+}
 let activePageIndex = 0;
 let selectedSlotIndex = null;
 let audioSessions = [];
@@ -231,6 +241,9 @@ function renderPageTabs() {
     pageTabs.appendChild(btn);
   });
 
+  // With many pages the strip scrolls: bring the active tab into view.
+  pageTabs.querySelector(".page-tab-btn.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+
   if (phonePreviewPageName && pages[activePageIndex]) {
     phonePreviewPageName.textContent = pages[activePageIndex].name || `Página ${activePageIndex + 1}`;
   }
@@ -275,16 +288,16 @@ btnDeletePage?.addEventListener("click", async () => {
   });
   if (!confirmed) return;
   try {
+    const deletedIndex = activePageIndex;
     const res = await fetch("/api/deck/page/delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ page_index: activePageIndex })
+      body: JSON.stringify({ page_index: deletedIndex })
     });
     const data = await res.json();
     if (data.success) {
-      await loadConfig();
-      const newPageIdx = Math.max(0, activePageIndex - 1);
-      switchPage(newPageIdx);
+      await loadConfig(); // this may already have moved activePageIndex, so use the index we deleted
+      switchPage(Math.max(0, deletedIndex - 1));
       showToast(`Página "${curName}" eliminada`);
     } else {
       showToast(data.error || "Error al eliminar página");
@@ -304,7 +317,7 @@ function resetInspectorDrawer() {
   `;
 }
 
-// Render the 6x2 Phone Screen Simulator
+// Render the phone screen simulator (the deck, in the size the profile has)
 function renderPhoneScreen() {
   if (!config) return;
   phoneScreen.innerHTML = "";
@@ -312,10 +325,12 @@ function renderPhoneScreen() {
   const pages = config.pages || [];
   const currentSlots = (pages[activePageIndex] ? pages[activePageIndex].slots : config.slots) || [];
 
-  for (let i = 0; i < 12; i++) {
+  phoneScreen.style.setProperty("--cols", gridCols());
+  phoneScreen.style.setProperty("--rows", gridRows());
+  for (let i = 0; i < gridTotal(); i++) {
     const slot = currentSlots[i] || { index: i, type: "empty" };
-    const col = (i % 6) + 1; // 1 to 6
-    const row = Math.floor(i / 6) + 1; // 1 or 2
+    const col = (i % gridCols()) + 1;
+    const row = Math.floor(i / gridCols()) + 1;
 
     // If occupied by a 2-height vertical slider, it is merged with the slot above
     if (slot.type === "occupied_by_slider") {
@@ -477,7 +492,7 @@ function clearAllDragHighlights() {
 function highlightCoordinatedFaderColumn(col) {
   clearAllDragHighlights();
   const topCell = document.getElementById(`cell_slot_${col}`);
-  const bottomCell = document.getElementById(`cell_slot_${col + 6}`);
+  const bottomCell = document.getElementById(`cell_slot_${col + gridCols()}`);
   if (topCell) {
     if (topCell.classList.contains("cell-slider-spanning")) {
       topCell.classList.add("drag-over-fader-top", "drag-over-fader-bottom");
@@ -502,17 +517,17 @@ function triggerDropBounce(index) {
 
 function clearColumn(slots, col) {
   slots[col] = { index: col, type: "empty" };
-  slots[col + 6] = { index: col + 6, type: "empty" };
+  slots[col + gridCols()] = { index: col + gridCols(), type: "empty" };
 }
 
 function emptySlotByIndex(idx) {
   const pages = config?.pages || [];
   const currentSlots = (pages[activePageIndex] ? pages[activePageIndex].slots : config?.slots) || [];
-  const col = idx % 6;
+  const col = idx % gridCols();
   const slot = currentSlots[idx];
   if (!slot || slot.type === "empty") return;
 
-  if (slot.type === "slider" || slot.type === "occupied_by_slider" || currentSlots[col]?.type === "slider") {
+  if (slot.type === "slider" || slot.type === "occupied_by_slider" || inFaderColumn(currentSlots, idx)) {
     clearColumn(currentSlots, col);
     showToast(`Columna #${col + 1} vaciada`);
   } else {
@@ -528,7 +543,7 @@ function pasteCopiedSlot(targetIdx) {
   if (!copiedSlotConfig) return;
   const pages = config?.pages || [];
   const currentSlots = (pages[activePageIndex] ? pages[activePageIndex].slots : config?.slots) || [];
-  const tCol = targetIdx % 6;
+  const tCol = targetIdx % gridCols();
 
   if (copiedSlotConfig.type === "slider") {
     clearColumn(currentSlots, tCol);
@@ -536,10 +551,10 @@ function pasteCopiedSlot(targetIdx) {
     pastedSlider.index = tCol;
     pastedSlider.id = `slider_${Date.now()}`;
     currentSlots[tCol] = pastedSlider;
-    currentSlots[tCol + 6] = {
-      index: tCol + 6,
+    currentSlots[tCol + gridCols()] = {
+      index: tCol + gridCols(),
       type: "occupied_by_slider",
-      id: `slot_${tCol + 6}`,
+      id: `slot_${tCol + gridCols()}`,
       label: "Ocupado por Slider",
       parent_slot: tCol
     };
@@ -549,7 +564,7 @@ function pasteCopiedSlot(targetIdx) {
     saveConfigToServer();
     showToast(`Fader pegado en Columna #${tCol + 1} (Ctrl+V)`);
   } else {
-    if (currentSlots[tCol]?.type === "slider" || currentSlots[targetIdx]?.type === "occupied_by_slider") {
+    if (inFaderColumn(currentSlots, targetIdx)) {
       clearColumn(currentSlots, tCol);
     }
     const pastedBtn = JSON.parse(JSON.stringify(copiedSlotConfig));
@@ -654,9 +669,9 @@ function createStudioFaderCard(slider, index) {
 // Drag & Drop Handling on Slots
 function handleDropOnSlot(targetIndex) {
   clearAllDragHighlights();
-  const col = targetIndex % 6;
+  const col = targetIndex % gridCols();
   const topSlot = col;
-  const bottomSlot = col + 6;
+  const bottomSlot = col + gridCols();
   const currentSlots = config.pages[activePageIndex].slots;
 
   if (dragSourceType === "palette_slider") {
@@ -690,7 +705,7 @@ function handleDropOnSlot(targetIndex) {
 
   } else if (dragSourceType === "palette_btn") {
     // If target column had a slider, clean up both slots cleanly!
-    if (currentSlots[topSlot]?.type === "slider" || currentSlots[targetIndex]?.type === "occupied_by_slider") {
+    if (inFaderColumn(currentSlots, targetIndex)) {
       clearColumn(currentSlots, col);
     }
 
@@ -724,8 +739,8 @@ function handleDropOnSlot(targetIndex) {
       const isSourceSlider = currentSlots[draggedSlotIndex]?.type === "slider";
 
       if (isSourceSlider) {
-        const sCol = draggedSlotIndex % 6;
-        const tCol = targetIndex % 6;
+        const sCol = draggedSlotIndex % gridCols();
+        const tCol = targetIndex % gridCols();
         if (sCol !== tCol) {
           const sourceSlider = JSON.parse(JSON.stringify(currentSlots[sCol]));
           clearColumn(currentSlots, sCol);
@@ -733,10 +748,10 @@ function handleDropOnSlot(targetIndex) {
 
           sourceSlider.index = tCol;
           currentSlots[tCol] = sourceSlider;
-          currentSlots[tCol + 6] = {
-            index: tCol + 6,
+          currentSlots[tCol + gridCols()] = {
+            index: tCol + gridCols(),
             type: "occupied_by_slider",
-            id: `slot_${tCol + 6}`,
+            id: `slot_${tCol + gridCols()}`,
             parent_slot: tCol
           };
 
@@ -749,11 +764,11 @@ function handleDropOnSlot(targetIndex) {
       } else {
         const sIdx = draggedSlotIndex;
         const tIdx = targetIndex;
-        const tCol = tIdx % 6;
+        const tCol = tIdx % gridCols();
         const sourceBtn = JSON.parse(JSON.stringify(currentSlots[sIdx]));
 
-        // Check if target is in a slider column
-        if (currentSlots[tCol]?.type === "slider" || currentSlots[tIdx]?.type === "occupied_by_slider") {
+        // Check if target is part of a fader (the first two rows of its column)
+        if (inFaderColumn(currentSlots, tIdx)) {
           clearColumn(currentSlots, tCol);
           currentSlots[sIdx] = { index: sIdx, type: "empty" };
           sourceBtn.index = tIdx;
@@ -845,6 +860,20 @@ if (paletteNewSlider) {
   });
 }
 
+// The next cell for an arrow key, wrapping around the grid and skipping the cell under a fader (it has no
+// button of its own: selecting it would leave nothing highlighted and the editor showing the previous one).
+function nextSelectableSlot(step) {
+  const total = gridTotal();
+  const slots = config?.pages?.[activePageIndex]?.slots || config?.slots || [];
+  if (selectedSlotIndex === null) return 0;
+  let index = selectedSlotIndex;
+  for (let tries = 0; tries < total; tries++) {
+    index = (index + step + total) % total;
+    if (slots[index]?.type !== "occupied_by_slider") return index;
+  }
+  return selectedSlotIndex;
+}
+
 // Keyboard Shortcuts Controller
 window.addEventListener("keydown", (e) => {
   const activeEl = document.activeElement;
@@ -864,22 +893,10 @@ window.addEventListener("keydown", (e) => {
       renderPhoneScreen();
       resetInspectorDrawer();
     }
-  } else if (e.key === "ArrowRight") {
+  } else if (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
-    const next = selectedSlotIndex === null ? 0 : (selectedSlotIndex + 1) % 12;
-    selectSlot(next);
-  } else if (e.key === "ArrowLeft") {
-    e.preventDefault();
-    const prev = selectedSlotIndex === null ? 0 : (selectedSlotIndex + 11) % 12;
-    selectSlot(prev);
-  } else if (e.key === "ArrowDown") {
-    e.preventDefault();
-    const down = selectedSlotIndex === null ? 0 : (selectedSlotIndex + 6) % 12;
-    selectSlot(down);
-  } else if (e.key === "ArrowUp") {
-    e.preventDefault();
-    const up = selectedSlotIndex === null ? 0 : (selectedSlotIndex + 6) % 12;
-    selectSlot(up);
+    const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: gridCols(), ArrowUp: -gridCols() }[e.key];
+    selectSlot(nextSelectableSlot(step));
   } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
     if (selectedSlotIndex !== null) {
       const pages = config?.pages || [];
@@ -912,14 +929,14 @@ function selectSlot(index) {
     inspectorTitle.textContent = `Configurar Botón #${index + 1}`;
     renderButtonInspector(slot, index);
   } else if (slot.type === "slider") {
-    inspectorTitle.textContent = `Configurar Fader (Col #${(index % 6) + 1})`;
+    inspectorTitle.textContent = `Configurar Fader (Col #${(index % gridCols()) + 1})`;
     renderSliderInspector(slot, index);
   }
 }
 
 // Empty Slot Inspector
 function renderEmptySlotInspector(index) {
-  const col = index % 6;
+  const col = index % gridCols();
   const currentSlots = config.pages[activePageIndex].slots;
 
   inspectorContent.innerHTML = `
@@ -967,10 +984,10 @@ function renderEmptySlotInspector(index) {
       icon: "/static/icons/volume_up.svg",
       image: "/static/icons/volume_up.svg"
     };
-    currentSlots[col + 6] = {
-      index: col + 6,
+    currentSlots[col + gridCols()] = {
+      index: col + gridCols(),
       type: "occupied_by_slider",
-      id: `slot_${col + 6}`,
+      id: `slot_${col + gridCols()}`,
       parent_slot: col
     };
     renderPhoneScreen();
@@ -1337,7 +1354,7 @@ function renderDiscordSounds(area, ctx) {
     <select id="dc-guild">${sections.map(name => `<option value="${escapeHtml(name)}" ${name === current ? "selected" : ""}>${escapeHtml(name)}${name === current ? " (donde estás)" : ""}</option>`).join("")}</select>
     <div class="option-list" id="dc-sounds"></div>
     <button class="btn-primary" id="dc-make-page" disabled></button>
-    <p class="integration-hint">Marca los sonidos que quieras de este servidor (hasta 12) y crea su página: se abrirá sola en el móvil cuando entres a un canal de voz de ese servidor.</p>`;
+    <p class="integration-hint">Marca los sonidos que quieras de este servidor (hasta ${gridTotal()}) y crea su página: se abrirá sola en el móvil cuando entres a un canal de voz de ese servidor.</p>`;
   const select = area.querySelector("#dc-guild");
   const list = area.querySelector("#dc-sounds");
   const makePage = area.querySelector("#dc-make-page");
@@ -1369,9 +1386,9 @@ function renderDiscordSounds(area, ctx) {
     if (!box) return;
     const set = picked.get(select.value);
     const label = shown[Number(box.dataset.pick)].label;
-    if (box.checked && set.size >= 12) {
+    if (box.checked && set.size >= gridTotal()) {
       box.checked = false;
-      return showToast("Una página tiene 12 casillas: quita algún sonido antes de añadir otro");
+      return showToast(`Una página tiene ${gridTotal()} casillas: quita algún sonido antes de añadir otro`);
     }
     if (box.checked) set.add(label); else set.delete(label);
     updateMakePage();
@@ -1620,7 +1637,7 @@ function renderTabDesign(container, btn, index) {
 // Fader inspector: master volume or one app's volume.
 function renderSliderInspector(slider, index) {
   const isMaster = slider.slider_type === "master" || slider.type === "master";
-  const col = index % 6;
+  const col = index % gridCols();
   const currentSlots = config.pages[activePageIndex].slots;
 
   const sessions = [...new Map(audioSessions.map(s => [s.process_name, s])).values()];
@@ -1738,7 +1755,7 @@ function renderSliderInspector(slider, index) {
 
   document.getElementById("btn-delete-slider")?.addEventListener("click", () => {
     currentSlots[col] = { index: col, type: "empty" };
-    currentSlots[col + 6] = { index: col + 6, type: "empty" };
+    currentSlots[col + gridCols()] = { index: col + gridCols(), type: "empty" };
     renderPhoneScreen();
     selectSlot(col);
     saveConfigToServer();

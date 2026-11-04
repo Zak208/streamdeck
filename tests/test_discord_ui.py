@@ -341,7 +341,8 @@ class ServerPageLoopTests(unittest.TestCase):
             pass
 
         with mock.patch.object(main, "config_manager", config), mock.patch.object(main.ws_manager, "broadcast", broadcast), \
-                mock.patch.object(main.discord_ui, "current_voice_server", look), mock.patch.object(main.asyncio, "sleep", sleep):
+                mock.patch.object(main.discord_ui, "current_voice_server", look), mock.patch.object(main.asyncio, "sleep", sleep), \
+                mock.patch.object(main, "foreground_process", return_value=""):  # not whatever program is in front right now
             try:
                 asyncio.run(main.smart_page_loop())
             except asyncio.CancelledError:

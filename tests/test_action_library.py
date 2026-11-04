@@ -32,6 +32,7 @@ const code = [
   grab(studio, /const MEDIA_PRESETS = \[[\s\S]*?\r?\n\];/),
   grab(studio, /const TELEMETRY_PRESETS = \[[\s\S]*?\r?\n\];/),
   grab(library, /const LIBRARY_ACCENT = [^\r\n]*;/),
+  grab(library, /function appKey\([\s\S]*?\r?\n\}\r?\n/),
   grab(library, /function builtInLibrary\(\) \{[\s\S]*?\r?\n\}\r?\n/),
   "JSON.stringify(builtInLibrary())",
 ].join("\n");
@@ -95,6 +96,8 @@ class LibraryTests(unittest.TestCase):
             for name in ("send_hotkey", "send_vk_key", "type_text", "launch_smart_app"):
                 stack.enter_context(mock.patch.object(actions, name, recorder))
             stack.enter_context(mock.patch.object(actions.webbrowser, "open", recorder))
+            stack.enter_context(mock.patch.object(actions.os, "startfile", recorder, create=True))
+            stack.enter_context(mock.patch.object(actions.os.path, "isdir", return_value=True))
             stack.enter_context(mock.patch.object(actions.winsound, "Beep", recorder))
             stack.enter_context(mock.patch.object(actions.winsound, "MessageBeep", recorder))
             stack.enter_context(mock.patch.object(actions.windows, "execute", return_value={"success": True}))

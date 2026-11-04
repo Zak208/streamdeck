@@ -9,6 +9,16 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from server.connectors import discord, obs, windows
+from server.layouts import LAYOUTS, convert_slots
+
+BASE = LAYOUTS["6x2"]  # the pages below are drawn on the original grid and converted to the profile's one
+
+
+def _fit(slots: List[Dict[str, Any]], layout: Optional[tuple]) -> tuple:
+    """The 6x2 page in the profile's grid, and how many items did not fit."""
+    if not layout or tuple(layout) == BASE:
+        return slots, 0
+    return convert_slots(slots, BASE, tuple(layout))
 
 ACCENT = "#f8c700"
 
@@ -54,8 +64,8 @@ def _fader(index: int, prefix: str, label: str, sublabel: str, icon: str, color:
     }, {"index": index + 6, "type": "occupied_by_slider", "id": f"{prefix}_{index + 6}", "parent_slot": index}]
 
 
-def _page(slots: Dict[int, Dict[str, Any]], faders: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-    layout = [_empty(i) for i in range(12)]
+def _page(slots: Dict[int, Dict[str, Any]], faders: List[List[Dict[str, Any]]], total: int = 12) -> List[Dict[str, Any]]:
+    layout = [_empty(i) for i in range(total)]
     for index, slot in slots.items():
         layout[index] = slot
     for fader in faders:
@@ -64,18 +74,19 @@ def _page(slots: Dict[int, Dict[str, Any]], faders: List[List[Dict[str, Any]]]) 
     return layout
 
 
-def discord_server_page(server: str, labels: List[str]) -> Dict[str, Any]:
+def discord_server_page(server: str, labels: List[str], layout: Optional[tuple] = None) -> Dict[str, Any]:
     """A page of Discord sounds that opens by itself when the user is in a voice channel of `server`."""
     from server.discord_ui import split_label
-    if not 1 <= len(labels) <= 12:
-        raise ValueError("Elige entre 1 y 12 sonidos para la página")
+    capacity = (layout[0] * layout[1]) if layout else 12
+    if not 1 <= len(labels) <= capacity:
+        raise ValueError(f"Elige entre 1 y {capacity} sonidos para la página")
     prefix = f"dc_{uuid.uuid4().hex[:6]}"
     slots = {}
     for index, label in enumerate(labels):
         emoji, name = split_label(label)
         slots[index] = _button(index, prefix, (name or label)[:32], server[:36], "/static/icons/soundboard.svg", "#5865f2",
                                "discord_sound", label, {"section": server})
-    return {"id": f"page_{uuid.uuid4().hex[:6]}", "name": server[:40], "auto_discord": server, "slots": _page(slots, [])}
+    return {"id": f"page_{uuid.uuid4().hex[:6]}", "name": server[:40], "auto_discord": server, "slots": _page(slots, [], capacity)}
 
 
 def _by_id(templates: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
@@ -136,14 +147,12 @@ def _slots(template_id: str, prefix: str) -> List[Dict[str, Any]]:
     raise ValueError("Plantilla desconocida")
 
 
-def build_page(template_id: str, name: Optional[str] = None) -> Dict[str, Any]:
+def build_page(template_id: str, name: Optional[str] = None, layout: Optional[tuple] = None) -> Dict[str, Any]:
     """A new page ready to append to a profile. Ids are fresh so pages never clash."""
     meta = next((t for t in TEMPLATES if t["id"] == template_id), None)
     if meta is None:
         raise ValueError("Plantilla desconocida")
     suffix = uuid.uuid4().hex[:6]
-    return {
-        "id": f"page_{suffix}",
-        "name": (name or "").strip() or meta["name"],
-        "slots": _slots(template_id, f"t{suffix}"),
-    }
+    slots, dropped = _fit(_slots(template_id, f"t{suffix}"), layout)
+    # "_dropped" tells the caller how many template buttons had no room; the caller removes it before saving.
+    return {"id": f"page_{suffix}", "name": (name or "").strip() or meta["name"], "slots": slots, "_dropped": dropped}

@@ -77,8 +77,8 @@ header {
 #deck-container { display: flex; flex: 1; min-height: 0; padding: 12px; }
 #deck-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  grid-template-rows: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--cols, 6), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--rows, 2), minmax(0, 1fr));
   gap: 10px;
   width: 100%;
   height: 100%;
@@ -87,13 +87,18 @@ header {
 /* Every cell says where it goes through --col, --row and --span (see renderDeck). */
 #deck-grid > * { grid-column: var(--col, auto); grid-row: var(--row, auto) / span var(--span, 1); }
 
-/* Portrait: six narrow columns would be unreadable, so the same cells flow into three wide ones.
-   A fader keeps taking two rows; 12 slots always fill 3 x 4. */
+/* Portrait: six narrow columns would be unreadable, so the same cells flow into three wide ones (a deck with
+   three columns or fewer keeps its own). A fader keeps taking two rows. For any other size renderDeck sets
+   data-custom with --pcols and --prows; the default 12 slots are 3 x 4 and need nothing. */
 @media (orientation: portrait) {
   #deck-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     grid-template-rows: repeat(4, minmax(0, 1fr));
     grid-auto-flow: row dense;
+  }
+  #deck-grid[data-custom] {
+    grid-template-columns: repeat(var(--pcols), minmax(0, 1fr));
+    grid-template-rows: repeat(var(--prows), minmax(0, 1fr));
   }
   #deck-grid > * { grid-column: auto; grid-row: span var(--span, 1); }
 }
@@ -210,6 +215,7 @@ header {
 /* Landscape phones are short: keep the whole PIN form on screen above the keyboard. */
 @media (max-height: 520px) {
   .modal-overlay { align-items: flex-start; padding: 8px; }
+  .modal-overlay.confirm-overlay { align-items: center; }
   .modal-card { padding: 14px 18px; max-height: calc(100vh - 16px); }
   .modal-title { margin-bottom: 4px; font-size: 16px; }
   .modal-desc { margin-bottom: 10px; font-size: 12px; }
@@ -311,3 +317,26 @@ header {
 }
 .mobile-toast.show { opacity: 1; transform: translate(-50%, 0); }
 .mobile-toast.error { background: var(--danger); border-color: var(--danger); color: #0a0a0a; }
+
+/* Buttons that do more than one thing, and buttons switched off in Studio. */
+.deck-btn.has-gestures::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+  box-shadow: -10px 0 0 var(--text-3);
+  pointer-events: none;
+}
+.deck-btn.is-disabled { opacity: 0.35; filter: grayscale(1); }
+.deck-btn.has-gestures { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+
+/* A short fader card (a 3-row grid on a landscape phone) gives the track the room the header and footer take. */
+.deck-fader-card { container-type: size; }
+@container (max-height: 250px) {
+  .deck-fader-card .fader-header-icon, .deck-fader-card .fader-idle-note { display: none !important; }
+  .deck-fader-card .fader-footer { flex-direction: row; gap: 8px; }
+}

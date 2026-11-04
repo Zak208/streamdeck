@@ -1,0 +1,26 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    # StreamDesk drives Windows APIs (audio, keys, UI Automation), so the tests run on Windows.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -r requirements.txt
+      - name: Check the browser code parses
+        shell: bash
+        run: for f in static/js/*.js; do node --check "$f"; done
+      - name: Run the test suite
+        run: python -m unittest discover -s tests -v

@@ -10,8 +10,10 @@ import uuid
 import subprocess
 import time
 import urllib.request
+import mimetypes
+from urllib.parse import urlparse
 from contextlib import asynccontextmanager
-from typing import Set, Dict, Any, Optional
+from typing import Set, Dict, Any, List, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Body, UploadFile, File, Request, Depends, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
@@ -45,8 +47,8 @@ from server.audio_controller import audio_controller
 from server.com_worker import com_worker
 from server.actions import execute_action
 from server.auth import auth_manager
-from server import diagnostics, discord_ui, firewall, templates
-from server.action_catalog import validate_deck_config
+from server import diagnostics, discord_ui, firewall, layouts, templates
+from server.action_catalog import GESTURES, validate_deck_config
 from server.config_manager import CONFIG_FILE, config_manager
 from server.connectors import spotify, windows
 from server.settings_store import settings
@@ -56,12 +58,15 @@ from server.telemetry import Telemetry
 from server.paths import BASE_DIR, CONFIG_DIR, FROZEN, PORT, STATIC_DIR, UPLOADS_DIR, VERSION
 
 MAX_ICON_UPLOAD_BYTES = 2 * 1024 * 1024
+PNG_SIGNATURE = bytes.fromhex("89504e470d0a1a0a")
+JPEG_SIGNATURE = bytes.fromhex("ffd8ff")
 ICON_CONTENT_TYPES = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
     "image/webp": ".webp",
 }
 
+mimetypes.add_type("image/webp", ".webp")  # Windows has no mapping, so uploaded WEBP icons were served as octet-stream
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 # A native crash (for example inside a Windows audio call) leaves no Python traceback.
@@ -265,7 +270,8 @@ async def lifespan(app: FastAPI):
     telemetry_task.cancel()
     smart_task.cancel()
 
-app = FastAPI(title="StreamDesk Pro Server", version=VERSION, lifespan=lifespan)
+# No interactive API docs: the schema would list every admin route to anyone on the Wi-Fi.
+app = FastAPI(title="StreamDesk Pro Server", version=VERSION, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
 app.add_middleware(
     CORSMiddleware,
@@ -286,6 +292,7 @@ async def revalidate_app_files(request: Request, call_next):
     after an update, because static files have no explicit cache lifetime.
     """
     response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"  # an uploaded file is never "sniffed" into a page
     if request.url.path.startswith(("/static/", "/studio")) or request.url.path == "/":
         response.headers["Cache-Control"] = "no-cache"
     return response
@@ -295,10 +302,34 @@ def _is_loopback(host: str) -> bool:
     return host in {"127.0.0.1", "::1", "localhost"}
 
 
+LOCAL_HOST_NAMES = {"localhost", "127.0.0.1", "::1"}
+
+
+def _host_name(header: str) -> str:
+    """The host part of a Host header, without the port ("localhost:48291" -> "localhost", "[::1]:48291" -> "::1")."""
+    header = (header or "").strip().lower()
+    if header.startswith("["):
+        return header[1:].split("]", 1)[0]
+    return header.rsplit(":", 1)[0] if header.count(":") == 1 else header
+
+
+def _local_browser_request(headers, client_host: str) -> bool:
+    """True when a request that really comes from this PC was also addressed to it.
+
+    A web page open in the user's own browser reaches localhost too, and DNS rebinding can make it do so under
+    another name. Such a request carries a different Host (or, for a WebSocket, a foreign Origin), so refusing
+    those keeps other websites from driving StreamDesk through the loopback address.
+    """
+    if not _is_loopback(client_host) or _host_name(headers.get("host", "")) not in LOCAL_HOST_NAMES:
+        return False
+    origin = headers.get("origin")
+    return not origin or urlparse(origin).netloc.lower() == headers.get("host", "").strip().lower()
+
+
 async def require_local_request(request: Request) -> None:
     """Keep configuration and system administration on the desktop computer."""
     client_host = request.client.host if request.client else ""
-    if not _is_loopback(client_host):
+    if not _local_browser_request(request.headers, client_host):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Esta operación solo está disponible desde StreamDesk Studio en el PC.",
@@ -446,6 +477,38 @@ async def revoke_paired_device(values: Dict[str, Any] = Body(...), _: None = Dep
     return {"success": True}
 
 
+def _grid() -> tuple:
+    """(rows, columns) of the profile in use."""
+    return layouts.size_of(config_manager.get_config().get("layout"))
+
+
+@app.get("/api/layouts")
+def list_layouts(_: None = Depends(require_local_request)):
+    current = config_manager.get_config().get("layout") or layouts.layout_dict(layouts.DEFAULT_LAYOUT)
+    return {
+        "current": layouts.layout_name(current["rows"], current["columns"]),
+        "layouts": [{"id": name, **layouts.layout_dict(name)} for name in layouts.LAYOUTS],
+    }
+
+
+@app.post("/api/layout")
+async def set_layout(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    """Change the grid size. Every page is converted; the old profile is kept as a backup first."""
+    name = str(values.get("layout", ""))
+    if name not in layouts.LAYOUTS:
+        raise HTTPException(status_code=422, detail="Esa cuadrícula no está disponible")
+    try:
+        converted, dropped = layouts.convert_config(config_manager.get_config(), name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if converted["layout"] != config_manager.get_config().get("layout"):
+        config_manager.backup_profile("antes-de-cambiar-cuadricula")
+    if not config_manager.save_config(converted):
+        raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo cambiar la cuadrícula")
+    await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+    return {"success": True, "config": config_manager.get_config(), "dropped": dropped}
+
+
 @app.get("/api/templates")
 def list_templates(_: None = Depends(require_local_request)):
     return {"templates": templates.TEMPLATES}
@@ -454,15 +517,16 @@ def list_templates(_: None = Depends(require_local_request)):
 @app.post("/api/templates/apply")
 async def apply_template(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
     try:
-        page = templates.build_page(str(values.get("template_id", "")), str(values.get("name") or ""))
+        page = templates.build_page(str(values.get("template_id", "")), str(values.get("name") or ""), _grid())
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    dropped = page.pop("_dropped", 0)
     cfg = copy.deepcopy(config_manager.get_config())
     cfg["pages"].append(page)
     if not config_manager.save_config(cfg):
         raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo crear la página")
     await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
-    return {"success": True, "index": len(config_manager.get_config()["pages"]) - 1}
+    return {"success": True, "index": len(config_manager.get_config()["pages"]) - 1, "dropped": dropped}
 
 
 @app.post("/api/discord/server-page")
@@ -473,7 +537,7 @@ async def create_discord_server_page(values: Dict[str, Any] = Body(...), _: None
     if not server or not isinstance(labels, list) or not all(isinstance(label, str) and label.strip() for label in labels):
         raise HTTPException(status_code=422, detail="Falta el servidor o los sonidos")
     try:
-        page = templates.discord_server_page(server, [label.strip() for label in labels])
+        page = templates.discord_server_page(server, [label.strip() for label in labels], _grid())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     cfg = copy.deepcopy(config_manager.get_config())
@@ -560,11 +624,13 @@ async def get_configuration(_: None = Depends(require_local_request)):
 async def update_configuration(new_config: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
     success = config_manager.save_config(new_config)
     if success:
+        # Send what was validated and saved, never the raw payload the caller posted.
+        saved = config_manager.get_config()
         await ws_manager.broadcast({
             "type": "config_updated",
-            "config": new_config
+            "config": saved
         })
-        return {"success": True, "config": new_config}
+        return {"success": True, "config": saved}
     raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo guardar la configuración")
 
 @app.post("/api/deck/page/switch")
@@ -582,11 +648,14 @@ async def add_deck_page(name: str = Body(default="Nueva Página", embed=True), _
     cfg = config_manager.get_config()
     pages = cfg.setdefault("pages", [])
     page_name = name or f"Página {len(pages) + 1}"
-    new_slots = [{"index": i, "type": "empty", "id": f"slot_{i}_{uuid.uuid4().hex[:4]}", "label": "Vacío"} for i in range(12)]
-    new_slots[4] = {"index": 4, "type": "slider", "id": f"slider_master_{uuid.uuid4().hex[:4]}", "label": "Master", "sublabel": "PC", "slider_type": "master", "color": "#0ea5e9", "row_span": 2, "icon": "/static/icons/volume_up.svg", "image": "/static/icons/volume_up.svg"}
-    new_slots[5] = {"index": 5, "type": "slider", "id": f"slider_app_{uuid.uuid4().hex[:4]}", "label": "App", "sublabel": "Audio", "slider_type": "app_dynamic", "target_app": "Spotify.exe", "color": "#a855f7", "row_span": 2, "icon": "/static/icons/spotify.svg", "image": "/static/icons/spotify.svg"}
-    new_slots[10] = {"index": 10, "type": "occupied_by_slider", "id": f"slot_10_{uuid.uuid4().hex[:4]}", "parent_slot": 4}
-    new_slots[11] = {"index": 11, "type": "occupied_by_slider", "id": f"slot_11_{uuid.uuid4().hex[:4]}", "parent_slot": 5}
+    rows, columns = _grid()
+    new_slots: List[Dict[str, Any]] = [{"index": i, "type": "empty"} for i in range(rows * columns)]
+    # Two faders in the last two columns, as the original 6x2 page had them.
+    master_col, app_col = columns - 2, columns - 1
+    new_slots[master_col] = {"index": master_col, "type": "slider", "id": f"slider_master_{uuid.uuid4().hex[:4]}", "label": "Master", "sublabel": "PC", "slider_type": "master", "color": "#0ea5e9", "row_span": 2, "icon": "/static/icons/volume_up.svg", "image": "/static/icons/volume_up.svg"}
+    new_slots[app_col] = {"index": app_col, "type": "slider", "id": f"slider_app_{uuid.uuid4().hex[:4]}", "label": "App", "sublabel": "Audio", "slider_type": "app_dynamic", "target_app": "Spotify.exe", "color": "#a855f7", "row_span": 2, "icon": "/static/icons/spotify.svg", "image": "/static/icons/spotify.svg"}
+    for col in (master_col, app_col):
+        new_slots[col + columns] = {"index": col + columns, "type": "occupied_by_slider", "id": f"slot_{col + columns}_{uuid.uuid4().hex[:4]}", "parent_slot": col}
     pages.append({"id": f"page_{uuid.uuid4().hex[:6]}", "name": page_name, "slots": new_slots})
     if not config_manager.save_config(cfg):
         raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo crear la página")
@@ -624,12 +693,20 @@ def get_system_apps(_: None = Depends(require_local_request)):
 @app.post("/api/upload")
 async def upload_button_image(file: UploadFile = File(...), _: None = Depends(require_local_request)):
     try:
-        ext = ICON_CONTENT_TYPES.get((file.content_type or "").lower())
-        if not ext:
+        if not ICON_CONTENT_TYPES.get((file.content_type or "").lower()):
             raise HTTPException(status_code=415, detail="El icono debe ser PNG, JPG o WEBP")
         content = await file.read(MAX_ICON_UPLOAD_BYTES + 1)
         if len(content) > MAX_ICON_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail="El icono no puede superar 2 MB")
+        # The declared type is the client's word; the first bytes say what the file really is.
+        if content.startswith(PNG_SIGNATURE):
+            ext = ".png"
+        elif content.startswith(JPEG_SIGNATURE):
+            ext = ".jpg"
+        elif content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+            ext = ".webp"
+        else:
+            raise HTTPException(status_code=415, detail="El archivo no es una imagen PNG, JPG o WEBP válida")
         filename = f"btn_{uuid.uuid4().hex[:10]}{ext}"
         filepath = os.path.join(UPLOADS_DIR, filename)
         with open(filepath, "wb") as buffer:
@@ -794,10 +871,10 @@ async def navigate_pages(target: str) -> Dict[str, Any]:
 def _record_button_failure(websocket: WebSocket, label: str, message: str) -> None:
     """Keep why a button did nothing where Studio's diagnostics can show it."""
     ip = websocket.client.host if websocket.client else ""
-    diagnostics.record("error", f"Botón «{label}»: {message}", ip, websocket.headers.get("user-agent"))
+    diagnostics.record("error", f"Botón «{str(label)[:60]}»: {str(message)[:200]}", ip, websocket.headers.get("user-agent"))
 
 
-async def run_button_action(websocket: WebSocket, slot: Dict[str, Any]) -> None:
+async def run_button_action(websocket: WebSocket, slot: Dict[str, Any], gesture: str = "tap") -> None:
     """Execute a button off the event loop and tell every phone how it went."""
     btn_id = slot.get("id")
     try:
@@ -828,7 +905,8 @@ async def run_button_action(websocket: WebSocket, slot: Dict[str, Any]) -> None:
             pass  # the phone went away while the action was running
 
         # Actions with a lasting on/off state (recording, streaming, a muted mic) report it as "active".
-        if success and "active" in result:
+        # Only the tap sets the lit/unlit state: a long press or double tap may run a different action.
+        if success and "active" in result and gesture == "tap":
             button_states[btn_id] = bool(result["active"])
             await ws_manager.broadcast({"type": "button_state", "id": btn_id, "active": button_states[btn_id]})
     finally:
@@ -841,6 +919,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
     is_localhost = _is_loopback(client_ip)
 
     user_agent = websocket.headers.get("user-agent")
+    if is_localhost and not _local_browser_request(websocket.headers, client_ip):
+        # Loopback needs no token, so a page from another site (or another name for localhost) must not get in.
+        diagnostics.record("error", "Conexión local rechazada: viene de otra web (Origin o Host no coinciden)", client_ip, user_agent)
+        await websocket.close(code=1008, reason="Origen no permitido.")
+        return
     if not is_localhost and not auth_manager.is_token_authorized(token):
         diagnostics.record("error", "Conexión rechazada: el móvil no está emparejado (código 1008)", client_ip, user_agent)
         await websocket.close(code=1008, reason="No autorizado. Empareja primero con el PIN.")
@@ -883,22 +966,32 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                     config = config_manager.get_config()
                     slots = config.get("slots", [])
                     slot = next((s for s in slots if s.get("id") == btn_id), None)
+                    gesture = data.get("gesture") or "tap"
+                    rejection = None
                     if not slot or slot.get("type") != "button":
                         # The phone shows a page the PC no longer has active (or an old layout). Say so: a tap that
                         # does nothing and says nothing cannot be told apart from a broken button.
-                        message = "Ese botón no está en la página activa del PC. Cambia de página o espera a que se actualice el móvil."
-                        _record_button_failure(websocket, str(btn_id), message)
+                        rejection = "Ese botón no está en la página activa del PC. Cambia de página o espera a que se actualice el móvil."
+                    elif slot.get("disabled"):
+                        rejection = "Este botón está desactivado. Actívalo en Studio para usarlo."
+                    elif gesture != "tap" and (gesture not in GESTURES or not slot.get(gesture)):
+                        rejection = "Este botón no tiene ninguna acción para ese gesto."
+                    if rejection:
+                        _record_button_failure(websocket, str(btn_id), rejection)
                         await websocket.send_text(json.dumps({
                             "type": "action_result", "id": btn_id, "slot_id": btn_id, "success": False,
-                            "message": message, "result": {"success": False, "error": message},
+                            "message": rejection, "result": {"success": False, "error": rejection},
                         }))
                     elif btn_id not in _running_actions:
+                        if gesture != "tap":
+                            # A long press or a double tap runs its own action in place of the button's usual one.
+                            slot = {**slot, **{key: slot[gesture][key] for key in ("action_type", "target", "extra")}}
                         # Mark it busy now, not when the task starts: two quick taps arrive before
                         # the first task gets to run and would both pass the check.
                         _running_actions.add(btn_id)
                         # Run it as its own task: a macro or a slow OBS call must not
                         # hold up this phone's faders or anyone else's messages.
-                        task = asyncio.create_task(run_button_action(websocket, slot))
+                        task = asyncio.create_task(run_button_action(websocket, slot, gesture))
                         _background_tasks.add(task)
                         task.add_done_callback(_background_tasks.discard)
 
@@ -954,6 +1047,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
 
             except json.JSONDecodeError:
                 pass
+            except (TypeError, ValueError, AttributeError, KeyError, OverflowError, RecursionError):
+                # A message of the wrong shape (a list, a volume that is not a number...) is ignored,
+                # it must not drop this phone's connection.
+                diagnostics.record("error", "Mensaje del móvil con formato inválido, ignorado", client_ip, user_agent)
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
         if not is_localhost:

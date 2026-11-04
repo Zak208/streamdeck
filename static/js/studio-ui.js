@@ -112,7 +112,7 @@ async function openNewPageDialog() {
           modal.close();
           await loadConfig();
           await switchPage(result.index);
-          showToast(`Página "${name}" creada`);
+          showToast(result.dropped ? `Página "${name}" creada. En esta cuadrícula no caben ${result.dropped} elementos de la plantilla` : `Página "${name}" creada`);
         } catch (err) {
           showToast(err.message);
         }
@@ -212,6 +212,25 @@ async function saveProfileCopy() {
   }
 }
 
+// How many actions of a profile file act on the PC itself (keys, typed text, folders), looking inside
+// macros and long-press / double-tap actions. A profile from someone else could use them to run things.
+function riskyActionsIn(profile) {
+  const risky = new Set(["hotkey", "text", "folder"]);
+  const count = (action) => {
+    if (!action || typeof action !== "object") return 0;
+    let total = risky.has(action.action_type) ? 1 : 0;
+    for (const step of action.extra?.actions || []) total += count(step);
+    return total;
+  };
+  let total = 0;
+  for (const page of Array.isArray(profile?.pages) ? profile.pages : []) {
+    for (const slot of Array.isArray(page?.slots) ? page.slots : []) {
+      total += count(slot) + count(slot?.long_press) + count(slot?.double_tap);
+    }
+  }
+  return total;
+}
+
 async function loadProfileCopy(file) {
   let profile;
   try {
@@ -219,9 +238,11 @@ async function loadProfileCopy(file) {
   } catch (e) {
     return showToast("Ese archivo no es un perfil de StreamDesk");
   }
+  const risky = riskyActionsIn(profile);
+  const warning = risky ? ` ATENCIÓN: contiene ${risky} acciones que pulsan teclas, escriben texto o abren carpetas, y funcionarán en tu PC cuando se pulsen desde el móvil. Cárgalo solo si confías en quien te lo dio.` : "";
   const confirmed = await askConfirm({
     title: "Cargar este perfil",
-    message: `Se reemplazarán todas tus páginas y botones por los de "${file.name}". Antes se guarda una copia de los actuales.`,
+    message: `Se reemplazarán todas tus páginas y botones por los de "${file.name}". Antes se guarda una copia de los actuales.${warning}`,
     confirmLabel: "Cargar perfil", danger: true,
   });
   if (!confirmed) return;
@@ -249,6 +270,50 @@ async function loadTheme() {
   } catch (e) { /* keep the theme from localStorage */ }
 }
 
+// ---------- Deck size ----------
+
+// Name is "columns x rows", as the server calls them.
+const GRID_PRESETS = [
+  { id: "6x2", columns: 6, rows: 2 },
+  { id: "5x3", columns: 5, rows: 3 },
+  { id: "4x3", columns: 4, rows: 3 },
+  { id: "3x3", columns: 3, rows: 3 },
+  { id: "4x2", columns: 4, rows: 2 },
+];
+
+function gridPresetLabel(p) {
+  return `${p.columns} columnas x ${p.rows} filas (${p.columns * p.rows})`;
+}
+
+async function changeGridLayout(preset, select) {
+  const current = `${gridCols()}x${gridRows()}`;
+  if (preset === current) return;
+  const confirmed = await askConfirm({
+    title: "Cambiar la cuadrícula",
+    message: "Los botones se quedan en su casilla si caben en la nueva cuadrícula. Los que no caben se quitan, aunque antes se guarda una copia del perfil. Los faders ocupan siempre las dos primeras filas de su columna.",
+    confirmLabel: "Cambiar",
+  });
+  if (!confirmed) {
+    select.value = current;
+    return;
+  }
+  try {
+    const result = await postJson("/api/layout", { layout: preset });
+    config = result.config;
+    activePageIndex = Math.min(config.current_page || 0, (config.pages || []).length - 1);
+    selectedSlotIndex = null;
+    renderPageTabs();
+    renderPhoneScreen();
+    resetInspectorDrawer();
+    showToast(result.dropped > 0
+      ? `Cuadrícula cambiada. ${result.dropped} elemento${result.dropped === 1 ? "" : "s"} no cabía${result.dropped === 1 ? "" : "n"} y se ${result.dropped === 1 ? "quitó" : "quitaron"}. Tienes una copia del perfil anterior`
+      : "Cuadrícula cambiada");
+  } catch (err) {
+    select.value = current;
+    showToast(err.message);
+  }
+}
+
 // ---------- Settings ----------
 
 function openSettings() {
@@ -266,6 +331,13 @@ function openSettings() {
               <strong>${escapeHtml(t.name)}</strong>
             </button>`).join("")}
         </div>
+      </section>
+      <section class="settings-section">
+        <h3>Cuadrícula</h3>
+        <p>Cuántos botones caben en cada página, en el móvil y aquí. Al cambiarla se convierten todas tus páginas: los botones que caben se quedan donde están y los faders ocupan las dos primeras filas de su columna.</p>
+        <select id="settings-grid" aria-label="Tamaño de la cuadrícula">
+          ${GRID_PRESETS.map(p => `<option value="${p.id}" ${p.id === `${gridCols()}x${gridRows()}` ? "selected" : ""}>${gridPresetLabel(p)}</option>`).join("")}
+        </select>
       </section>
       <section class="settings-section">
         <h3>Móviles emparejados</h3>
@@ -303,6 +375,8 @@ function openSettings() {
         m.el.querySelectorAll("[data-theme-id]").forEach(o => o.classList.toggle("active", o === option));
         try { await postJson("/api/ui", { theme: option.dataset.themeId }); } catch (err) { showToast(err.message); }
       }));
+      const gridSelect = m.el.querySelector("#settings-grid");
+      gridSelect.addEventListener("change", () => changeGridLayout(gridSelect.value, gridSelect));
       m.el.querySelector("#settings-welcome").addEventListener("click", () => { m.close(); openWelcome(); });
       m.el.querySelector("#settings-check-update").addEventListener("click", async () => {
         await checkGitHubUpdates();

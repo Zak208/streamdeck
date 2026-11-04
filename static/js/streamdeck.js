@@ -379,18 +379,28 @@ function updateTelemetryWidgets(data) {
   document.querySelectorAll(".deck-monitor").forEach((el) => paintMonitor(el, "deck-monitor", el.dataset.monitor, data));
 }
 
-// Render dynamic 6x2 grid (12 slots) with 2-height vertical faders
+// Render the deck in the size the profile has (6 x 2 by default), with 2-height vertical faders
 function renderDeck(config) {
   if (!config) return;
   deckGrid.innerHTML = "";
   masterSliderIds = new Set();
 
   const slots = config.slots || [];
+  const columns = config.layout?.columns || 6;
+  const rows = config.layout?.rows || 2;
+  const total = config.layout?.total_slots || columns * rows;
+  deckGrid.style.setProperty("--cols", columns);
+  deckGrid.style.setProperty("--rows", rows);
+  // Portrait flows the cells into at most three columns (see style.css).
+  const portraitCols = Math.min(columns, 3);
+  deckGrid.style.setProperty("--pcols", portraitCols);
+  deckGrid.style.setProperty("--prows", Math.ceil(total / portraitCols));
+  deckGrid.toggleAttribute("data-custom", !(portraitCols === 3 && Math.ceil(total / portraitCols) === 4));
 
-  for (let idx = 0; idx < 12; idx++) {
+  for (let idx = 0; idx < total; idx++) {
     const slot = slots[idx] || { index: idx, type: "empty" };
-    const col = (idx % 6) + 1; // 1 to 6
-    const row = Math.floor(idx / 6) + 1; // 1 or 2
+    const col = (idx % columns) + 1;
+    const row = Math.floor(idx / columns) + 1;
 
     // If occupied by a 2-height vertical fader spanning from row 1, skip rendering an extra cell
     if (slot.type === "occupied_by_slider") {
@@ -398,7 +408,7 @@ function renderDeck(config) {
     }
 
     // Position goes in CSS variables rather than inline grid styles: in landscape the cells use
-    // them as they are (6 x 2), and in portrait the stylesheet lets them flow into 3 columns.
+    // them as they are (columns x rows), and in portrait the stylesheet lets them flow into 3 columns.
     let cell;
     let rowStart = row;
     let span = 1;
@@ -518,6 +528,42 @@ function createMonitorElement(btn, keycap) {
   return keycap;
 }
 
+// Text from the profile or from Windows goes into markup through this: quotes and angle brackets become entities.
+function escapeAttr(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+const LONG_PRESS_MS = 500;
+const DOUBLE_TAP_MS = 280;
+
+// A small yes/no sheet. Resolves true when the user confirms.
+function askConfirm(message) {
+  return new Promise((resolve) => {
+    if (document.querySelector(".confirm-overlay")) return resolve(false); // one question at a time
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay confirm-overlay";
+    overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true">
+        <p class="modal-title"></p>
+        <div class="modal-actions">
+          <button class="btn-secondary" data-answer="no">Cancelar</button>
+          <button class="btn-primary" data-answer="yes">Ejecutar</button>
+        </div>
+      </div>`;
+    overlay.querySelector(".modal-title").textContent = message;
+    const shownAt = Date.now();
+    overlay.addEventListener("click", (event) => {
+      const answer = event.target.closest("[data-answer]")?.dataset.answer;
+      // The click that follows the touch which opened the sheet must not close it again.
+      if (answer || (event.target === overlay && Date.now() - shownAt > 400)) {
+        overlay.remove();
+        resolve(answer === "yes");
+      }
+    });
+    document.body.appendChild(overlay);
+  });
+}
+
 function createButtonElement(btn) {
   const keycap = document.createElement("div");
   keycap.className = "deck-btn";
@@ -562,14 +608,62 @@ function createButtonElement(btn) {
   inner.appendChild(textWrap);
   keycap.appendChild(inner);
 
+  // A button can also have a long-press and a double-tap action, can ask before running, or be switched off.
+  const longAction = !!btn.long_press;
+  const doubleAction = !!btn.double_tap;
+  const fire = async (gesture) => {
+    if (btn.disabled) return showMobileToast("Este botón está desactivado", true);
+    if (btn.confirm && !(await askConfirm(`¿Ejecutar «${btn.label || "este botón"}»?`))) return;
+    sendWS(gesture === "tap" ? { type: "trigger_button", id: btn.id } : { type: "trigger_button", id: btn.id, gesture });
+  };
+  if (btn.disabled) keycap.classList.add("is-disabled");
+  if (longAction || doubleAction) keycap.classList.add("has-gestures");
+
   // Tactile touch & trigger micro-animation
-  keycap.addEventListener("pointerdown", () => {
+  let holdTimer = null, tapTimer = null, longFired = false, secondPress = false, moved = false, startX = 0, startY = 0;
+  keycap.addEventListener("pointerdown", (event) => {
     haptic(25);
     keycap.classList.add("triggered");
     keycap.style.borderColor = btnColor;
     keycap.style.boxShadow = `0 0 16px ${btnColor}`;
-    sendWS({ type: "trigger_button", id: btn.id });
+    if (!longAction && !doubleAction) return void fire("tap"); // the usual case: act the moment it is touched
+    longFired = false;
+    secondPress = false;
+    moved = false;
+    startX = event.clientX;
+    startY = event.clientY;
+    clearTimeout(holdTimer); // a second finger must not leave the first timer running unattended
+    if (tapTimer) { // a second press while the first tap is still waiting: this is a double tap (or a hold)
+      clearTimeout(tapTimer);
+      tapTimer = null;
+      secondPress = true;
+    }
+    if (longAction) {
+      holdTimer = setTimeout(() => { longFired = true; haptic([30, 40, 30]); fire("long_press"); }, LONG_PRESS_MS);
+    }
   });
+  // A swipe across the key (to change page) is not a press: cancel the hold and do not fire on release.
+  keycap.addEventListener("pointermove", (event) => {
+    if (!moved && (longAction || doubleAction) && Math.hypot(event.clientX - startX, event.clientY - startY) > 12) {
+      moved = true;
+      clearTimeout(holdTimer);
+    }
+  });
+  keycap.addEventListener("contextmenu", (event) => event.preventDefault()); // no image menu competing with a long press
+  keycap.addEventListener("pointerup", () => {
+    clearTimeout(holdTimer);
+    if (moved || longFired || (!longAction && !doubleAction)) return;
+    if (!doubleAction) return void fire("tap");
+    if (secondPress) {
+      secondPress = false;
+      return void fire("double_tap");
+    }
+    clearTimeout(tapTimer); // another finger may have left a tap waiting: one tap per gesture
+    tapTimer = setTimeout(() => { tapTimer = null; fire("tap"); }, DOUBLE_TAP_MS);
+  });
+  const cancelHold = () => clearTimeout(holdTimer);
+  keycap.addEventListener("pointercancel", cancelHold);
+  keycap.addEventListener("pointerleave", cancelHold);
 
   const resetBtn = () => {
     keycap.classList.remove("triggered");
@@ -597,7 +691,7 @@ function createFaderElement(slider) {
   if (isMaster) masterSliderIds.add(slider.id);
 
   const headerIcon = slider.image 
-    ? `<img src="${slider.image}" class="fader-header-icon" alt="">` 
+    ? `<img src="${escapeAttr(slider.image)}" class="fader-header-icon" alt="">` 
     : `<img src="/static/icons/${isMaster ? 'volume_up' : 'spotify'}.svg" class="fader-header-icon" alt="">`;
 
   const faderColor = slider.color || (isMaster ? "var(--accent-blue)" : "var(--accent-purple)");
@@ -606,7 +700,7 @@ function createFaderElement(slider) {
     <div class="fader-header">
       <div class="fader-header-title">
         ${headerIcon}
-        <span>${slider.label || (isMaster ? "Master" : "App")}</span>
+        <span>${escapeAttr(slider.label || (isMaster ? "Master" : "App"))}</span>
       </div>
       ${!isMaster ? `<button class="app-select-btn" id="select-app-${slider.id}">${cleanAppName(targetProcess)}</button>` : ''}
     </div>
@@ -823,8 +917,8 @@ function updateAppModalList() {
     item.className = "app-item";
     item.innerHTML = `
       <div class="app-item-info">
-        <span class="app-item-name">${s.display_name}</span>
-        <span class="app-item-proc">${s.process_name}</span>
+        <span class="app-item-name">${escapeAttr(s.display_name)}</span>
+        <span class="app-item-proc">${escapeAttr(s.process_name)}</span>
       </div>
       <span class="app-item-vol">${s.volume}%</span>
     `;

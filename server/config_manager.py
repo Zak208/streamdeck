@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import shutil
 import time
 from typing import Dict, Any, List
 from server.action_catalog import validate_deck_config
@@ -139,6 +140,17 @@ class ConfigManager:
             print(f"Error saving config: {e}")
             self.last_error = str(e)
             return False
+
+    def backup_profile(self, tag: str) -> str:
+        """Keep a copy of the saved profile next to it before a change that rearranges it. Returns its path."""
+        if not os.path.exists(CONFIG_FILE):
+            return ""
+        path = f"{CONFIG_FILE}.{tag}-{int(time.time())}"
+        try:
+            shutil.copyfile(CONFIG_FILE, path)
+        except OSError:
+            return ""
+        return path
 
     def set_active_page(self, page_index: int) -> bool:
         pages = self.config.get("pages", [])

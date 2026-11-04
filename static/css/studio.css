@@ -3,6 +3,7 @@
 body {
   display: grid;
   grid-template-rows: 60px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr); /* many pages must scroll their tabs, not widen the window */
   overflow: hidden;
 }
 
@@ -207,7 +208,7 @@ main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overf
 .preview-label { margin-bottom: 12px; color: var(--text-3); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-align: center; text-transform: uppercase; }
 .phone-screen-wrapper { padding: 14px; background: var(--bg-raised); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow); }
 .phone-status-bar { display: flex; justify-content: space-between; padding: 0 6px 12px; color: var(--text-3); font-size: 11px; }
-.phone-screen { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(110px, 1fr)); gap: 10px; }
+.phone-screen { display: grid; grid-template-columns: repeat(var(--cols, 6), minmax(0, 1fr)); grid-template-rows: repeat(var(--rows, 2), minmax(110px, 1fr)); gap: 10px; }
 .kbd-shortcuts-badge { margin-top: 14px; color: var(--text-3); font-size: 12px; text-align: center; }
 kbd { padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); color: var(--text-2); font: 11px var(--mono); }
 
@@ -544,3 +545,7 @@ code.copyable { display: block; margin: 4px 0; padding: 7px 9px; background: var
   aside { display: none; }
   .sidebar-brand h1 { display: none; }
 }
+
+/* Long press / double tap rows in the Action tab */
+.gesture-row { display: grid; gap: 6px; margin-top: 8px; }
+.gesture-row select, .gesture-row .step-input { width: 100%; }

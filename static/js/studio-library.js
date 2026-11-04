@@ -4,6 +4,12 @@
 
 const LIBRARY_ACCENT = "#f8c700";
 
+// A shortcut of a program. It goes to whatever window has the focus, so that program has to be in front
+// (the category name says so in Studio).
+function appKey(id, label, sub, keys, icon) {
+  return { id, label, sub, icon: `/static/icons/${icon}.svg`, color: LIBRARY_ACCENT, action_type: "hotkey", target: keys };
+}
+
 // Built-in actions. Those of OBS, Windows and Discord come from the connectors (see loadLibrary).
 function builtInLibrary() {
   const media = MEDIA_PRESETS.map(p => ({
@@ -18,6 +24,7 @@ function builtInLibrary() {
       { id: "hotkey", label: "Atajo de teclado", sub: "Pulsa una combinación", icon: "/static/icons/keyboard.svg", color: LIBRARY_ACCENT, action_type: "hotkey", target: "CTRL+SHIFT+M", configure: true },
       { id: "text", label: "Escribir texto", sub: "Teclea un texto por ti", icon: "/static/icons/notes.svg", color: LIBRARY_ACCENT, action_type: "text", target: "Hola", extra: { press_enter: false }, configure: true },
       { id: "website", label: "Abrir una web", sub: "En tu navegador", icon: "/static/icons/link.svg", color: LIBRARY_ACCENT, action_type: "url", target: "https://www.example.com", configure: true },
+      { id: "folder", label: "Abrir una carpeta", sub: "En el Explorador", icon: "/static/icons/folder.svg", color: LIBRARY_ACCENT, action_type: "folder", target: "C:\\Users", configure: true },
       { id: "macro", label: "Multiacción", sub: "Varias acciones en una", icon: "/static/icons/macro.svg", color: "#a855f7", action_type: "multi", target: "macro", extra: { actions: [{ action_type: "sound", target: "beep", delay_ms: 150 }] }, configure: true },
       { id: "taskmgr", label: "Administrador de tareas", sub: "Abrir", icon: "/static/icons/sliders.svg", color: LIBRARY_ACCENT, action_type: "preset_app", target: "taskmgr" },
     ] },
@@ -29,6 +36,50 @@ function builtInLibrary() {
     ] },
     { category: "Multimedia", items: media },
     { category: "Monitores del PC", items: monitors },
+    { category: "Reuniones (app a la vista)", items: [
+      appKey("zoom_mute", "Zoom: micrófono", "Alt+A", "ALT+A", "mic_off"),
+      appKey("zoom_video", "Zoom: cámara", "Alt+V", "ALT+V", "video"),
+      appKey("zoom_share", "Zoom: compartir pantalla", "Alt+S", "ALT+S", "broadcast"),
+      appKey("teams_mute", "Teams: micrófono", "Ctrl+Mayús+M", "CTRL+SHIFT+M", "mic_off"),
+      appKey("teams_video", "Teams: cámara", "Ctrl+Mayús+O", "CTRL+SHIFT+O", "video"),
+      appKey("teams_share", "Teams: compartir pantalla", "Ctrl+Mayús+E", "CTRL+SHIFT+E", "broadcast"),
+      appKey("teams_hand", "Teams: levantar la mano", "Ctrl+Mayús+K", "CTRL+SHIFT+K", "gamepad"),
+      appKey("teams_leave", "Teams: colgar", "Ctrl+Mayús+H", "CTRL+SHIFT+H", "power"),
+      appKey("meet_mute", "Meet: micrófono", "Ctrl+D", "CTRL+D", "mic_off"),
+      appKey("meet_video", "Meet: cámara", "Ctrl+E", "CTRL+E", "video"),
+    ] },
+    { category: "Vídeo y slides (app a la vista)", items: [
+      appKey("vlc_play", "VLC: play/pausa", "Espacio", "SPACE", "play_pause"),
+      appKey("vlc_next", "VLC: siguiente", "N", "N", "next"),
+      appKey("vlc_prev", "VLC: anterior", "P", "P", "prev"),
+      appKey("vlc_full", "VLC: pantalla completa", "F", "F", "video"),
+      appKey("vlc_volup", "VLC: subir volumen", "Ctrl+Flecha arriba", "CTRL+UP", "volume_up"),
+      appKey("vlc_voldown", "VLC: bajar volumen", "Ctrl+Flecha abajo", "CTRL+DOWN", "mute"),
+      appKey("ppt_next", "PowerPoint: siguiente", "Flecha derecha", "RIGHT", "chevron_right"),
+      appKey("ppt_prev", "PowerPoint: anterior", "Flecha izquierda", "LEFT", "chevron_left"),
+      appKey("ppt_start", "PowerPoint: iniciar", "F5", "F5", "play"),
+      appKey("ppt_black", "PowerPoint: pantalla negra", "B", "B", "pause"),
+      appKey("ppt_end", "PowerPoint: salir", "Esc", "ESC", "power"),
+    ] },
+    { category: "Creación (app a la vista)", items: [
+      appKey("resolve_play", "Resolve: play/pausa", "Espacio", "SPACE", "play_pause"),
+      appKey("resolve_cut", "Resolve: cortar clip", "Ctrl+B", "CTRL+B", "macro"),
+      appKey("resolve_save", "Resolve: guardar", "Ctrl+S", "CTRL+S", "notes"),
+      appKey("ps_undo", "Photoshop: deshacer", "Ctrl+Z", "CTRL+Z", "prev"),
+      appKey("ps_save", "Photoshop: guardar", "Ctrl+S", "CTRL+S", "notes"),
+      appKey("ps_brush", "Photoshop: pincel", "B", "B", "sliders"),
+      appKey("ps_eraser", "Photoshop: borrador", "E", "E", "trash"),
+      appKey("audacity_rec", "Audacity: grabar", "R", "R", "mic"),
+      appKey("audacity_play", "Audacity: play/parar", "Espacio", "SPACE", "play_pause"),
+      appKey("audacity_pause", "Audacity: pausa", "P", "P", "pause"),
+    ] },
+    { category: "Navegador (a la vista)", items: [
+      appKey("web_tab", "Pestaña nueva", "Ctrl+T", "CTRL+T", "plus"),
+      appKey("web_close", "Cerrar pestaña", "Ctrl+W", "CTRL+W", "trash"),
+      appKey("web_next", "Pestaña siguiente", "Ctrl+Tab", "CTRL+TAB", "chevron_right"),
+      appKey("web_prev", "Pestaña anterior", "Ctrl+Mayús+Tab", "CTRL+SHIFT+TAB", "chevron_left"),
+      appKey("web_reload", "Recargar", "F5", "F5", "play"),
+    ] },
     { category: "Aplicaciones", items: [
       { id: "open_app", label: "Abrir una aplicación", sub: "Elige de tu PC", icon: "/static/icons/power.svg", color: LIBRARY_ACCENT, action_type: "sound", target: "beep", opensTab: "apps" },
     ] },
@@ -119,8 +170,8 @@ function renderLibrary() {
 // Puts a library action on a key. A fader in that column is replaced, as with any other drop.
 function placeLibraryItem(index, item) {
   const slots = config.pages[activePageIndex].slots;
-  const col = index % 6;
-  if (slots[col]?.type === "slider" || slots[index]?.type === "occupied_by_slider") clearColumn(slots, col);
+  const col = index % gridCols();
+  if (inFaderColumn(slots, index)) clearColumn(slots, col);
   slots[index] = {
     index, type: "button", id: `btn_${Date.now()}`,
     label: item.label.slice(0, 32), sublabel: (item.sub || "").slice(0, 36), icon: "", image: item.icon,
@@ -149,6 +200,7 @@ function describeAction(a) {
     case "hotkey": return `Pulsa ${t}`;
     case "text": return `Escribe «${t.length > 28 ? t.slice(0, 28) + "…" : t}»${a.extra?.press_enter ? " y Enter" : ""}`;
     case "url": return `Abre ${t.replace(/^https?:\/\//, "")}`;
+    case "folder": return `Abre la carpeta ${t}`;
     case "page": {
       const names = { next: "la página siguiente", prev: "la página anterior", first: "la primera página" };
       return `Va a ${names[t] || `«${pages.find(p => p.id === t)?.name || "página borrada"}»`}`;
@@ -238,6 +290,14 @@ const ACTION_EDITORS = {
     el.querySelector("#url-input").addEventListener("input", (event) => { btn.target = event.target.value.trim(); commitAction(btn); });
   },
 
+  folder(el, btn) {
+    el.innerHTML = `
+      <label for="fd-input">Carpeta del PC</label>
+      <input id="fd-input" type="text" maxlength="240" value="${escapeHtml(btn.target)}" placeholder="D:\\Proyectos">
+      <p class="integration-hint">Ruta de un disco del PC, por ejemplo C:\\Users\\tu-nombre\\Documents. Se abre en el Explorador. No se admiten rutas de red.</p>`;
+    el.querySelector("#fd-input").addEventListener("input", (event) => { btn.target = event.target.value.trim(); commitAction(btn); });
+  },
+
   page(el, btn) {
     const options = [["next", "Página siguiente"], ["prev", "Página anterior"], ["first", "Primera página"],
       ...(config.pages || []).map(p => [p.id, `Ir a «${p.name}»`])];
@@ -259,8 +319,73 @@ function renderTabAction(container, btn, index) {
       <strong id="action-summary">${escapeHtml(describeAction(btn))}</strong>
     </div>
     <div id="action-editor"></div>
-    ${editor ? "" : `<p class="integration-hint" style="margin-top: 12px;">Esta acción no necesita ajustes. Para cambiarla, elige otra en la biblioteca, en Apps o en Conectores.</p>`}`;
+    ${editor ? "" : `<p class="integration-hint" style="margin-top: 12px;">Esta acción no necesita ajustes. Para cambiarla, elige otra en la biblioteca, en Apps o en Conectores.</p>`}
+    ${btn.action_type === "hardware_monitor" ? "" : `<div id="gesture-section"></div>`}`;
   editor?.(container.querySelector("#action-editor"), btn, index);
+  const gestures = container.querySelector("#gesture-section");
+  if (gestures) renderGestureSection(gestures, btn);
+}
+
+// ---------------------------------------------------------------- long press, double tap, confirm, off
+
+const GESTURE_LABELS = { long_press: "Pulsación larga", double_tap: "Doble toque" };
+
+// What a gesture can run: the simple, self-contained actions (the same ones a macro step can use).
+function gestureChoices() {
+  return macroStepChoices();
+}
+
+function renderGestureSection(el, btn) {
+  const redraw = () => renderGestureSection(el, btn);
+  const gestureRow = (gesture) => {
+    const action = btn[gesture];
+    const choices = gestureChoices();
+    const inline = action && ["hotkey", "text", "url", "folder"].includes(action.action_type)
+      ? `<input class="step-input" data-gesture="${gesture}" value="${escapeHtml(action.target)}" maxlength="300" aria-label="${GESTURE_LABELS[gesture]}">` : "";
+    return `
+      <div class="gesture-row">
+        <label class="check-row"><input type="checkbox" data-toggle="${gesture}" ${action ? "checked" : ""}> ${GESTURE_LABELS[gesture]}</label>
+        ${action ? `
+          <select data-pick="${gesture}" aria-label="Acción de ${GESTURE_LABELS[gesture].toLowerCase()}">
+            <option value="">${escapeHtml(describeAction(action))}</option>
+            ${choices.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`).join("")}
+          </select>${inline}` : ""}
+      </div>`;
+  };
+  el.innerHTML = `
+    <span class="section-label" style="margin: 16px 0 6px;">Más formas de usar este botón</span>
+    ${gestureRow("long_press")}
+    ${gestureRow("double_tap")}
+    <label class="check-row"><input type="checkbox" id="g-confirm" ${btn.confirm ? "checked" : ""}> Pedir confirmación antes de ejecutar</label>
+    <label class="check-row"><input type="checkbox" id="g-disabled" ${btn.disabled ? "checked" : ""}> Desactivar el botón (no se borra)</label>
+    <p class="integration-hint">Con una pulsación larga o un doble toque, el toque normal espera unas décimas de segundo para saber cuál de los gestos haces. Se avisa con dos puntitos en el botón del móvil.</p>`;
+
+  el.querySelectorAll("[data-toggle]").forEach(box => box.addEventListener("change", () => {
+    const gesture = box.dataset.toggle;
+    if (box.checked) btn[gesture] = { action_type: "hotkey", target: "CTRL+SHIFT+M", extra: {} };
+    else delete btn[gesture];
+    commitAction(btn);
+    redraw();
+  }));
+  el.querySelectorAll("[data-pick]").forEach(select => select.addEventListener("change", () => {
+    const choice = gestureChoices().find(c => c.id === select.value);
+    if (!choice) return;
+    btn[select.dataset.pick] = choice.build();
+    commitAction(btn);
+    redraw();
+  }));
+  el.querySelectorAll("[data-gesture]").forEach(input => input.addEventListener("input", () => {
+    btn[input.dataset.gesture].target = input.value;
+    commitAction(btn);
+  }));
+  el.querySelector("#g-confirm").addEventListener("change", (event) => {
+    if (event.target.checked) btn.confirm = true; else delete btn.confirm;
+    commitAction(btn);
+  });
+  el.querySelector("#g-disabled").addEventListener("change", (event) => {
+    if (event.target.checked) btn.disabled = true; else delete btn.disabled;
+    commitAction(btn);
+  });
 }
 
 // ---------------------------------------------------------------- multi-action editor
@@ -273,6 +398,7 @@ function macroStepChoices() {
     { id: "__hotkey", label: "Atajo de teclado", build: () => ({ action_type: "hotkey", target: "CTRL+C", extra: {} }) },
     { id: "__text", label: "Escribir texto", build: () => ({ action_type: "text", target: "Hola", extra: { press_enter: false } }) },
     { id: "__url", label: "Abrir una web", build: () => ({ action_type: "url", target: "https://www.example.com", extra: {} }) },
+    { id: "__folder", label: "Abrir una carpeta", build: () => ({ action_type: "folder", target: "C:\\Users", extra: {} }) },
     { id: "__app", label: "Abrir una aplicación", build: () => ({ action_type: "preset_app", target: (detectedSystemApps[0]?.id || "calc"), extra: {} }) },
     ...fixed.map(i => ({ id: i.id, label: `${i.sub}: ${i.label}`, build: () => ({ action_type: i.action_type, target: i.target, extra: JSON.parse(JSON.stringify(i.extra || {})) }) })),
   ];
@@ -287,6 +413,7 @@ function renderMacroEditor(el, btn) {
   const inlineEditor = (step, i) => {
     if (step.action_type === "hotkey") return `<input class="step-input" data-field="target" data-i="${i}" value="${escapeHtml(step.target)}" maxlength="60" aria-label="Atajo">`;
     if (step.action_type === "text") return `<input class="step-input" data-field="target" data-i="${i}" value="${escapeHtml(step.target)}" maxlength="300" aria-label="Texto">`;
+    if (step.action_type === "folder") return `<input class="step-input" data-field="target" data-i="${i}" value="${escapeHtml(step.target)}" maxlength="240" aria-label="Carpeta">`;
     if (step.action_type === "url") return `<input class="step-input" data-field="target" data-i="${i}" value="${escapeHtml(step.target)}" maxlength="300" aria-label="Dirección">`;
     if (step.action_type === "preset_app") {
       const apps = detectedSystemApps.length ? detectedSystemApps : [{ id: step.target, name: step.target }];
