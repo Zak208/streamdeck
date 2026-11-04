@@ -1280,7 +1280,7 @@ function connectorBodySpotify(c, body, ctx) {
     ${s.connected ? '<div class="option-list" id="sp-playlists"><span class="integration-hint">Cargando tus playlists...</span></div>' : ""}
     <label for="spotify-uri-input">O pega el enlace de una playlist, álbum, artista o canción</label>
     <div class="inline-row"><input id="spotify-uri-input" type="url" placeholder="https://open.spotify.com/playlist/..."><button class="btn-secondary" id="sp-link-assign">Asignar</button></div>
-    <p class="integration-hint">Reproducir directamente exige una cuenta Premium. Sin conectar, el botón abre la lista en Spotify.</p>
+    <p class="integration-hint">Sin cuenta conectada (o sin Premium) el botón abre la lista en la app de Spotify de tu PC y pulsa Reproducir por ti: la app debe estar abierta y a la vista, no minimizada. Una cuenta gratuita reproduce en modo aleatorio y con anuncios, como la propia app. Con Premium y la cuenta conectada se reproduce sin tocar la app.</p>
     ${s.connected ? '<button class="btn-secondary" id="sp-disconnect">Desconectar cuenta</button>' : ""}`;
 
   const spotifyTemplate = (name, uri) => ({

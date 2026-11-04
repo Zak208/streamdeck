@@ -16,7 +16,7 @@ import ctypes
 import re
 import time
 from ctypes import wintypes
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 
 import psutil
 
@@ -86,12 +86,22 @@ def _inside(inner: Rect, outer: Rect, slack: int = 4) -> bool:
             and inner[1] >= outer[1] - slack and inner[3] <= outer[3] + slack)
 
 
-def _find_window() -> int:
-    """Handle of Discord's main window, or an error saying why there is none."""
+class AppSpec(NamedTuple):
+    """An Electron or Chromium program whose window we read: its process, its name for messages, its window title."""
+    process: str
+    name: str
+    title_ok: Callable[[str], bool]
+
+
+DISCORD = AppSpec("discord.exe", "Discord", lambda title: title.endswith("Discord"))
+
+
+def _find_window(app: AppSpec = DISCORD) -> int:
+    """Handle of the program's main window (the biggest visible one), or an error saying why there is none."""
     user32 = ctypes.windll.user32
-    pids = {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() == "discord.exe"}
+    pids = {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() == app.process}
     if not pids:
-        raise DiscordUiError("Discord no está abierto.")
+        raise DiscordUiError(f"{app.name} no está abierto.")
     found: List[int] = []
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
@@ -103,28 +113,36 @@ def _find_window() -> int:
         title, cls = ctypes.create_unicode_buffer(200), ctypes.create_unicode_buffer(80)
         user32.GetWindowTextW(hwnd, title, 200)
         user32.GetClassNameW(hwnd, cls, 80)
-        if cls.value == "Chrome_WidgetWin_1" and title.value.endswith("Discord"):
+        if cls.value == "Chrome_WidgetWin_1" and app.title_ok(title.value):
             found.append(hwnd)
         return True
 
     user32.EnumWindows(visit, 0)
     if not found:
-        raise DiscordUiError("No encuentro la ventana de Discord. Ábrela (puede quedar detrás de otras ventanas).")
-    if user32.IsIconic(found[0]):
+        raise DiscordUiError(f"No encuentro la ventana de {app.name}. Ábrela (puede quedar detrás de otras ventanas).")
+
+    def area(hwnd: int) -> int:
+        r = wintypes.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(r))
+        return (r.right - r.left) * (r.bottom - r.top)
+
+    main = max(found, key=area)
+    if user32.IsIconic(main):
         # Never restored by StreamDesk: showing a minimized window can pull the focus away from the user's game.
-        raise DiscordUiError("Discord está minimizado. Déjalo abierto sin minimizar, por ejemplo en tu otra pantalla o detrás de tu programa, y no te quitará el foco.")
-    return found[0]
+        raise DiscordUiError(f"{app.name} está minimizado. Déjalo abierto sin minimizar, por ejemplo en tu otra pantalla o detrás de tu programa, y no te quitará el foco.")
+    return main
 
 
 class _Window:
     """Windows UI Automation over Discord's main window. Create and use it on the ui_worker thread only."""
 
-    def __init__(self, guard: bool = False) -> None:
-        """With `guard`, Discord cannot take the focus until close(). Reading alone never needs it."""
+    def __init__(self, guard: bool = False, app: AppSpec = DISCORD) -> None:
+        """With `guard`, the program cannot take the focus until close(). Reading alone never needs it."""
         import comtypes.client
         comtypes.client.GetModule("UIAutomationCore.dll")
         from comtypes.gen import UIAutomationClient as UIA
-        self.hwnd = _find_window()
+        self.app = app
+        self.hwnd = _find_window(app)
         self._guarded = False
         if guard:
             _mark(self.hwnd)
@@ -165,7 +183,8 @@ class _Window:
             if len(self._all(UIA_BUTTON)) > 5:
                 return
             time.sleep(0.25)
-        raise DiscordUiError("Discord no muestra su interfaz a Windows. Si está minimizado, ábrelo; si sigue igual, reinícialo.")
+        name = getattr(self, "app", DISCORD).name
+        raise DiscordUiError(f"{name} no muestra su interfaz a Windows. Si está minimizado, ábrelo; si sigue igual, reinícialo.")
 
     def _invoke(self, element) -> None:
         pattern = element.GetCurrentPattern(INVOKE_PATTERN)

@@ -204,11 +204,20 @@ class SpotifyTests(unittest.TestCase):
             with self.assertRaises(spotify.SpotifyError):
                 spotify.finish_login("c", state)
 
-    def test_without_an_account_the_button_opens_the_app(self):
-        with mock.patch.object(spotify, "_open_in_app") as opened:
+    def test_without_an_account_the_button_presses_play_in_the_app(self):
+        with mock.patch.object(spotify.spotify_ui, "play") as pressed:
             result = spotify.play("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=x")
-        opened.assert_called_once_with(self.PLAYLIST)
-        self.assertEqual(result["mode"], "open")
+        pressed.assert_called_once_with(self.PLAYLIST)
+        self.assertEqual((result["success"], result["mode"]), (True, "ui"))
+
+    def test_a_failure_pressing_play_reaches_the_button_as_a_reason(self):
+        with mock.patch.object(spotify.spotify_ui, "play", side_effect=spotify.spotify_ui.SpotifyUiError("Spotify está minimizado.")), \
+                mock.patch.object(spotify, "_open_in_app") as opened:
+            result = spotify.play(self.PLAYLIST)
+        self.assertEqual((result["success"], result["error"]), (False, "Spotify está minimizado."))
+        opened.assert_not_called()  # opening the list could pull the focus away from the user's program
+        with mock.patch.object(spotify.spotify_ui, "play", side_effect=OSError("boom")):
+            self.assertIs(spotify.play(self.PLAYLIST)["success"], False)
 
     def test_connected_playlist_and_track_use_the_right_body(self):
         self.connect()
@@ -234,7 +243,7 @@ class SpotifyTests(unittest.TestCase):
         self.assertEqual(result["mode"], "play")
         self.assertEqual(mocked.call_args.args[1], "/me/player/play?device_id=pc")
 
-    def test_no_device_ever_appearing_falls_back_to_opening_the_list(self):
+    def test_no_device_ever_appearing_falls_back_to_pressing_play_in_the_app(self):
         self.connect()
 
         def api(method, path, body=None):
@@ -243,20 +252,21 @@ class SpotifyTests(unittest.TestCase):
             return {"devices": []}
 
         clock = iter(range(0, 1000, 3))
-        with mock.patch.object(spotify, "_api", side_effect=api), mock.patch.object(spotify, "_open_in_app") as opened, \
+        with mock.patch.object(spotify, "_api", side_effect=api), mock.patch.object(spotify, "_open_in_app"), \
+                mock.patch.object(spotify.spotify_ui, "play") as pressed, \
                 mock.patch.object(spotify.time, "sleep"), mock.patch.object(spotify.time, "time", lambda: next(clock)):
             result = spotify.play(self.PLAYLIST)
-        self.assertEqual(result["mode"], "open")
-        self.assertEqual(opened.call_args_list[-1].args, (self.PLAYLIST,))
+        self.assertEqual(result["mode"], "ui")
+        pressed.assert_called_once_with(self.PLAYLIST)
 
-    def test_free_accounts_get_the_list_opened_with_an_explanation(self):
+    def test_free_accounts_get_play_pressed_in_the_app_with_an_explanation(self):
         self.connect()
         with mock.patch.object(spotify, "_api", side_effect=spotify.SpotifyError("x", 403, "PREMIUM_REQUIRED")), \
-                mock.patch.object(spotify, "_open_in_app") as opened:
+                mock.patch.object(spotify.spotify_ui, "play") as pressed:
             result = spotify.play(self.PLAYLIST)
-        self.assertEqual(result["mode"], "open")
+        self.assertEqual(result["mode"], "ui")
         self.assertIn("Premium", result["note"])
-        opened.assert_called_once_with(self.PLAYLIST)
+        pressed.assert_called_once_with(self.PLAYLIST)
 
     def test_revoked_access_asks_to_reconnect(self):
         self.connect()

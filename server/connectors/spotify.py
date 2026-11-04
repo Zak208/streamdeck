@@ -21,6 +21,7 @@ import urllib.request
 import webbrowser
 from typing import Any, Dict, List, Optional
 
+from server import spotify_ui
 from server.action_catalog import normalize_spotify_uri
 from server.paths import PORT
 from server.settings_store import settings
@@ -194,12 +195,25 @@ def _open_in_app(uri: str) -> None:
     os.startfile(uri)
 
 
+def _play_in_app(uri: str, note: str = "") -> Dict[str, Any]:
+    """No Web API playback (no account connected, or not Premium): press play in the Spotify desktop window."""
+    try:
+        spotify_ui.play(uri)
+    except spotify_ui.SpotifyUiError as exc:
+        return {"success": False, "error": str(exc)}
+    except Exception:  # Windows UI Automation failed in a way we cannot explain better
+        return {"success": False, "error": "No se pudo pulsar Reproducir en la app de Spotify. Comprueba que está abierta y a la vista."}
+    result: Dict[str, Any] = {"success": True, "action": "spotify_uri", "mode": "ui"}
+    if note:
+        result["note"] = note
+    return result
+
+
 def play(value: str) -> Dict[str, Any]:
     """Play the item, or open it in the Spotify app when playback is not possible."""
     uri = normalize_spotify_uri(value)
     if not settings.get("spotify").get("refresh_token"):
-        _open_in_app(uri)
-        return {"success": True, "action": "spotify_uri", "mode": "open"}
+        return _play_in_app(uri)
 
     body = _play_body(uri)
     try:
@@ -212,15 +226,12 @@ def play(value: str) -> Dict[str, Any]:
             _open_in_app("spotify:")
             device_id = _wait_for_device()
             if not device_id:
-                _open_in_app(uri)
-                return {"success": True, "action": "spotify_uri", "mode": "open"}
+                return _play_in_app(uri)
             _api("PUT", f"/me/player/play?device_id={urllib.parse.quote(device_id)}", body)
         return {"success": True, "action": "spotify_uri", "mode": "play"}
     except SpotifyError as exc:
         if exc.reason == "PREMIUM_REQUIRED":
-            _open_in_app(uri)
-            return {"success": True, "action": "spotify_uri", "mode": "open",
-                    "note": "Tu cuenta no es Premium: se abrió la lista sin reproducirla."}
+            return _play_in_app(uri, "Tu cuenta no es Premium: se pulsó Reproducir en la app de Spotify.")
         if exc.status in (401, 403) or exc.reason == "NOT_CONNECTED":
             return {"success": False, "error": "Spotify pide volver a conectar la cuenta en Conectores."}
         return {"success": False, "error": str(exc)}
@@ -231,9 +242,9 @@ def play(value: str) -> Dict[str, Any]:
 def status() -> Dict[str, Any]:
     saved = settings.get("spotify")
     if not saved.get("client_id"):
-        return {"state": "needs_setup", "detail": "Los botones abren la lista en Spotify. Conecta tu cuenta para reproducirla directamente."}
+        return {"state": "needs_setup", "detail": "Los botones abren la lista en la app de Spotify y pulsan Reproducir (no hace falta cuenta ni Premium). Conecta tu cuenta si tienes Premium para reproducir sin abrir la app."}
     if not saved.get("refresh_token"):
-        return {"state": "needs_setup", "detail": "Falta conectar tu cuenta de Spotify."}
+        return {"state": "needs_setup", "detail": "Los botones pulsan Reproducir en la app de Spotify. Conecta tu cuenta solo si tienes Premium."}
     try:
         me = _api("GET", "/me") or {}
     except SpotifyError as exc:
@@ -242,7 +253,7 @@ def status() -> Dict[str, Any]:
         return {"state": "offline", "detail": str(exc)}
     name = me.get("display_name") or me.get("id") or "tu cuenta"
     if me.get("product") != "premium":
-        return {"state": "limited", "detail": f"Conectado como {name}. Sin Premium solo se puede abrir la lista, no reproducirla."}
+        return {"state": "limited", "detail": f"Conectado como {name}. Sin Premium los botones pulsan Reproducir en la app de Spotify, que debe estar abierta y a la vista."}
     return {"state": "ready", "detail": f"Conectado como {name}"}
 
 

@@ -31,7 +31,7 @@ Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollad
 
 ### 4. 🔄 Auto-Actualizador Integrado con GitHub
 - En la barra superior del PC Studio se encuentra el **cilindro indicador de estado de versión**:
-  - `🟢 v2.9.1 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
+  - `🟢 v2.10.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
   - `🟡 ¡Actualización en GitHub! [Actualizar 🚀]`: El sistema detecta automáticamente nuevos commits en `https://github.com/Zak208/streamdeck`.
 - Al pulsar el botón de actualizar, el sistema ejecuta `/api/system/apply-update` sincronizando el código automáticamente sin necesidad de reinstalar manualmente.
 
@@ -112,7 +112,7 @@ En Studio, selecciona una casilla y abre la pestaña **Conectores**. Cada servic
 
 - **Windows:** mute del micrófono (funciona con Discord, juegos y cualquier app), mute de una app concreta y cambio de salida de audio. No necesita configuración.
 - **OBS Studio:** grabar, transmitir, cambiar de escena y mutear una fuente, con las escenas y fuentes reales de tu OBS. Soporta la contraseña del servidor WebSocket. Los botones de grabar y transmitir se marcan en rojo mientras están activos.
-- **Spotify:** elige una de tus playlists (o pega un enlace) y el botón la reproduce. Requiere crear una app gratuita en el panel de desarrolladores de Spotify, pegar su Client ID y una cuenta **Premium**. Sin conectar, o con cuenta gratuita, el botón abre la lista en la app de Spotify.
+- **Spotify:** elige una de tus playlists (o pega un enlace) y el botón la reproduce. Hay dos caminos. **Sin cuenta conectada, o con cuenta gratuita:** StreamDesk abre la lista en la app de Spotify de tu PC y pulsa su botón de *Reproducir* (con la accesibilidad de Windows, sin usar tu cuenta ni enviar nada a Spotify); la app debe estar abierta y a la vista (no minimizada), mientras actúa no te quita el foco, y una cuenta gratuita suena en modo aleatorio y con anuncios, como la propia app. Solo lee Spotify en español («Reproducir»). **Con Premium:** crea una app gratuita en el panel de desarrolladores de Spotify, pega su Client ID, conecta la cuenta y el botón reproduce directamente por la API, sin abrir la app.
 - **Discord:**
   - **Silenciar y ensordecer** pulsan los atajos globales que tú defines una vez (por defecto `CTRL+ALT+F9` y `CTRL+ALT+F10`) y creas también en Discord.
   - **Soundboard de tus servidores:** en Studio pulsa *Buscar mis sonidos*. StreamDesk lee el panel de sonidos de **tu** Discord (con la accesibilidad de Windows, UI Automation), lista los sonidos de cada servidor (se preselecciona el del canal de voz en el que estés) y al pulsar el botón pulsa ese sonido en el panel, igual que harías con el ratón, sin mover el cursor ni quitarte el foco. No usa tu cuenta, ni su token, ni bots, ni envía nada a Discord.
@@ -159,6 +159,7 @@ streamdeck/
 │   ├── auth.py                # Sistema de autenticación por PIN, tokens y rate-limiting
 │   ├── config_manager.py      # Gestión de lectura y guardado de deck_config.json
 │   ├── discord_ui.py          # Lee y pulsa el panel de sonidos de Discord (UI Automation)
+│   ├── spotify_ui.py          # Pulsa Reproducir en la app de Spotify (cuentas gratuitas o sin conectar)
 │   ├── telemetry.py           # CPU, RAM, GPU/VRAM (NVML), red y velocidad de disco
 │   ├── main.py                # Servidor FastAPI, WebSockets y auto-actualizador de GitHub
 │   └── system_scanner.py      # Escáner automático de ejecutables y rutas de apps instaladas
