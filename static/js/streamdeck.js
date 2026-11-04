@@ -375,6 +375,7 @@ function handleServerMessage(data) {
 // Live Hardware Telemetry Updates
 function updateTelemetryWidgets(data) {
   lastTelemetry = data;
+  if (detailSheet && !detailSheet.hidden) renderDetailRows();
   document.querySelectorAll(".deck-monitor").forEach((el) => paintMonitor(el, "deck-monitor", el.dataset.monitor, data));
 }
 
@@ -481,8 +482,33 @@ function applyButtonState(id) {
 // so a gauge created later (page change, reconnect) shows a real value at once.
 let lastTelemetry = null;
 
+// Tapping a gauge opens a sheet with every reading. It touches nothing on the PC, so it cannot pull the user
+// out of the program they are using.
+const detailSheet = document.getElementById("detail-sheet");
+
+function renderDetailRows() {
+  const box = document.getElementById("detail-rows");
+  if (!box) return;
+  box.innerHTML = monitorDetailRows(lastTelemetry || {}).map(row =>
+    `<div class="detail-row"><b>${row.name}</b><span>${row.text}</span></div>`).join("");
+}
+
+function openSystemDetail() {
+  if (!detailSheet) return;
+  renderDetailRows();
+  detailSheet.hidden = false;
+}
+
+function closeSystemDetail() {
+  if (detailSheet) detailSheet.hidden = true;
+}
+
+document.getElementById("btn-close-detail")?.addEventListener("click", closeSystemDetail);
+detailSheet?.addEventListener("click", (event) => { if (event.target === detailSheet) closeSystemDetail(); });
+
 function createMonitorElement(btn, keycap) {
   keycap.classList.add("deck-monitor");
+  keycap.addEventListener("pointerdown", () => { haptic(15); openSystemDetail(); });
   keycap.dataset.monitor = btn.target;
   keycap.innerHTML = `<div class="deck-btn-inner"><div class="deck-btn-accent"></div>${monitorInnerHtml("deck-monitor", btn.target)}</div>`;
   keycap.querySelector(".deck-btn-accent").style.background = btn.color || "var(--accent)";

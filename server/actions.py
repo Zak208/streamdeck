@@ -153,7 +153,10 @@ def launch_smart_app(app_id: str) -> bool:
                 updater = path.split(" --", 1)[0]
                 subprocess.Popen([updater, "--processStart", "Discord.exe"])
             else:
-                os.startfile(path)
+                # Start it in its own folder, as Explorer does. OBS, for one, looks for locale/en-US.ini relative to
+                # where it was started and refuses to open ("no encuentra en-US") when started from another folder.
+                folder = os.path.dirname(path) if os.path.isabs(path) else None
+                os.startfile(path, cwd=folder) if folder else os.startfile(path)
             return True
         except OSError as exc:
             print(f"Failed to launch {app_key}: {exc}")

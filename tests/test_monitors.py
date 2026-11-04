@@ -263,5 +263,54 @@ process.stdout.write(JSON.stringify(out));
             self.assertLess(html.index("/static/js/monitors.js"), html.index(f"/static/js/{script}"), page)
 
 
+@unittest.skipUnless(NODE, "needs Node to run the browser code")
+class DetailSheetTests(unittest.TestCase):
+    SCRIPT = r"""
+const fs = require("fs"), vm = require("vm");
+const sandbox = { console, JSON, Math, Number, String, Object };
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), sandbox);
+const rows = (t) => JSON.parse(vm.runInContext(`JSON.stringify(monitorDetailRows(${JSON.stringify(t)}))`, sandbox));
+const full = { cpu: 12, ram: 53, gpu: 11, vram: 11, vram_used: 1.8 * 2 ** 30, vram_total: 15.9 * 2 ** 30,
+  net_down: 4600, net_up: 7500, disk_read: 64000, disk_write: 179000, disk: 92 };
+console.log(JSON.stringify({
+  full: rows(full),
+  noGpu: rows({ ...full, gpu: null, vram: null, vram_used: null, vram_total: null }),
+  noData: rows({}),
+  vramWithoutDetail: rows({ ...full, vram_used: null }),
+}));
+"""
+
+    @classmethod
+    def setUpClass(cls):
+        result = subprocess.run([NODE, "-e", cls.SCRIPT, os.path.join(STATIC_DIR, "js", "monitors.js")],
+                                capture_output=True, text=True, encoding="utf-8", timeout=30)
+        assert result.returncode == 0, result.stderr
+        cls.out = json.loads(result.stdout)
+
+    def test_every_reading_is_listed_with_its_unit(self):
+        self.assertEqual({row["name"]: row["text"] for row in self.out["full"]}, {
+            "CPU": "12 %", "RAM": "53 %", "GPU": "11 %", "VRAM": "11 % · 1.8 GB / 15.9 GB",
+            "Red": "↓ 4.6 KB/s · ↑ 7.5 KB/s", "Disco": "Lee 64 KB/s · Escribe 179 KB/s", "Espacio del disco": "92 %"})
+
+    def test_a_pc_without_nvidia_says_so_instead_of_zero(self):
+        by_name = {row["name"]: row["text"] for row in self.out["noGpu"]}
+        self.assertEqual((by_name["GPU"], by_name["VRAM"]), ("N/D", "N/D"))
+
+    def test_before_the_first_reading_nothing_is_invented(self):
+        self.assertTrue(all(row["text"] == "--" for row in self.out["noData"]), self.out["noData"])
+
+    def test_vram_without_sizes_shows_only_the_percentage(self):
+        self.assertEqual({r["name"]: r["text"] for r in self.out["vramWithoutDetail"]}["VRAM"], "11 %")
+
+    def test_tapping_a_gauge_on_the_phone_opens_the_sheet_without_calling_the_pc(self):
+        js = read("js/streamdeck.js")
+        body = js[js.index("function createMonitorElement"):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn("openSystemDetail()", body)
+        self.assertNotIn("sendWS", body)  # a gauge never triggers anything on the PC: it must not pull the user out of a game
+        self.assertIn('id="detail-sheet"', read("index.html"))
+
+
 if __name__ == "__main__":
     unittest.main()

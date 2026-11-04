@@ -117,7 +117,8 @@ body {
 /* ---------- Layout ---------- */
 .studio-shell {
   display: grid;
-  grid-template-columns: 272px minmax(0, 1fr) 380px;
+  /* The right panel's width is the user's: dragged, or set with the expand button (see studio-ui.js). */
+  grid-template-columns: 272px minmax(0, 1fr) min(var(--inspector-width, 380px), 62vw);
   min-height: 0;
 }
 aside {
@@ -310,7 +311,14 @@ kbd { padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 5px
 .slot-fader-val { font: 700 12px var(--mono); }
 
 /* ---------- Inspector ---------- */
-.editor-drawer { display: flex; flex-direction: column; min-height: 0; padding: 20px; overflow-y: auto; background: var(--bg-raised); border-left: 1px solid var(--line); }
+.editor-drawer { position: relative; display: flex; flex-direction: column; min-height: 0; padding: 20px; overflow-y: auto; background: var(--bg-raised); border-left: 1px solid var(--line); }
+.editor-title { padding-right: 40px; }
+.inspector-expand { position: absolute; top: 14px; right: 14px; z-index: 2; width: 30px; height: 30px; padding: 0; font-size: 15px; line-height: 1; }
+/* A thin strip on the panel's left edge to drag it wider or narrower. */
+.inspector-resizer { position: absolute; top: 0; bottom: 0; left: -5px; z-index: 3; width: 10px; cursor: col-resize; touch-action: none; }
+.inspector-resizer::after { content: ""; position: absolute; top: 50%; left: 3px; width: 4px; height: 44px; margin-top: -22px; border-radius: 2px; background: var(--line-strong); opacity: 0.55; transition: opacity 0.15s, background 0.15s; }
+.inspector-resizer:hover::after, .inspector-resizer:focus-visible::after, .inspector-resizer.dragging::after { opacity: 1; background: var(--accent); }
+body.resizing-inspector { cursor: col-resize; user-select: none; }
 .editor-title { margin-bottom: 16px; font-size: 16px; font-weight: 700; }
 .empty-inspector-tip { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 48px 16px; color: var(--text-3); text-align: center; font-size: 13px; line-height: 1.55; }
 .empty-inspector-tip img { width: 36px; height: 36px; opacity: 0.4; }
@@ -361,7 +369,7 @@ kbd { padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 5px
 .app-card-badge { color: var(--accent); font-size: 11px; font-weight: 700; white-space: nowrap; }
 .empty-note { padding: 14px; color: var(--text-3); font-size: 12px; text-align: center; }
 
-.quick-actions-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.quick-actions-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }  /* two columns at the normal width, more when the panel is wider */
 .quick-action-card {
   display: flex;
   flex-direction: column;
@@ -454,7 +462,7 @@ textarea:focus { border-color: var(--accent); }
 .connector-body .btn-primary, .connector-body .btn-secondary { min-height: 36px; padding: 6px 12px; }
 .inline-row { display: flex; align-items: stretch; gap: 8px; }
 .inline-row .btn-secondary { flex: none; }
-.option-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
+.option-list { display: flex; flex-direction: column; gap: 6px; max-height: clamp(240px, 52vh, 560px); overflow-y: auto; }
 .option-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 13px; }
 .option-row > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .playlist-row { justify-content: flex-start; cursor: pointer; }
@@ -523,7 +531,7 @@ code.copyable { display: block; margin: 4px 0; padding: 7px 9px; background: var
 
 /* ---------- Narrower windows ---------- */
 @media (max-width: 1180px) {
-  .studio-shell { grid-template-columns: 208px minmax(0, 1fr) 320px; }
+  .studio-shell { grid-template-columns: 208px minmax(0, 1fr) min(var(--inspector-width, 320px), 62vw); }
   .update-cylinder { display: none; }
   .preview-container { padding: 14px; }
   .phone-screen-wrapper { padding: 10px; }
@@ -532,7 +540,7 @@ code.copyable { display: block; margin: 4px 0; padding: 7px 9px; background: var
   .editor-drawer { padding: 16px; }
 }
 @media (max-width: 939px) {
-  .studio-shell { grid-template-columns: 0 minmax(0, 1fr) 340px; }
+  .studio-shell { grid-template-columns: 0 minmax(0, 1fr) min(var(--inspector-width, 340px), 62vw); }
   aside { display: none; }
   .sidebar-brand h1 { display: none; }
 }

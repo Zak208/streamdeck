@@ -39,6 +39,24 @@ function formatBytes(bytes) {
   return `${(Number(bytes) / 2 ** 30).toFixed(1)} GB`;
 }
 
+// Every reading as text, for the sheet that opens when a gauge is tapped. `undefined` means no data yet, `null` no sensor.
+function monitorDetailRows(t) {
+  const percent = (v) => (v === undefined ? "--" : v === null ? "N/D" : `${v} %`);
+  const rate = (v) => { const r = formatRate(v); return `${r.value} ${r.unit}`; };
+  const speed = (a, b, la, lb) => (a === undefined && b === undefined ? "--" : `${la} ${rate(a)} · ${lb} ${rate(b)}`);
+  const vramText = t.vram === undefined ? "--" : t.vram === null ? "N/D"
+    : `${t.vram} %${t.vram_used == null ? "" : ` · ${formatBytes(t.vram_used)} / ${formatBytes(t.vram_total)}`}`;
+  return [
+    { name: "CPU", text: percent(t.cpu) },
+    { name: "RAM", text: percent(t.ram) },
+    { name: "GPU", text: percent(t.gpu) },
+    { name: "VRAM", text: vramText },
+    { name: "Red", text: speed(t.net_down, t.net_up, "↓", "↑") },
+    { name: "Disco", text: speed(t.disk_read, t.disk_write, "Lee", "Escribe") },
+    { name: "Espacio del disco", text: percent(t.disk) },
+  ];
+}
+
 function monitorLevel(percent) {
   return percent >= 85 ? "high" : percent >= 60 ? "warn" : "ok";
 }

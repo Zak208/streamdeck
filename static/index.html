@@ -16,8 +16,8 @@
     // Same theme as Studio, remembered from the last connection, applied before first paint.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.10.0">
-  <link rel="stylesheet" href="/static/css/style.css?v=2.10.0">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.11.0">
+  <link rel="stylesheet" href="/static/css/style.css?v=2.11.0">
 </head>
 <body>
   <!-- Top bar -->
@@ -84,6 +84,17 @@
     </div>
   </div>
 
+  <!-- Opens when a system gauge is tapped: every reading at once, live -->
+  <div class="sheet-overlay" id="detail-sheet" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+      <div class="sheet-header">
+        <h2 id="detail-title">Estado del PC</h2>
+        <button class="close-btn" id="btn-close-detail" aria-label="Cerrar">✕</button>
+      </div>
+      <section class="sheet-section"><div id="detail-rows" class="detail-rows"></div></section>
+    </div>
+  </div>
+
   <!-- Settings sheet: connection, pages, screen and installing the app -->
   <div class="sheet-overlay" id="settings-sheet" hidden>
     <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
@@ -114,8 +125,8 @@
   <!-- Action Result & Error Toast -->
   <div id="mobile-toast" class="mobile-toast"></div>
 
-  <script src="/static/js/monitors.js?v=2.10.0"></script>
-  <script src="/static/js/streamdeck.js?v=2.10.0"></script>
-  <script src="/static/js/phone-settings.js?v=2.10.0"></script>
+  <script src="/static/js/monitors.js?v=2.11.0"></script>
+  <script src="/static/js/streamdeck.js?v=2.11.0"></script>
+  <script src="/static/js/phone-settings.js?v=2.11.0"></script>
 </body>
 </html>

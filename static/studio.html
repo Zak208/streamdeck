@@ -8,8 +8,8 @@
     // Apply the saved theme before first paint so the window does not flash the wrong colours.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.10.0">
-  <link rel="stylesheet" href="/static/css/studio.css?v=2.10.0">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.11.0">
+  <link rel="stylesheet" href="/static/css/studio.css?v=2.11.0">
 </head>
 <body>
 
@@ -135,6 +135,9 @@
     </main>
 
     <section class="editor-drawer" id="editor-drawer">
+      <div class="inspector-resizer" id="inspector-resizer" role="separator" aria-orientation="vertical" tabindex="0"
+           aria-label="Ancho del panel. Arrastra, o usa las flechas izquierda y derecha. Doble clic para volver al ancho normal." title="Arrastra para ensanchar el panel (doble clic: ancho normal)"></div>
+      <button class="icon-button inspector-expand" id="inspector-expand" type="button" aria-label="Ampliar o reducir el panel" title="Ampliar o reducir el panel">⤢</button>
       <div class="editor-title" id="inspector-title">Configura una casilla</div>
       <div id="inspector-content">
         <div class="empty-inspector-tip">
@@ -147,9 +150,9 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/monitors.js?v=2.10.0"></script>
-  <script src="/static/js/studio.js?v=2.10.0"></script>
-  <script src="/static/js/studio-library.js?v=2.10.0"></script>
-  <script src="/static/js/studio-ui.js?v=2.10.0"></script>
+  <script src="/static/js/monitors.js?v=2.11.0"></script>
+  <script src="/static/js/studio.js?v=2.11.0"></script>
+  <script src="/static/js/studio-library.js?v=2.11.0"></script>
+  <script src="/static/js/studio-ui.js?v=2.11.0"></script>
 </body>
 </html>

@@ -31,7 +31,7 @@ Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollad
 
 ### 4. 🔄 Auto-Actualizador Integrado con GitHub
 - En la barra superior del PC Studio se encuentra el **cilindro indicador de estado de versión**:
-  - `🟢 v2.10.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
+  - `🟢 v2.11.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
   - `🟡 ¡Actualización en GitHub! [Actualizar 🚀]`: El sistema detecta automáticamente nuevos commits en `https://github.com/Zak208/streamdeck`.
 - Al pulsar el botón de actualizar, el sistema ejecuta `/api/system/apply-update` sincronizando el código automáticamente sin necesidad de reinstalar manualmente.
 
@@ -97,6 +97,12 @@ Inspirado en la aplicación oficial de Elgato:
 ## 📊 Monitores del sistema
 
 Las casillas de monitor muestran en vivo: **CPU**, **RAM**, **GPU** y **VRAM** (tarjetas NVIDIA, leídas con su librería `nvml.dll`; con otras marcas muestran *N/D*), **Red** (descarga y subida de la tarjeta que usa tu red local) y **Disco** (velocidad de lectura y escritura). El porcentaje de disco ocupado sigue disponible como acción, pero ya no está en la página Sistema por defecto.
+
+## 🧰 Detalles que conviene saber
+
+- **Panel derecho de Studio:** se ensancha arrastrando su borde izquierdo (doble clic para volver al ancho normal, o con las flechas del teclado) o con el botón ⤢ de su esquina. Recuerda la anchura. Las listas de opciones (escenas, playlists, sonidos...) aprovechan la altura de la ventana.
+- **Monitores en el móvil:** tocar un monitor (CPU, RAM, GPU, VRAM, Red, Disco) abre una hoja «Estado del PC» con todas las lecturas en vivo. No toca nada en el PC, así que no te saca del programa que estés usando.
+- **Programas que abre StreamDesk** (OBS, Steam, Discord...) se arrancan desde su propia carpeta. Antes OBS fallaba con «no encuentra en-US» porque se lanzaba desde otra carpeta, algo que no depende del idioma en que lo tengas.
 
 ## 🎨 Interfaz y primeros pasos
 

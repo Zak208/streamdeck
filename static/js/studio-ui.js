@@ -452,3 +452,77 @@ window.addEventListener("DOMContentLoaded", () => {
   setInterval(refreshFirewall, 20000);
   setTimeout(maybeShowWelcome, 700);
 });
+
+// ---------- Right panel width: drag its edge, or use the expand button; the choice is remembered ----------
+
+const INSPECTOR_KEY = "streamdesk_inspector_width";
+const INSPECTOR_MIN = 340;
+const INSPECTOR_WIDE = 680;
+
+function inspectorLimits() {
+  return { min: INSPECTOR_MIN, max: Math.max(INSPECTOR_MIN, Math.min(960, Math.round(window.innerWidth * 0.62))) };
+}
+
+function currentInspectorWidth() {
+  return Math.round(document.getElementById("editor-drawer")?.getBoundingClientRect().width || 0);
+}
+
+// `width` of null goes back to the stylesheet's own width.
+function setInspectorWidth(width, { save = true } = {}) {
+  const root = document.documentElement;
+  if (width === null) {
+    root.style.removeProperty("--inspector-width");
+    if (save) { try { localStorage.removeItem(INSPECTOR_KEY); } catch (e) { /* private window: just not remembered */ } }
+  } else {
+    const { min, max } = inspectorLimits();
+    const clamped = Math.max(min, Math.min(max, Math.round(width)));
+    root.style.setProperty("--inspector-width", `${clamped}px`);
+    if (save) { try { localStorage.setItem(INSPECTOR_KEY, String(clamped)); } catch (e) { /* idem */ } }
+  }
+  const button = document.getElementById("inspector-expand");
+  if (button) button.textContent = currentInspectorWidth() >= 560 ? "⤡" : "⤢";
+}
+
+function initInspectorResize() {
+  const handle = document.getElementById("inspector-resizer");
+  const expand = document.getElementById("inspector-expand");
+  if (!handle || !expand) return;
+  try {
+    const saved = Number(localStorage.getItem(INSPECTOR_KEY));
+    if (saved) setInspectorWidth(saved, { save: false });
+  } catch (e) { /* nothing remembered */ }
+
+  handle.addEventListener("pointerdown", (event) => {
+    handle.setPointerCapture(event.pointerId);
+    handle.classList.add("dragging");
+    document.body.classList.add("resizing-inspector");
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (!handle.hasPointerCapture(event.pointerId)) return;
+    setInspectorWidth(window.innerWidth - event.clientX, { save: false }); // the panel sits against the right edge
+  });
+  const finish = (event) => {
+    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    handle.classList.remove("dragging");
+    document.body.classList.remove("resizing-inspector");
+    setInspectorWidth(currentInspectorWidth());
+  };
+  handle.addEventListener("pointerup", finish);
+  handle.addEventListener("pointercancel", finish);
+  handle.addEventListener("dblclick", () => setInspectorWidth(null));
+  handle.addEventListener("keydown", (event) => {
+    const step = event.shiftKey ? 80 : 24;
+    if (event.key === "ArrowLeft") setInspectorWidth(currentInspectorWidth() + step);
+    else if (event.key === "ArrowRight") setInspectorWidth(currentInspectorWidth() - step);
+    else if (event.key === "Home") setInspectorWidth(null);
+    else return;
+    event.preventDefault();
+  });
+  expand.addEventListener("click", () => setInspectorWidth(currentInspectorWidth() >= 560 ? null : INSPECTOR_WIDE));
+  window.addEventListener("resize", () => {
+    const { max } = inspectorLimits();
+    if (currentInspectorWidth() > max) setInspectorWidth(max, { save: false });
+  });
+}
+
+document.addEventListener("DOMContentLoaded", initInspectorResize);
