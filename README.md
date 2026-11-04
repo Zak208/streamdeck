@@ -2,8 +2,6 @@
 
 **StreamDesk Pro** convierte un smartphone o una tablet en una superficie de control táctil e inalámbrica para un PC con Windows, con una **cuadrícula de 6x2 por defecto (12 casillas; los faders verticales ocupan 2 casillas), configurable en Ajustes**, faders de volumen, detección de las aplicaciones instaladas y conectores para OBS, Spotify y Discord.
 
-Incluye una **aplicación de escritorio** (FastAPI y WebView2) que aloja el servidor y el editor Studio, sin consolas abiertas ni navegador externo. Su aspecto es oscuro y minimalista, con la paleta corporativa de CTMA (negro, gris y amarillo); la organización del editor (biblioteca de acciones a un lado, cuadrícula en el centro, propiedades al otro) sigue la lógica de la aplicación de Elgato, no la de Spotify.
-
 🔗 **Repositorio Oficial:** [https://github.com/Zak208/streamdeck](https://github.com/Zak208/streamdeck)
 
 ---
@@ -79,9 +77,9 @@ Abre la dirección que muestra Studio (o escanea el QR) y pulsa el engranaje: **
 
 **Móvil en vertical u horizontal:** en vertical los botones se reorganizan en 3 columnas; en horizontal se aprovecha toda la altura. El menú de ajustes del móvil permite saltar de página, ver el estado de la conexión y vincular con otro PC.
 
-## 🧩 Acciones al estilo Stream Deck
+## 🧩 Acciones y editor Studio
 
-Inspirado en la aplicación oficial de Elgato:
+Studio es el editor de la aplicación de escritorio: biblioteca de acciones a un lado, la cuadrícula en el centro y las propiedades de la casilla elegida al otro.
 
 - **Biblioteca de acciones** en el panel lateral, con buscador y categorías. Arrastra una acción a una casilla, o pulsa la acción con una casilla elegida.
 - **Multiacción:** varias acciones en un botón, con espera entre pasos (hasta 8). Los pasos pueden pulsar atajos, escribir texto, abrir webs y apps, o usar cualquier acción de la biblioteca.
