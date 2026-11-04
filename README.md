@@ -1,8 +1,8 @@
-# 🎛️ StreamDesk Pro — Controlador Táctil 6x2 para PC desde Móvil
+# 🎛️ StreamDesk Pro: Controlador Táctil 6x2 para PC desde Móvil
 
-**StreamDesk Pro** es una solución integral y moderna para transformar cualquier smartphone o tablet en una Stream Deck profesional táctil e inalámbrica para Windows, con una **cuadrícula de 6x2 (12 casillas con faders verticales de 2 espacios)**, faders de volumen vertical analógicos, autodescubrimiento inteligente de aplicaciones y sistema de auto-actualización directa con GitHub.
+**StreamDesk Pro** convierte un smartphone o una tablet en una superficie de control táctil e inalámbrica para un PC con Windows, con una **cuadrícula de 6x2 (12 casillas; los faders verticales ocupan 2 casillas)**, faders de volumen, detección de las aplicaciones instaladas y conectores para OBS, Spotify y Discord.
 
-Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollada con FastAPI y WebView2, sin necesidad de mantener consolas abiertas ni depender de navegadores externos.
+Incluye una **aplicación de escritorio** (FastAPI y WebView2) que aloja el servidor y el editor Studio, sin consolas abiertas ni navegador externo. Su aspecto es oscuro y minimalista, con la paleta corporativa de CTMA (negro, gris y amarillo); la organización del editor (biblioteca de acciones a un lado, cuadrícula en el centro, propiedades al otro) sigue la lógica de la aplicación de Elgato, no la de Spotify.
 
 🔗 **Repositorio Oficial:** [https://github.com/Zak208/streamdeck](https://github.com/Zak208/streamdeck)
 
@@ -10,30 +10,29 @@ Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollad
 
 ## 🌟 Características Principales
 
-### 1. 🖥️ Aplicación Nativa de Escritorio (Estilo Spotify)
-- **Ventana Dedicada e Integrada:** Olvídate de abrir pestañas del navegador o ver ventanas negras de comandos. StreamDesk Pro arranca directamente en una ventana nativa de escritorio moderna acelerada por hardware (WebView2) con tema oscuro profesional (`#070a10`).
+### 1. 🖥️ Aplicación de Escritorio
+- **Ventana Dedicada e Integrada:** Olvídate de abrir pestañas del navegador o ver ventanas negras de comandos. StreamDesk Pro arranca directamente en una ventana de escritorio (WebView2) con tema oscuro: negro y amarillo `#F8C700` por defecto, o azul noche y cian como alternativa.
 - **Servidor Integrado en Segundo Plano:** El núcleo FastAPI y el controlador de audio para Windows corren de forma silenciosa y asíncrona dentro del proceso de la aplicación.
 - **Modo Portátil o Instalable:** Puedes ejecutarlo directamente desde el binario compilado o mediante los scripts de inicio rápido.
 
 ### 2. 📱 Conexión PWA para Móvil con Cuadrícula 6x2
-- **12 Casillas Táctiles (2 Filas x 6 Columnas):** Diseñado especialmente para aprovechar el formato panorámico de los teléfonos móviles en horizontal (o adaptable en vertical), ofreciendo hasta 16 accesos directos simultáneos y faders analógicos con botones grandes y cómodos.
+- **12 Casillas Táctiles (2 Filas x 6 Columnas):** Diseñado especialmente para aprovechar el formato panorámico de los teléfonos móviles en horizontal (o adaptable en vertical), con botones grandes y faders analógicos.
 - **PWA 100% Instalable (Progressive Web App):**
   - Incorpora Service Worker y Web App Manifest con iconos de alta resolución (`192x192` y `512x512`).
   - Botón directo en la barra superior: **📲 Instalar App** en Android (Google Chrome/Brave/Edge).
   - En iPhone (Safari): Pulsa *Compartir (⎋) -> "Añadir a la pantalla de inicio" (+)* para disfrutar de la experiencia a pantalla completa sin barras de navegación del navegador.
 - **Emparejamiento Seguro con PIN y Código QR:**
-  - El Studio en tu PC genera un **código PIN de 6 dígitos** y un **código QR** para vincular el móvil en segundos dentro de la misma red local Wi-Fi.
-  - **Vinculación Persistente:** Una vez emparejado, el token se almacena de forma segura en `localStorage`; la app se reconecta automáticamente en 0 segundos en futuros inicios sin solicitar PIN nuevamente.
+  - El Studio en tu PC genera un **código PIN de 6 dígitos** (aleatorio criptográfico) y un **código QR** para vincular el móvil dentro de la misma red local Wi-Fi. Tras 5 intentos fallidos desde una misma IP se bloquea el emparejamiento durante 10 minutos.
+  - **Vinculación Persistente:** Una vez emparejado, el token se guarda en el `localStorage` del móvil y la app se reconecta sola sin pedir el PIN. El PC solo guarda una huella del token, y desde Ajustes se puede revocar cualquier móvil emparejado.
 
 ### 3. 🎚️ Control Analógico de Audio y Faders
 - Control de volumen maestro y control individual por aplicación en tiempo real (Discord, Spotify, OBS, juegos como Valorant, Chrome, etc.).
 - Soporte para muteo táctil con feedback visual del estado del micrófono o volumen de Windows.
 
-### 4. 🔄 Auto-Actualizador Integrado con GitHub
-- En la barra superior del PC Studio se encuentra el **cilindro indicador de estado de versión**:
-  - `🟢 v2.11.0 · al día`: Tu instalación coincide con el último commit del repositorio oficial.
-  - `🟡 ¡Actualización en GitHub! [Actualizar 🚀]`: El sistema detecta automáticamente nuevos commits en `https://github.com/Zak208/streamdeck`.
-- Al pulsar el botón de actualizar, el sistema ejecuta `/api/system/apply-update` sincronizando el código automáticamente sin necesidad de reinstalar manualmente.
+### 4. 🔄 Actualización desde GitHub (solo modo desarrollador)
+- La barra superior de Studio muestra la versión (`v2.11.0`) y compara tu copia con el último commit de `https://github.com/Zak208/streamdeck`.
+- El botón de actualizar ejecuta `git pull --ff-only` (`/api/system/apply-update`), así que **solo funciona si ejecutas StreamDesk desde un clon del repositorio**.
+- En la versión instalada o compilada no hay carpeta `.git`: ahí Studio avisa de que hay que descargar un instalador nuevo.
 
 ---
 
@@ -42,10 +41,7 @@ Cuenta con una **aplicación nativa de escritorio (estilo Spotify)** desarrollad
 ### Opción 1: Instalación Guiada con el Instalador Oficial (Recomendado)
 El proyecto incluye un instalador moderno creado con Inno Setup:
 
-1. Descarga o localiza el archivo ejecutable:
-   ```text
-   instalador_streamdeck.exe
-   ```
+1. Genera el instalador (no se versiona en el repositorio): compila `installer/setup.iss` con Inno Setup 6 a partir de `dist\StreamDesk` (resultado: `instalador_streamdeck.exe`).
 2. Ejecuta el archivo con doble clic. El instalador:
    - Configura la aplicación en tu directorio de usuario (`%LOCALAPPDATA%\Programs\StreamDesk Pro`) sin requerir permisos elevados de administrador.
    - Crea automáticamente los accesos directos en el **Escritorio** y en el **Menú Inicio**.
@@ -141,49 +137,42 @@ Las contraseñas y tokens se guardan en `config/settings.json` dentro de tu carp
 
 ---
 
+## 🔒 Seguridad
+
+- **Studio y la configuración solo se abren desde el propio PC.** Todas las rutas de administración (configuración, subida de imágenes, PIN, actualización, conectores, perfil) responden `403` a cualquier cliente que no sea `localhost`. El móvil solo usa el WebSocket con su token.
+- **CORS limitado** a `http://localhost` y `http://127.0.0.1` en el puerto de StreamDesk.
+- **PIN de 6 dígitos** generado con `secrets`, comparado en tiempo constante y con límite de 5 intentos por IP cada 10 minutos.
+- **Móviles revocables** desde Ajustes. Contraseñas y tokens de conectores se guardan en `config/settings.json` y no se envían al navegador.
+- **El servidor escucha en `0.0.0.0`** para que el móvil lo alcance por Wi-Fi: úsalo en redes de confianza. Cualquiera con el token de un móvil emparejado puede pulsar botones, y los botones pueden abrir programas o pulsar atajos.
+
 ## 🏗️ Arquitectura y Estructura del Proyecto
 
 ```text
 streamdeck/
-├── app_desktop.py             # Lanzador de la ventana nativa de escritorio (PyWebView + FastAPI)
-├── instalador_streamdeck.exe   # Instalador compilado para Windows (Inno Setup)
-├── StreamDesk.spec            # Especificación de empaquetado PyInstaller
-├── start.bat                  # Script de inicio rápido inteligente para Windows
-├── start.ps1                  # Script PowerShell de inicio rápido
-├── requirements.txt           # Dependencias Python (FastAPI, PyWebView, Uvicorn, etc.)
+├── app_desktop.py             # Ventana de escritorio (PyWebView) y arranque del servidor
+├── StreamDesk.spec            # Empaquetado PyInstaller (local, no se versiona)
+├── start.bat / start.ps1      # Arranque rápido en Windows
+├── requirements.txt           # Dependencias Python
 │
-├── config/
-│   └── deck_config.json       # Configuración guardada de las 12 casillas (cuadrícula 6x2)
+├── config/                    # Valores por defecto; tu perfil y ajustes se guardan en tu carpeta de datos
+├── installer/                 # setup.iss (Inno Setup) y license.txt
+├── scripts/                   # Generación de iconos SVG y PWA
+├── tests/                     # Pruebas de API, autenticación, conectores, Discord, Spotify, PWA y Studio
 │
-├── installer/
-│   ├── license.txt            # Licencia del instalador
-│   └── setup.iss              # Script de compilación de Inno Setup
-│
-├── server/
-│   ├── actions.py             # Ejecución de teclas rápidas, atajos y lanzamiento de apps
-│   ├── audio_controller.py    # Control de volumen de Windows y sesiones de audio
-│   ├── auth.py                # Sistema de autenticación por PIN, tokens y rate-limiting
-│   ├── config_manager.py      # Gestión de lectura y guardado de deck_config.json
-│   ├── discord_ui.py          # Lee y pulsa el panel de sonidos de Discord (UI Automation)
-│   ├── spotify_ui.py          # Pulsa Reproducir en la app de Spotify (cuentas gratuitas o sin conectar)
-│   ├── telemetry.py           # CPU, RAM, GPU/VRAM (NVML), red y velocidad de disco
-│   ├── main.py                # Servidor FastAPI, WebSockets y auto-actualizador de GitHub
-│   └── system_scanner.py      # Escáner automático de ejecutables y rutas de apps instaladas
-│
-├── dist/StreamDesk/           # Binarios empaquetados listos para distribución independiente
+├── server/                    # main.py (FastAPI y WebSocket), auth.py, actions.py, audio_controller.py,
+│                              # config_manager.py, connectors, discord_ui.py, spotify_ui.py,
+│                              # telemetry.py, system_scanner.py, paths.py (versión y rutas)
 └── static/
-    ├── css/
-    │   ├── style.css          # Estilos de la interfaz móvil (cuadrícula 6x2)
-    │   └── studio.css         # Estilos del panel de configuración de PC Studio
-    ├── js/
-    │   ├── streamdeck.js      # Controlador de eventos táctiles, faders y WebSocket móvil
-    │   └── studio.js          # Lógica interactiva del simulador, drag-and-drop y actualizador
-    ├── icons/                 # Iconos SVG y PNG de alta resolución (PWA 192/512px e ICO)
-    ├── manifest.json          # Manifiesto PWA para instalación móvil
-    ├── service-worker.js      # Caché y capacidades offline de la PWA
-    ├── index.html             # Interfaz web móvil táctil
-    └── studio.html            # Interfaz de edición y configuración para PC
+    ├── css/                   # tokens.css (tema), style.css (móvil), studio.css (Studio)
+    ├── js/                    # streamdeck.js (móvil), studio*.js (editor), monitors.js, phone-settings.js
+    ├── icons/                 # Iconos SVG y PNG (PWA 192/512)
+    ├── manifest.json          # Manifiesto PWA
+    ├── service-worker.js      # Caché de la interfaz (las acciones necesitan conexión con el PC)
+    ├── index.html             # Interfaz del móvil
+    └── studio.html            # Editor Studio
 ```
+
+Generados y no versionados: `dist/`, `build/`, `instalador_streamdeck.exe`.
 
 ---
 
@@ -200,4 +189,4 @@ streamdeck/
 
 ## 📄 Licencia
 
-Este proyecto está bajo la Licencia MIT. Consulta el archivo [license.txt](file:///installer/license.txt) para más detalles.
+Este proyecto está bajo la Licencia MIT. Consulta el archivo [license.txt](installer/license.txt) para más detalles.
