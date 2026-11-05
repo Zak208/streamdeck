@@ -56,7 +56,7 @@ class OBSClient:
             async with websockets.connect(uri, open_timeout=1.0, close_timeout=1.0) as ws:
                 hello = json.loads(await asyncio.wait_for(ws.recv(), timeout=1.0))
 
-                identify: Dict[str, Any] = {"rpcVersion": 1}
+                identify: Dict[str, Any] = {"rpcVersion": 1, "eventSubscriptions": 0}  # no events: only our answer
                 challenge = hello.get("d", {}).get("authentication")
                 if challenge:
                     if not self.password:
@@ -78,8 +78,11 @@ class OBSClient:
                     "requestData": request_data or {},
                 }}))
 
-                resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=1.5))
-                return resp.get("d", {})
+                deadline = asyncio.get_event_loop().time() + 1.5
+                while True:
+                    resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=max(0.05, deadline - asyncio.get_event_loop().time())))
+                    if resp.get("op") == 7 and resp.get("d", {}).get("requestId") == req_id:
+                        return resp.get("d", {})  # anything else (an event) is not the answer
         except Exception as e:
             return {"requestStatus": {"result": False, "comment": str(e)}, "unreachable": True}
 
@@ -299,7 +302,7 @@ class OBSClient:
                 if not _request_ok(current):
                     return failure(current)
                 db = float(current.get("responseData", {}).get("inputVolumeDb", 0.0))
-                db = max(-60.0, min(0.0, db + (3.0 if cmd.endswith("up") else -3.0)))  # 3 dB a press, between -60 and 0
+                db = max(-100.0, min(26.0, db + (3.0 if cmd.endswith("up") else -3.0)))  # 3 dB a press, inside OBS's own range
                 res = call("SetInputVolume", {"inputName": source, "inputVolumeDb": db})
                 return {"success": True, "action": f"obs_{cmd}", "db": db} if _request_ok(res) else failure(res)
 

@@ -12,6 +12,7 @@ sonidos"). A Discord redesign can break it, and the errors say what could not be
 """
 
 import atexit
+import concurrent.futures
 import ctypes
 import re
 import time
@@ -408,9 +409,21 @@ def list_sounds() -> List[Dict[str, Any]]:
     return found
 
 
+_voice_pending = None
+
+
 def current_voice_server() -> Optional[str]:
-    """Name of the server whose voice channel the user is in, or None (also when Discord cannot be read)."""
-    return ui_worker.call(_voice_server, timeout=8)
+    """Name of the server whose voice channel the user is in, or None (also when Discord cannot be read).
+
+    While a long job (a scan of the sounds) holds the Discord worker, the question is not queued again and again."""
+    global _voice_pending
+    if _voice_pending is not None and not _voice_pending.done():
+        return None
+    _voice_pending = ui_worker.submit(_voice_server)
+    try:
+        return _voice_pending.result(8)
+    except concurrent.futures.TimeoutError:
+        return None  # it stays queued once: the next question finds it pending
 
 
 def play(section: str, label: str) -> None:

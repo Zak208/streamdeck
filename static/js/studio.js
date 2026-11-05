@@ -748,7 +748,7 @@ function deleteSlotByDrag(index) {
   renderPhoneScreen();
   resetInspectorDrawer();
   saveConfigToServer();
-  showToast(`Eliminado: ${name} (Ctrl+Z para deshacer)`);
+  showUndoToast(`Eliminado: ${name}`);
 }
 
 function clearAllDragHighlights() {
@@ -848,11 +848,11 @@ function emptySlotByIndex(idx) {
 
   if (slot.type === "slider" || slot.type === "occupied_by_slider" || inFaderColumn(currentSlots, idx)) {
     removeFader(currentSlots, col);
-    showToast(`Columna #${col + 1} vaciada (Ctrl+Z para deshacer)`);
+    showUndoToast(`Columna ${col + 1} vaciada`);
   } else {
     rememberDeleted(activePageIndex, currentSlots, [idx]);
     currentSlots[idx] = { index: idx, type: "empty" };
-    showToast(`Casilla #${idx + 1} vaciada (Ctrl+Z para deshacer)`);
+    showUndoToast(`Casilla ${idx + 1} vaciada`);
   }
   renderPhoneScreen();
   selectSlot(idx);
@@ -911,7 +911,12 @@ function createStudioButtonKeycap(btn, index) {
 
   let iconSrc = btn.image || btn.icon || "/static/icons/power.svg";
 
+  wrap.classList.toggle("is-disabled", Boolean(btn.disabled));
+  wrap.classList.toggle("is-unset", btn.action_type === "none");
+  const badges = [btn.long_press ? "⏱" : "", btn.double_tap ? "×2" : "", btn.toggle ? "⇄" : "", btn.confirm ? "?" : ""].filter(Boolean).join(" ");
+  wrap.title = btn.action_type === "none" ? "Sin acción todavía" : describeAction(btn);
   wrap.innerHTML = `
+    ${badges ? `<span class="slot-badges" aria-hidden="true">${badges}</span>` : ""}
     <div class="slot-keycap-inner">
       <div class="slot-accent" style="background: ${btn.color || 'var(--accent)'};"></div>
       <img src="${escapeHtml(iconSrc)}" class="slot-keycap-img" alt="">
@@ -1166,11 +1171,13 @@ function nextSelectableSlot(step) {
 // Keyboard Shortcuts Controller
 window.addEventListener("keydown", (e) => {
   const activeEl = document.activeElement;
-  if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.isContentEditable)) {
+  if (activeEl && (["INPUT", "TEXTAREA", "SELECT"].includes(activeEl.tagName) || activeEl.isContentEditable)) {
     return;
   }
+  // A dialog is on top: the keys belong to it (Delete would empty the cell behind it, the arrows move a hidden selection).
+  if (document.querySelector(".modal-overlay")) return;
 
-  if (e.key === "Delete" || e.key === "Backspace") {
+  if (e.key === "Delete") {
     if (selectedSlotIndex !== null) {
       e.preventDefault();
       emptySlotByIndex(selectedSlotIndex);
@@ -1336,13 +1343,7 @@ function renderButtonInspector(btn, index) {
   document.getElementById("btn-choose-action")?.addEventListener("click", () => openActionPicker(btn, index));
   if (wantedPicker) openActionPicker(btn, index, wantedPicker);
 
-  document.getElementById("btn-delete-slot")?.addEventListener("click", () => {
-    currentSlots[index] = { index, type: "empty" };
-    renderPhoneScreen();
-    selectSlot(index);
-    saveConfigToServer();
-    showToast(`Casilla ${index + 1} vaciada`);
-  });
+  document.getElementById("btn-delete-slot")?.addEventListener("click", () => emptySlotByIndex(index));
 }
 
 // One dialog to choose what a button does: an app to open, the actions inside a program (connectors),
@@ -1363,7 +1364,8 @@ function openActionPicker(btn, index, startTab = "apps", session = null) {
   const tabs = [["apps", "Abrir una app"], ["programs", "Acciones de un programa"], ["shortcuts", "Atajos y texto"], ["system", "Sistema"]];
   let current = startTab;
   const modal = openModal({
-    title: "Elegir qué hace este botón",
+    title: session?.title || "Elegir qué hace este botón",
+    description: session ? "El botón no cambia: solo se añade esta acción." : "",
     body: `
       <div class="picker-tabs" role="tablist">
         ${tabs.map(([id, name]) => `<button class="picker-tab ${id === current ? "active" : ""}" role="tab" data-picker-tab="${id}">${name}</button>`).join("")}
@@ -1798,6 +1800,7 @@ function renderDiscordSounds(area, ctx) {
   const createPage = async (replace) => {
     const server = select.value;
     try {
+      await flushSave();
       const result = await postJson("/api/discord/server-page", { server, sounds: [...picked.get(server)], replace });
       await loadConfig();
       await switchPage(result.index);
@@ -2076,8 +2079,11 @@ function renderTabDesign(container, btn, index) {
   container.querySelectorAll(".color-swatch-btn").forEach(s => {
     s.addEventListener("click", () => {
       btn.color = s.dataset.color;
+      container.querySelectorAll(".color-swatch-btn").forEach(other => other.classList.toggle("active", other === s));
+      colorPicker.value = btn.color;
+      const accent = document.querySelector(".inspector-preview-card .slot-accent");
+      if (accent) accent.style.background = btn.color;
       renderPhoneScreen();
-      renderButtonInspector(btn, index);
       saveConfigToServer();
     });
   });
@@ -2086,8 +2092,10 @@ function renderTabDesign(container, btn, index) {
     ib.addEventListener("click", () => {
       btn.image = ib.dataset.icon;
       btn.icon = "";
+      container.querySelectorAll(".icon-choice-btn").forEach(other => other.classList.toggle("active", other === ib));
+      const preview = document.getElementById("inspector-preview-img");
+      if (preview) preview.src = btn.image;
       renderPhoneScreen();
-      renderButtonInspector(btn, index);
       saveConfigToServer();
     });
   });
@@ -2255,7 +2263,7 @@ function renderSliderInspector(slider, index) {
     renderPhoneScreen();
     selectSlot(col);
     saveConfigToServer();
-    showToast(`Fader quitado de la columna ${col + 1} (Ctrl+Z para deshacer)`);
+    showUndoToast(`Fader quitado de la columna ${col + 1}`);
   });
 }
 
@@ -2323,12 +2331,50 @@ function saveConfigToServer(options = {}) {
 }
 
 let toastTimer = null;
-function showToast(msg) {
+// A message at the bottom. With {action: {label, run}} it carries a button (for example "Deshacer") and stays longer.
+function showToast(msg, options = {}) {
   toast.textContent = msg;
+  toast.classList.toggle("has-action", Boolean(options.action));
+  if (options.action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "toast-action";
+    button.textContent = options.action.label;
+    button.addEventListener("click", () => { toast.classList.remove("show"); options.action.run(); });
+    toast.appendChild(document.createTextNode(" "));
+    toast.appendChild(button);
+  }
   toast.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove("show"), 2800);
+  const wait = options.action ? 7000 : Math.max(2800, 60 * String(msg).length);
+  toastTimer = setTimeout(() => toast.classList.remove("show"), wait);
 }
+
+// What was just removed can be brought back: the message says so with a button, not with a keyboard hint nobody reads.
+function showUndoToast(msg) {
+  showToast(msg, { action: { label: "Deshacer", run: undoLastDelete } });
+}
+
+// Saves what is waiting to be saved, now. Anything that reads the profile from the PC (adding a page from the
+// library, duplicating one) must call it first, or the PC's copy is older than the screen's.
+async function flushSave() {
+  if (!pendingSave) return;
+  clearTimeout(saveTimer);
+  const resolve = resolvePendingSave;
+  pendingSave = null;
+  resolvePendingSave = null;
+  const ok = await persistConfig();
+  resolve?.(ok);
+}
+
+// Closing the window within the half second before a change is saved must not lose it.
+window.addEventListener("pagehide", () => {
+  if (!pendingSave || !config) return;
+  try {
+    if (config.pages && config.pages[activePageIndex]) config.slots = config.pages[activePageIndex].slots;
+    fetch("/api/deck/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config), keepalive: true });
+  } catch (e) { /* nothing more can be done while closing */ }
+});
 
 // Startup
 window.addEventListener("DOMContentLoaded", () => {

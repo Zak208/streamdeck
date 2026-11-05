@@ -355,7 +355,7 @@ function renderTabAction(container, btn, index) {
 // One "what does it do" slot that lives inside a button: a long press, a double tap, the second state.
 // holder[key] is the action ({action_type, target, extra}) or missing. The action is chosen in the same
 // dialog as the key's own, and edited with the same editors.
-function renderActionSlot(el, holder, key, { btn, index, emptyText, removable, startTab = "programs", onChange }) {
+function renderActionSlot(el, holder, key, { btn, index, emptyText, removable, startTab = "programs", title, onChange }) {
   const action = holder[key];
   el.innerHTML = `
     <div class="action-slot">
@@ -378,6 +378,7 @@ function renderActionSlot(el, holder, key, { btn, index, emptyText, removable, s
   }
   el.querySelector("[data-slot-pick]").addEventListener("click", () => {
     openActionPicker(btn, index, startTab, {
+      title,
       onPick: (picked) => { holder[key] = picked; commitAction(btn); onChange(); },
       onCancel: onChange,
     });
@@ -394,6 +395,33 @@ function commandsSwitchHtml(suffix) {
   return `
     <label class="check-row"><input type="checkbox" data-commands-switch id="cmd-allow-${suffix}"> Permitir comandos de consola en este PC</label>
     <p class="integration-hint command-warning">Un comando se ejecuta con los permisos de tu usuario de Windows, sin preguntar nada más. Cualquiera que pueda pulsar el botón (cualquier móvil emparejado) lo lanza. Actívalo solo si confías en tus móviles y en los perfiles que cargues.</p>`;
+}
+
+// The same opt-in for shutting down, restarting, sleeping and logging off.
+function powerSwitchHtml() {
+  return `
+    <label class="check-row"><input type="checkbox" data-power-switch id="power-allow"> Permitir apagar, reiniciar, suspender y cerrar sesión</label>
+    <p class="integration-hint command-warning">Un botón de estas acciones apaga o reinicia el PC al pulsarlo, y lo que no hayas guardado se pierde. Lo puede pulsar cualquier móvil emparejado. El apagado y el reinicio esperan 10 segundos como mínimo, para que puedas cancelarlo con «Cancelar apagado».</p>`;
+}
+
+async function wirePowerSwitch(root) {
+  const box = root.querySelector("[data-power-switch]");
+  if (!box) return;
+  try {
+    box.checked = Boolean((await apiJson("/api/settings/power")).enabled);
+  } catch (err) {
+    box.disabled = true;
+  }
+  box.addEventListener("change", async () => {
+    try {
+      const result = await postJson("/api/settings/power", { enabled: box.checked });
+      box.checked = Boolean(result.enabled);
+      showToast(box.checked ? "Apagar y reiniciar el PC: activado" : "Apagar y reiniciar el PC: desactivado");
+    } catch (err) {
+      box.checked = !box.checked;
+      showToast(err.message);
+    }
+  });
 }
 
 async function wireCommandsSwitch(root) {
@@ -561,7 +589,7 @@ function renderGestureSection(el, btn, index) {
   for (const gesture of Object.keys(GESTURE_LABELS)) {
     if (!btn[gesture] && !wanted.has(gesture)) continue;
     renderActionSlot(el.querySelector(`[data-gesture-slot="${gesture}"]`), btn, gesture, {
-      btn, index, emptyText: "Elige qué hará", startTab: "shortcuts",
+      btn, index, emptyText: "Elige qué hará", startTab: "shortcuts", title: `${GESTURE_LABELS[gesture]}: ¿qué hace?`,
       onChange: () => { wanted.delete(gesture); redraw(); },
     });
   }
@@ -577,6 +605,7 @@ function renderGestureSection(el, btn, index) {
     redraw();
     // Straight to the choice: a gesture with no action would be a box ticked that does nothing.
     openActionPicker(btn, index, "shortcuts", {
+      title: `${GESTURE_LABELS[gesture]}: ¿qué hace?`,
       onPick: (picked) => { btn[gesture] = picked; wanted.delete(gesture); commitAction(btn); redraw(); },
       onCancel: () => { wanted.delete(gesture); redraw(); },
     });
@@ -858,8 +887,7 @@ function renderToggleSection(el, btn, index) {
       btn.alt = btn.alt || { label: btn.label || "Botón", sublabel: btn.sublabel || "", image: btn.image || "", color: btn.color || "#f8c700" };
       toggleEditing = "off";
     } else {
-      delete btn.toggle;
-      delete btn.alt;
+      delete btn.toggle; // the second state stays: turning the switch back on brings it back
     }
     commitAction(btn);
     renderToggleSection(el, btn, index);
@@ -929,7 +957,7 @@ function renderToggleSection(el, btn, index) {
   if (editsSecond) {
     actionEl.innerHTML = `<span class="section-label" style="margin: 16px 0 6px;">Al pulsarlo en el estado 2</span><div id="tg-action-slot"></div>`;
     renderActionSlot(actionEl.querySelector("#tg-action-slot"), btn.alt, "action", {
-      btn, index, emptyText: "Hace lo mismo que el estado 1", removable: true, onChange: redraw,
+      btn, index, emptyText: "Hace lo mismo que el estado 1", removable: true, title: "Estado 2: ¿qué hace al pulsarlo?", onChange: redraw,
     });
   } else {
     actionEl.innerHTML = `
@@ -938,6 +966,7 @@ function renderToggleSection(el, btn, index) {
         <strong id="tg-first-summary">${escapeHtml(describeAction(btn) || "Nada todavía")}</strong>
         <button type="button" class="btn-secondary" id="tg-first-pick">Cambiar acción</button></div></div>`;
     actionEl.querySelector("#tg-first-pick").addEventListener("click", () => openActionPicker(btn, index, "programs", {
+      title: "Estado 1: ¿qué hace al pulsarlo?",
       // Only the action changes: the title, colour and icon of both states stay.
       onPick: (picked) => {
         Object.assign(btn, { action_type: picked.action_type, target: picked.target, extra: picked.extra });

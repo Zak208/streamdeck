@@ -64,15 +64,19 @@ window.addEventListener('appinstalled', () => {
 });
 
 // Screen Wake Lock
+let wakeLockListening = false;
 async function initWakeLock() {
   if ("wakeLock" in navigator) {
     try {
       wakeLock = await navigator.wakeLock.request("screen");
-      document.addEventListener("visibilitychange", async () => {
-        if (wakeLock !== null && document.visibilityState === "visible") {
-          wakeLock = await navigator.wakeLock.request("screen");
-        }
-      });
+      if (!wakeLockListening) {
+        wakeLockListening = true;
+        document.addEventListener("visibilitychange", async () => {
+          if (wakeLock !== null && document.visibilityState === "visible") {
+            try { wakeLock = await navigator.wakeLock.request("screen"); } catch (err) {}
+          }
+        });
+      }
     } catch (err) {}
   }
 }
@@ -178,11 +182,41 @@ deckContainer?.addEventListener("touchend", (e) => {
 // WebSocket Connection
 let reconnectTimer = null;
 
-// One pending reconnect at a time, however many things ask for it.
+// One pending reconnect at a time, however many things ask for it. The wait grows (0.3 s to 8 s) while it keeps
+// failing, and starts over as soon as the connection works or the phone comes back to the screen.
+const RECONNECT_WAITS = [300, 1000, 2000, 4000, 8000];
+let reconnectAttempt = 0;
+let everOpened = false;
+let lastMessageAt = Date.now();
+
 function scheduleReconnect() {
   clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(connectWebSocket, 2000);
+  const wait = RECONNECT_WAITS[Math.min(reconnectAttempt, RECONNECT_WAITS.length - 1)];
+  reconnectAttempt++;
+  reconnectTimer = setTimeout(connectWebSocket, wait);
 }
+
+function setOffline(offline) {
+  document.body.classList.toggle("offline", offline);
+}
+
+// A connection that died without saying so (screen off, Wi-Fi changed) looks open but nothing arrives: the PC
+// sends something at least every second, so silence means it is gone.
+setInterval(() => {
+  if (ws && ws.readyState === WebSocket.OPEN && Date.now() - lastMessageAt > 6000) {
+    try { ws.close(); } catch (e) {}
+  }
+}, 2000);
+
+function reconnectNow() {
+  if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+    reconnectAttempt = 0;
+    connectWebSocket();
+  }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) reconnectNow(); });
+window.addEventListener("online", reconnectNow);
+window.addEventListener("pageshow", reconnectNow);
 
 function connectWebSocket() {
   clearTimeout(reconnectTimer);
@@ -226,10 +260,16 @@ function connectWebSocket() {
     return;
   }
   ws = socket;
+  // A connection to an address that does not answer can stay "connecting" for a long time without ever failing.
+  setTimeout(() => { if (socket === ws && socket.readyState === WebSocket.CONNECTING) { try { socket.close(); } catch (e) {} } }, 4000);
 
   socket.onopen = () => {
     statusDot.className = "dot connected";
     statusText.textContent = "Conectado";
+    everOpened = true;
+    reconnectAttempt = 0;
+    lastMessageAt = Date.now();
+    setOffline(false);
     const banner = document.getElementById("reconnect-banner");
     if (banner) banner.style.display = "none";
     if (pinModal) pinModal.style.display = "none";
@@ -237,6 +277,7 @@ function connectWebSocket() {
   };
 
   socket.onmessage = (event) => {
+    lastMessageAt = Date.now();
     try {
       const data = JSON.parse(event.data);
       handleServerMessage(data);
@@ -249,8 +290,18 @@ function connectWebSocket() {
     if (socket !== ws) return; // an old socket closing after it was replaced
     statusDot.className = "dot";
     statusText.textContent = "Desconectado";
+    setOffline(true);
     const banner = document.getElementById("reconnect-banner");
-    if (banner) banner.style.display = "flex";
+    if (banner) {
+      banner.style.display = "flex";
+      // Never connected since the page opened and still failing: say what can be wrong instead of "reconnecting" forever.
+      const text = banner.querySelector("[data-banner-text]");
+      if (text) {
+        text.textContent = !everOpened && reconnectAttempt >= 3
+          ? "No se puede conectar con tu PC. Comprueba que StreamDesk está abierto y que estás en la misma Wi-Fi. Si cambió la IP del PC, vincula de nuevo desde Ajustes."
+          : "Reconectando con tu PC... Comprueba que estás en la misma red Wi-Fi";
+      }
+    }
     if (event.code === 1008) {
       console.warn("WS 1008: No autorizado");
       localStorage.removeItem("streamdesk_token");
@@ -285,6 +336,7 @@ function handleServerMessage(data) {
   switch (data.type) {
     case "config_sync":
     case "config_updated":
+      if (data.button_labels) buttonLabels = { ...buttonLabels, ...data.button_labels };
       currentConfig = data.config;
       renderDeck(currentConfig);
       renderPageNav(currentConfig);
@@ -654,17 +706,22 @@ function createButtonElement(btn) {
   };
   if (btn.disabled) keycap.classList.add("is-disabled");
   if (btn.action_type === "none") keycap.classList.add("is-blank");
+  const plain = !btn.long_press && !btn.double_tap; // no gestures: the touch only has one meaning
   if (longAction || doubleAction) keycap.classList.add("has-gestures");
 
   // Tactile touch & trigger micro-animation
-  let holdTimer = null, tapTimer = null, longFired = false, secondPress = false, moved = false, startX = 0, startY = 0;
+  let holdTimer = null, tapTimer = null, longFired = false, secondPress = false, moved = false, startX = 0, startY = 0, pressed = false;
   keycap.addEventListener("pointerdown", (event) => {
     if (btn.action_type === "none") return; // an empty key: nothing to press yet
-    haptic(25);
+    if (!plain) haptic(25);
     keycap.classList.add("triggered");
     keycap.style.borderColor = btnColor;
     keycap.style.boxShadow = `0 0 16px ${btnColor}`;
-    if (!longAction && !doubleAction) return void fire("tap"); // the usual case: act the moment it is touched
+    startX = event.clientX;
+    startY = event.clientY;
+    moved = false;
+    pressed = true;
+    if (plain) return; // acts when the finger lifts (see pointerup), not when it lands: a swipe must not press it
     longFired = false;
     secondPress = false;
     moved = false;
@@ -682,7 +739,7 @@ function createButtonElement(btn) {
   });
   // A swipe across the key (to change page) is not a press: cancel the hold and do not fire on release.
   keycap.addEventListener("pointermove", (event) => {
-    if (!moved && (longAction || doubleAction) && Math.hypot(event.clientX - startX, event.clientY - startY) > 12) {
+    if (!moved && Math.hypot(event.clientX - startX, event.clientY - startY) > 12) {
       moved = true;
       clearTimeout(holdTimer);
     }
@@ -690,7 +747,12 @@ function createButtonElement(btn) {
   keycap.addEventListener("contextmenu", (event) => event.preventDefault()); // no image menu competing with a long press
   keycap.addEventListener("pointerup", () => {
     clearTimeout(holdTimer);
-    if (moved || longFired || (!longAction && !doubleAction)) return;
+    if (plain) {
+      if (pressed && !moved) { haptic(25); fire("tap"); }
+      pressed = false;
+      return;
+    }
+    if (moved || longFired) return;
     if (!doubleAction) return void fire("tap");
     if (secondPress) {
       secondPress = false;
@@ -699,7 +761,7 @@ function createButtonElement(btn) {
     clearTimeout(tapTimer); // another finger may have left a tap waiting: one tap per gesture
     tapTimer = setTimeout(() => { tapTimer = null; fire("tap"); }, DOUBLE_TAP_MS);
   });
-  const cancelHold = () => clearTimeout(holdTimer);
+  const cancelHold = () => { clearTimeout(holdTimer); pressed = false; };
   keycap.addEventListener("pointercancel", cancelHold);
   keycap.addEventListener("pointerleave", cancelHold);
 
@@ -799,6 +861,11 @@ function setMuteBtnVisual(muteBtn, isMuted) {
 // Robust Fader Drag (Never jumps to 0 on fast swipes!)
 function attachFaderDrag(trackEl, sliderId, isMaster) {
   let lastSent = 0;
+  let lastPercent = null;   // the value the finger last chose: what is sent when it lifts
+  let active = false;       // a touch is on this fader
+  let engaged = false;      // the finger moved (or grabbed the thumb): only then does the volume change
+  let startY = 0;
+  let grabOffset = 0;
 
   function handleCoord(clientY, forceSend = false) {
     const rect = trackEl.getBoundingClientRect();
@@ -806,6 +873,7 @@ function attachFaderDrag(trackEl, sliderId, isMaster) {
 
     let percent = Math.round(((rect.bottom - clientY) / rect.height) * 100);
     percent = Math.max(0, Math.min(100, percent));
+    lastPercent = percent;
 
     const fillEl = document.getElementById(`fill-${sliderId}`);
     const valEl = document.getElementById(`val-${sliderId}`);
@@ -813,7 +881,7 @@ function attachFaderDrag(trackEl, sliderId, isMaster) {
     if (valEl) valEl.textContent = `${percent}%`;
 
     const now = Date.now();
-    if (forceSend || now - lastSent > 25) {
+    if (forceSend || now - lastSent > 50) {
       lastSent = now;
       if (isMaster) {
         sendWS({ type: "set_master_volume", volume: percent });
@@ -827,26 +895,44 @@ function attachFaderDrag(trackEl, sliderId, isMaster) {
   trackEl.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     isDraggingMap[sliderId] = true;
+    active = true;
+    lastPercent = null;
+    startY = e.clientY;
     try { trackEl.setPointerCapture(e.pointerId); } catch (err) {}
     haptic(15);
-    handleCoord(e.clientY);
+    // Touching near the thumb grabs it where it is. Touching far from it changes nothing until the finger slides:
+    // a palm or a stray touch on the track must not throw the volume to 100%.
+    const rect = trackEl.getBoundingClientRect();
+    const current = parseFloat(document.getElementById(`fill-${sliderId}`)?.style.height) || 0;
+    const thumbY = rect.bottom - (current / 100) * rect.height;
+    if (Math.abs(e.clientY - thumbY) <= 40) {
+      grabOffset = thumbY - e.clientY;
+      engaged = true;
+    } else {
+      grabOffset = 0;
+      engaged = false;
+    }
   });
 
   trackEl.addEventListener("pointermove", (e) => {
-    if (isDraggingMap[sliderId]) {
-      e.preventDefault();
-      handleCoord(e.clientY);
+    if (!active) return;
+    e.preventDefault();
+    if (!engaged) {
+      if (Math.abs(e.clientY - startY) < 6) return;
+      engaged = true;
     }
+    handleCoord(e.clientY + grabOffset);
   });
 
-  const stopDrag = (e) => {
-    if (isDraggingMap[sliderId]) {
-      handleCoord(e.clientY, true);
-      // Keep ignoring server echoes briefly so the thumb does not snap back to an older value.
-      setTimeout(() => {
-        isDraggingMap[sliderId] = false;
-      }, 400);
-    }
+  const stopDrag = () => {
+    if (!active) return; // pointerup, pointercancel and lostpointercapture all end here: only the first counts
+    active = false;
+    // Send the last value the finger chose, never a coordinate read from the closing event (it can be 0).
+    if (engaged && lastPercent !== null) handleCoord(trackEl.getBoundingClientRect().bottom - (lastPercent / 100) * trackEl.getBoundingClientRect().height, true);
+    // Keep ignoring server echoes briefly so the thumb does not snap back to an older value.
+    setTimeout(() => {
+      isDraggingMap[sliderId] = false;
+    }, 400);
   };
 
   trackEl.addEventListener("pointerup", stopDrag);

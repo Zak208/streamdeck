@@ -38,7 +38,7 @@ def library_folders(steam: str) -> List[str]:
 def installed_games() -> List[Dict[str, Any]]:
     games: Dict[str, str] = {}
     for folder in library_folders(steam_folder()):
-        for manifest in glob.glob(os.path.join(folder, "steamapps", "appmanifest_*.acf")):
+        for manifest in glob.glob(os.path.join(glob.escape(folder), "steamapps", "appmanifest_*.acf")):
             try:
                 with open(manifest, encoding="utf-8", errors="replace") as handle:
                     text = handle.read(4000)

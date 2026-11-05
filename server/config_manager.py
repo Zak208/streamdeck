@@ -133,6 +133,7 @@ class ConfigManager:
         try:
             new_config = validate_deck_config(new_config)
             os.makedirs(CONFIG_DIR, exist_ok=True)
+            self._auto_backup()
             # Written next to the profile and swapped in whole: a cut during the save cannot leave a half-written profile.
             temporary = CONFIG_FILE + ".tmp"
             with open(temporary, "w", encoding="utf-8") as f:
@@ -145,6 +146,25 @@ class ConfigManager:
             print(f"Error saving config: {e}")
             self.last_error = str(e)
             return False
+
+    AUTO_BACKUP_EVERY = 1800  # seconds between automatic copies of the profile
+    AUTO_BACKUPS_KEPT = 10
+
+    def _auto_backup(self) -> None:
+        """A copy of the profile before saving over it, at most one every half hour, keeping the last ten."""
+        if not os.path.exists(CONFIG_FILE):
+            return
+        try:
+            folder = os.path.join(CONFIG_DIR, "backups")
+            os.makedirs(folder, exist_ok=True)
+            copies = sorted(f for f in os.listdir(folder) if f.startswith("deck_config-"))
+            if copies and time.time() - os.path.getmtime(os.path.join(folder, copies[-1])) < self.AUTO_BACKUP_EVERY:
+                return
+            shutil.copyfile(CONFIG_FILE, os.path.join(folder, f"deck_config-{time.strftime('%Y%m%d-%H%M%S')}.json"))
+            for old in copies[: max(0, len(copies) + 1 - self.AUTO_BACKUPS_KEPT)]:
+                os.remove(os.path.join(folder, old))
+        except OSError:
+            pass  # a backup that cannot be made must never stop the save
 
     def backup_profile(self, tag: str) -> str:
         """Keep a copy of the saved profile next to it before a change that rearranges it. Returns its path."""

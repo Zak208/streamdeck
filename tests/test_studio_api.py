@@ -116,6 +116,81 @@ class StudioApiTests(unittest.TestCase):
         pages = self.call("/api/config")[1]["pages"]
         self.assertEqual(sum(1 for p in pages if p.get("auto_app") == "obs64.exe"), 1)
 
+    def test_deleting_a_page_before_the_active_one_keeps_you_on_your_page(self):
+        from server import config_manager as cm
+        self.call("/api/templates/apply", {"template_id": "blank", "name": "Ultima"})
+        pages = self.call("/api/config")[1]["pages"]
+        last = len(pages) - 1
+        cm.config_manager.set_active_page(last)
+        wanted = pages[last]["id"]
+        self.assertTrue(self.call("/api/deck/page/delete", {"page_index": 0})[1]["success"])
+        now = self.call("/api/config")[1]
+        self.assertEqual(now["pages"][now["current_page"]]["id"], wanted)
+
+    def test_a_duplicated_page_has_its_own_key_ids(self):
+        self.call("/api/templates/apply", {"template_id": "gamer", "name": "Original"})
+        pages = self.call("/api/config")[1]["pages"]
+        index = len(pages) - 1
+        self.call("/api/deck/page/duplicate", {"page_index": index})
+        pages = self.call("/api/config")[1]["pages"]
+        first = {slot["id"] for slot in pages[index]["slots"] if slot.get("id")}
+        copy_ids = {slot["id"] for slot in pages[index + 1]["slots"] if slot.get("id")}
+        self.assertTrue(first and copy_ids)
+        self.assertFalse(first & copy_ids)
+
+    def test_counters_show_their_value_on_every_page_not_only_the_active_one(self):
+        from server import live_buttons, main
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        slot = next(s for s in config["pages"][1]["slots"] if s["type"] == "button")
+        slot.update({"action_type": "none", "target": "", "extra": {}, "long_press": {"action_type": "counter", "target": "inc", "extra": {"step": 1}}})
+        config["current_page"] = 0
+        live_buttons.change_counter(slot["id"], "reset", 1)
+        live_buttons.change_counter(slot["id"], "inc", 7)
+        self.assertEqual(main.current_labels(validate_deck_config(config)).get(slot["id"]), "7")
+
+    def test_a_call_that_timed_out_is_not_run_later(self):
+        import threading
+        from server.com_worker import ComWorker
+        worker, ran, release = ComWorker(), [], threading.Event()
+        worker.submit(release.wait, 5)  # keeps the thread busy
+        with self.assertRaises(TimeoutError):
+            worker.call(lambda: ran.append("ghost"), timeout=0.2)
+        release.set()
+        worker.call(lambda: ran.append("real"), timeout=5)
+        self.assertEqual(ran, ["real"])
+
+    def test_the_spotify_return_page_accepts_a_cross_site_navigation_but_admin_pages_do_not(self):
+        headers = {"Sec-Fetch-Site": "cross-site"}
+
+        def get(path):
+            request = urllib.request.Request(self.live.base_url + path, headers=headers)
+            try:
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    return response.status
+            except urllib.error.HTTPError as error:
+                return error.code
+        self.assertEqual(get("/api/connectors/spotify/callback?code=x&state=y"), 400)  # answered: the state is not valid
+        self.assertEqual(get("/api/connectors"), 403)
+
+    def test_automatic_backups_are_rolling(self):
+        import tempfile
+        from server import config_manager as cm
+        manager = cm.config_manager
+        folder = os.path.join(cm.CONFIG_DIR, "backups")
+        os.makedirs(folder, exist_ok=True)
+        for old in os.listdir(folder):
+            os.remove(os.path.join(folder, old))
+        for day in range(1, 13):
+            open(os.path.join(folder, f"deck_config-202001{day:02d}-000000.json"), "w").close()
+        manager.AUTO_BACKUP_EVERY = 0
+        self.addCleanup(setattr, manager, "AUTO_BACKUP_EVERY", 1800)
+        manager._auto_backup()
+        self.assertLessEqual(len(os.listdir(folder)), manager.AUTO_BACKUPS_KEPT)
+        manager.AUTO_BACKUP_EVERY = 1800
+        before = set(os.listdir(folder))
+        manager._auto_backup()  # a copy was just made: no new one yet
+        self.assertEqual(before, set(os.listdir(folder)))
+
     def test_a_refused_page_does_not_stay_in_the_live_profile(self):
         before = len(self.call("/api/config")[1]["pages"])
         self.assertEqual(self.call("/api/deck/page/add", {"name": "x" * 50})[0], 422)

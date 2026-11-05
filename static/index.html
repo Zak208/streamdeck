@@ -16,8 +16,8 @@
     // Same theme as Studio, remembered from the last connection, applied before first paint.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.14.0">
-  <link rel="stylesheet" href="/static/css/style.css?v=2.14.0">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.14.1">
+  <link rel="stylesheet" href="/static/css/style.css?v=2.14.1">
 </head>
 <body>
   <!-- Top bar -->
@@ -58,7 +58,7 @@
   <!-- Reconnection Alert Banner -->
   <div id="reconnect-banner" class="reconnect-banner" style="display: none;">
     <span class="reconnect-dot-pulse"></span>
-    <span>Reconectando con tu PC... Comprueba que estás en la misma red Wi-Fi</span>
+    <span data-banner-text>Reconectando con tu PC... Comprueba que estás en la misma red Wi-Fi</span>
   </div>
 
   <!-- Main Container: 6x2 Grid (Supports Touch Swipe) -->
@@ -125,8 +125,8 @@
   <!-- Action Result & Error Toast -->
   <div id="mobile-toast" class="mobile-toast"></div>
 
-  <script src="/static/js/monitors.js?v=2.14.0"></script>
-  <script src="/static/js/streamdeck.js?v=2.14.0"></script>
-  <script src="/static/js/phone-settings.js?v=2.14.0"></script>
+  <script src="/static/js/monitors.js?v=2.14.1"></script>
+  <script src="/static/js/streamdeck.js?v=2.14.1"></script>
+  <script src="/static/js/phone-settings.js?v=2.14.1"></script>
 </body>
 </html>

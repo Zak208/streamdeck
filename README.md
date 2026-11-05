@@ -108,9 +108,16 @@ Studio es el editor de la aplicación de escritorio: lo que puedes añadir a un 
 - **Webhooks:** además de GET y POST, ahora PUT (por ejemplo para una luz Elgato Key Light). Sigue limitado a los destinos que permitas.
 - **Discord, sonidos sin voz:** Discord solo ofrece su panel de sonidos dentro de un canal de voz, así que leer los sonidos y reproducirlos siguen necesitando estar en uno. Pero la lista se guarda tras la primera lectura: después puedes elegir sonidos y montar botones sin estar en voz, y la ventana avisa de que muestra la copia guardada.
 
+## 🛡️ Seguridad y fiabilidad
+
+- **Apagar y reiniciar, con interruptor:** suspender, reiniciar, apagar y cerrar sesión no hacen nada hasta que los actives en Ajustes (están desactivados por defecto, como los comandos de consola). El apagado y el reinicio esperan 10 segundos como mínimo para poder cancelarlos. La confirmación «¿Ejecutar...?» vive en el móvil, por eso el PC no depende de ella.
+- **Al cargar un perfil de otra persona**, el aviso cuenta también las acciones de apagar, abrir webs, Steam y las del segundo estado de un botón. Teclas y texto equivalen a poder ejecutar programas: carga solo perfiles de confianza.
+- **Copias automáticas del perfil:** como mucho una cada media hora, en `%APPDATA%\StreamDesk\config\backups`, conservando las últimas 10.
+- **Móvil:** si se corta la conexión (pantalla apagada, cambio de Wi-Fi) se detecta en unos segundos y se reconecta con esperas crecientes; mientras tanto los faders y el mute se atenúan. Un fader no cambia el volumen si lo tocas lejos de su marca sin deslizar el dedo.
+
 ## 🖐️ Gestos, confirmación y cuadrícula
 
-- **Pulsación larga y doble toque:** en la pestaña *Acción* de una casilla marcas «Pulsación larga» o «Doble toque» y eliges qué hace cada uno (atajo, texto, web, carpeta, aplicación, multiacción...). El móvil lo avisa con dos puntitos en la casilla. Un botón con gestos espera unas décimas de segundo (280 ms para el doble toque, 500 ms para la pulsación larga) para saber cuál haces; los botones sin gestos siguen actuando al tocarlos.
+- **Pulsación larga y doble toque:** en la pestaña *Acción* de una casilla marcas «Pulsación larga» o «Doble toque» y eliges qué hace cada uno (atajo, texto, web, carpeta, aplicación, multiacción...). El móvil lo avisa con dos puntitos en la casilla. Un botón con gestos espera unas décimas de segundo (280 ms para el doble toque, 500 ms para la pulsación larga) para saber cuál haces; los botones sin gestos actúan al levantar el dedo, siempre que no lo hayas deslizado (así un deslizamiento para cambiar de página no pulsa la tecla que estaba debajo).
 - **Pedir confirmación:** el móvil pregunta «¿Ejecutar...?» antes de lanzar el botón (útil para bloquear el PC o cerrar un directo).
 - **Desactivar un botón** sin borrarlo: se ve apagado en el móvil y el servidor rechaza la pulsación aunque llegue.
 - **Abrir una carpeta:** en «Elegir acción» (Sistema). Solo rutas con letra de unidad (`D:\Proyectos`); se rechazan las rutas de red de tipo `\servidor\recurso` y las que contienen `..`. Una unidad de red mapeada con letra sí se aceptaría.

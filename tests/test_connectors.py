@@ -473,6 +473,8 @@ class NewActionTests(unittest.TestCase):
         def fake_run(command):
             calls.append(command)
             return mock.Mock(returncode=0, stdout="", stderr="")
+        windows.set_power_enabled(True)
+        self.addCleanup(windows.set_power_enabled, False)
         with mock.patch.object(windows, "_run", fake_run):
             windows.execute("power", {"mode": "restart", "delay": 20})
             windows.execute("power", {"mode": "cancel", "delay": 0})
@@ -531,7 +533,7 @@ class NewActionTests(unittest.TestCase):
             toggled = obs_client.execute_obs_action("filter_toggle", {"source_name": "Cam", "filter_name": "Color"})
             louder = obs_client.execute_obs_action("input_volume_up", {"source_name": "Mic"})
             refreshed = obs_client.execute_obs_action("source_refresh", {"source_name": "Alertas"})
-        self.assertEqual((toggled["active"], louder["db"], refreshed["success"]), (True, 0.0, True))  # -1 dB + 3 stops at 0
+        self.assertEqual((toggled["active"], louder["db"], refreshed["success"]), (True, 2.0, True))  # -1 dB + 3: OBS allows above 0
         self.assertIn(("SetSourceFilterEnabled", {"sourceName": "Cam", "filterName": "Color", "filterEnabled": True}), sent)
         self.assertIn(("PressInputPropertiesButton", {"inputName": "Alertas", "propertyName": "refreshnocache"}), sent)
 
@@ -545,3 +547,56 @@ class NewActionTests(unittest.TestCase):
         from server.action_catalog import validate_action
         for key in ("volume_up", "volume_down"):
             self.assertEqual(validate_action("media", key)["target"], key)
+
+
+    def test_power_is_off_until_the_user_switches_it_on(self):
+        from server.connectors import windows
+        windows.set_power_enabled(False)
+        calls = []
+        with mock.patch.object(windows, "_run", lambda c: calls.append(c) or mock.Mock(returncode=0, stdout="", stderr="")):
+            for mode in ("shutdown", "restart", "logoff", "hibernate"):
+                result = windows.execute("power", {"mode": mode, "delay": 15})
+                self.assertFalse(result["success"], mode)
+                self.assertIn("Ajustes", result["error"])
+            self.assertFalse(windows.execute("power", {"mode": "sleep", "delay": 0})["success"])
+            self.assertTrue(windows.execute("power", {"mode": "cancel", "delay": 0})["success"])  # cancelling is always allowed
+        self.assertEqual(calls, [["shutdown", "/a"]])
+
+    def test_a_shutdown_always_leaves_time_to_cancel_it(self):
+        from server.connectors import windows
+        windows.set_power_enabled(True)
+        self.addCleanup(windows.set_power_enabled, False)
+        calls = []
+        with mock.patch.object(windows, "_run", lambda c: calls.append(c) or mock.Mock(returncode=0, stdout="", stderr="")):
+            windows.execute("power", {"mode": "shutdown", "delay": 0})
+        self.assertEqual(calls, [["shutdown", "/s", "/t", "10"]])
+
+    def test_power_plan_names_with_parentheses_inside_are_whole(self):
+        from server.connectors import windows
+        line = "GUID de plan de energía: 381b4222-f694-41f0-9685-ff5bb260df2e  (Alto rendimiento (AMD)) *"
+        with mock.patch.object(windows, "_run", return_value=mock.Mock(returncode=0, stdout=line + chr(10), stderr="")):
+            plans = windows.list_power_plans()
+        self.assertEqual([(p["name"], p["active"]) for p in plans], [("Alto rendimiento (AMD)", True)])
+
+    def test_screenshots_have_a_cooldown(self):
+        from server.connectors import windows
+        windows._last_screenshot = 0.0
+        fake = mock.MagicMock()
+        with mock.patch.dict("sys.modules", {"PIL.ImageGrab": fake}), mock.patch("PIL.ImageGrab.grab", create=True) as grab,                 mock.patch.object(windows.os, "makedirs"):
+            first = windows.screenshot()
+            second = windows.screenshot()
+        self.assertTrue(first["success"])
+        self.assertFalse(second["success"])
+        self.assertEqual(grab.call_count, 1)
+
+    def test_obs_volume_steps_stay_inside_obs_range_and_events_are_not_answers(self):
+        from server.obs_client import obs_client
+        sent = []
+
+        def fake(kind, data=None):
+            sent.append((kind, data))
+            ok = {"requestStatus": {"result": True}}
+            return {**ok, "responseData": {"inputVolumeDb": 6.0}} if kind == "GetInputVolume" else ok
+        with mock.patch.object(obs_client, "request", fake):
+            result = obs_client.execute_obs_action("input_volume_up", {"source_name": "Mic"})
+        self.assertEqual(result["db"], 9.0)  # from +6 dB up, never down to 0

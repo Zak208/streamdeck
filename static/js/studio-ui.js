@@ -142,6 +142,7 @@ async function openNewPageDialog() {
         const template = templates.find(x => x.id === card.dataset.template);
         const name = modal.el.querySelector("#new-page-name").value.trim() || template.name;
         try {
+          await flushSave();
           const result = await postJson("/api/templates/apply", { template_id: template.id, name });
           modal.close();
           await loadConfig();
@@ -221,6 +222,7 @@ function openPageSettings() {
     onMount: (modal) => {
       modal.el.querySelector("#ps-duplicate").addEventListener("click", async () => {
         try {
+          await flushSave();
           const result = await postJson("/api/deck/page/duplicate", { page_index: activePageIndex });
           modal.close();
           await loadConfig();
@@ -252,17 +254,19 @@ async function saveProfileCopy() {
 // How many actions of a profile file act on the PC itself (keys, typed text, folders), looking inside
 // macros and long-press / double-tap actions. A profile from someone else could use them to run things.
 function riskyActionsIn(profile) {
-  const risky = new Set(["hotkey", "text", "folder", "command", "webhook"]);
+  const risky = new Set(["hotkey", "text", "folder", "command", "webhook", "url", "steam"]);
+  const isRisky = (action) => risky.has(action.action_type) || (action.action_type === "windows" && ["power", "power_plan", "display_mode"].includes(action.target));
   const count = (action) => {
     if (!action || typeof action !== "object") return 0;
-    let total = risky.has(action.action_type) ? 1 : 0;
-    for (const step of action.extra?.actions || []) total += count(step);
+    let total = isRisky(action) ? 1 : 0;
+    for (const step of Array.isArray(action.extra?.actions) ? action.extra.actions : []) total += count(step);
     return total;
   };
   let total = 0;
   for (const page of Array.isArray(profile?.pages) ? profile.pages : []) {
     for (const slot of Array.isArray(page?.slots) ? page.slots : []) {
-      total += count(slot) + count(slot?.long_press) + count(slot?.double_tap);
+      // The key itself, its gestures, and what its second state does.
+      total += count(slot) + count(slot?.long_press) + count(slot?.double_tap) + count(slot?.alt?.action);
     }
   }
   return total;
@@ -276,7 +280,7 @@ async function loadProfileCopy(file) {
     return showToast("Ese archivo no es un perfil de StreamDesk");
   }
   const risky = riskyActionsIn(profile);
-  const warning = risky ? ` ATENCIÓN: contiene ${risky} acciones que pulsan teclas, escriben texto, abren carpetas, llaman a webhooks o ejecutan comandos, y funcionarán en tu PC cuando se pulsen desde el móvil. Cárgalo solo si confías en quien te lo dio.` : "";
+  const warning = risky ? ` ATENCIÓN: contiene ${risky} acciones que pulsan teclas, escriben texto (teclas y texto bastan para abrir y ejecutar programas), abren webs y carpetas, llaman a webhooks, apagan o reinician el PC o ejecutan comandos, y funcionarán en tu PC cuando se pulsen desde el móvil. Cárgalo solo si confías en quien te lo dio.` : "";
   const confirmed = await askConfirm({
     title: "Cargar este perfil",
     message: `Se reemplazarán todas tus páginas y botones por los de "${file.name}". Antes se guarda una copia de los actuales.${warning}`,
@@ -455,7 +459,7 @@ function openSettings() {
       </section>
       <section class="settings-section">
         <h3>Cuadrícula</h3>
-        <p>Cuántos botones caben en cada página, en el móvil y aquí. Al cambiarla se convierten todas tus páginas: los botones que caben se quedan donde están y los faders ocupan las dos primeras filas de su columna.</p>
+        <p>Cuántos botones caben en cada página, en el móvil y aquí. Al cambiarla se convierten todas tus páginas: los botones que caben se quedan donde están y los faders conservan su alto desde la primera fila de su columna.</p>
         <select id="settings-grid" aria-label="Tamaño de la cuadrícula">
           ${GRID_PRESETS.map(p => `<option value="${p.id}" ${p.id === `${gridCols()}x${gridRows()}` ? "selected" : ""}>${gridPresetLabel(p)}</option>`).join("")}
           <option value="custom">Personalizada</option>
@@ -471,6 +475,11 @@ function openSettings() {
         <h3>Comandos de consola</h3>
         <p>Los botones de PowerShell o cmd solo funcionan si lo permites aquí. Está desactivado por defecto.</p>
         ${commandsSwitchHtml("settings")}
+      </section>
+      <section class="settings-section">
+        <h3>Apagar y reiniciar el PC</h3>
+        <p>Los botones de apagar, reiniciar, suspender y cerrar sesión solo funcionan si lo permites aquí. Está desactivado por defecto.</p>
+        ${powerSwitchHtml()}
       </section>
       <section class="settings-section">
         <h3>Webhooks permitidos</h3>
@@ -518,6 +527,7 @@ function openSettings() {
       }));
       wireGridControls(m.el);
       wireCommandsSwitch(m.el);
+      wirePowerSwitch(m.el);
       wireWebhookList(m.el);
       m.el.querySelector("#settings-welcome").addEventListener("click", () => { m.close(); openWelcome(); });
       const showVersion = () => {

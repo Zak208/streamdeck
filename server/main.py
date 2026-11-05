@@ -218,7 +218,7 @@ def page_for_discord(pages: list, server: str):
 
 async def _open_page(index: int) -> None:
     if index != config_manager.get_config().get("current_page", 0) and config_manager.set_active_page(index):
-        await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+        await ws_manager.broadcast(sync_message())
 
 
 DISCORD_POLL_EVERY = 3  # loop ticks (seconds) between looks at Discord's voice bar
@@ -330,6 +330,16 @@ def _local_browser_request(headers, client_host: str) -> bool:
         return False  # the browser itself says another site started this request
     origin = headers.get("origin")
     return not origin or urlparse(origin).netloc.lower() == headers.get("host", "").strip().lower()
+
+
+async def require_loopback_request(request: Request) -> None:
+    """Like require_local_request, but for the page Spotify sends the browser back to after the user accepts.
+
+    That return is a navigation that starts on Spotify's site, so the browser may call it cross-site: only the address it
+    came from (this PC) and the name it was sent to are checked. The login is protected by the one-time state and PKCE."""
+    client_host = request.client.host if request.client else ""
+    if not _is_loopback(client_host) or _host_name(request.headers.get("host", "")) not in LOCAL_HOST_NAMES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Esta operación solo está disponible en el PC.")
 
 
 async def require_local_request(request: Request) -> None:
@@ -516,7 +526,7 @@ async def set_layout(values: Dict[str, Any] = Body(...), _: None = Depends(requi
     if not config_manager.save_config(converted):
         raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo cambiar la cuadrícula")
     await prune_timers()
-    await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+    await ws_manager.broadcast(sync_message())
     return {"success": True, "config": config_manager.get_config(), "dropped": dropped}
 
 
@@ -534,6 +544,22 @@ async def set_command_settings(values: Dict[str, Any] = Body(...), _: None = Dep
     shell_actions.set_enabled(enabled)
     diagnostics.record("info", "Comandos de consola " + ("activados" if enabled else "desactivados") + " desde Studio")
     return {"enabled": shell_actions.enabled()}
+
+
+@app.get("/api/settings/power")
+def get_power_settings(_: None = Depends(require_local_request)):
+    return {"enabled": windows.power_enabled()}
+
+
+@app.post("/api/settings/power")
+async def set_power_settings(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    """Switch shutting down, restarting, sleeping and logging off on or off. They are off until the user turns them on."""
+    enabled = values.get("enabled")
+    if not isinstance(enabled, bool):
+        raise HTTPException(status_code=422, detail="«enabled» debe ser verdadero o falso")
+    windows.set_power_enabled(enabled)
+    diagnostics.record("info", "Apagar y reiniciar el PC " + ("activados" if enabled else "desactivados") + " desde Studio")
+    return {"enabled": windows.power_enabled()}
 
 
 @app.get("/api/settings/webhooks")
@@ -574,7 +600,7 @@ async def apply_template(values: Dict[str, Any] = Body(...), _: None = Depends(r
     cfg["pages"].append(page)
     if not config_manager.save_config(cfg):
         raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo crear la página")
-    await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+    await ws_manager.broadcast(sync_message())
     return {"success": True, "index": len(config_manager.get_config()["pages"]) - 1, "dropped": dropped,
             "auto_app": page.get("auto_app", "")}
 
@@ -616,7 +642,7 @@ async def create_discord_server_page(values: Dict[str, Any] = Body(...), _: None
         index = len(pages) - 1
     if not config_manager.save_config(cfg):
         raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo crear la página")
-    await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+    await ws_manager.broadcast(sync_message())
     return {"success": True, "index": index, "replaced": existing is not None}
 
 
@@ -655,7 +681,7 @@ async def import_profile(profile: Dict[str, Any] = Body(...), _: None = Depends(
     if not config_manager.save_config(clean):
         raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo importar el perfil")
     await prune_timers()
-    await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+    await ws_manager.broadcast(sync_message())
     return {"success": True, "pages": len(clean["pages"]), "backup": bool(backup)}
 
 
@@ -670,10 +696,13 @@ async def duplicate_deck_page(page_index: int = Body(..., embed=True), _: None =
     clone["name"] = f"{clone['name']} (copia)"[:40]
     clone.pop("auto_app", None)  # two pages for the same program would be ambiguous
     clone.pop("auto_discord", None)  # and so would two for the same Discord server
+    for slot in clone["slots"]:
+        if slot.get("id"):  # counters, timers and lit/unlit states are kept by key id: the copy needs its own
+            slot["id"] = f"{slot['id'][:52]}_{uuid.uuid4().hex[:6]}"
     pages.insert(page_index + 1, clone)
     if not config_manager.save_config(cfg):
         raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo duplicar la página")
-    await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+    await ws_manager.broadcast(sync_message())
     return {"success": True, "index": page_index + 1}
 
 
@@ -734,15 +763,17 @@ async def delete_deck_page(page_index: int = Body(..., embed=True), _: None = De
     cfg = config_manager.get_config()
     pages = cfg.get("pages", [])
     if len(pages) > 1 and 0 <= page_index < len(pages):
+        cfg = copy.deepcopy(cfg)  # a copy: a refused save must not leave the live profile half changed
+        pages = cfg["pages"]
+        current = cfg.get("current_page", 0)
         pages.pop(page_index)
-        cfg["current_page"] = min(cfg.get("current_page", 0), len(pages) - 1)
-        config_manager.save_config(cfg)
+        # Deleting a page before the one you are on shifts it: follow it, so the phone does not jump to another page.
+        cfg["current_page"] = min(current - 1 if page_index < current else current, len(pages) - 1)
+        if not config_manager.save_config(cfg):
+            raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo borrar la página")
         await prune_timers()
-        await ws_manager.broadcast({
-            "type": "config_sync",
-            "config": config_manager.get_config()
-        })
-        return {"success": True, "pages": pages}
+        await ws_manager.broadcast(sync_message())
+        return {"success": True, "pages": config_manager.get_config()["pages"]}
     return {"success": False, "error": "No se puede borrar la única página"}
 
 @app.get("/api/audio/sessions")
@@ -838,7 +869,7 @@ def spotify_disconnect(_: None = Depends(require_local_request)):
 
 
 @app.get("/api/connectors/spotify/callback", response_class=HTMLResponse)
-def spotify_callback(code: str = "", state: str = "", error: str = "", _: None = Depends(require_local_request)):
+def spotify_callback(code: str = "", state: str = "", error: str = "", _: None = Depends(require_loopback_request)):
     """Spotify sends the browser back here after the user accepts. Only reachable from this PC."""
     page = "<!doctype html><meta charset='utf-8'><title>StreamDesk</title><body style='font-family:sans-serif;padding:2rem'><h2>{}</h2><p>{}</p>"
     if error or not code:
@@ -943,14 +974,28 @@ async def set_button_label(btn_id: str, text: Optional[str]) -> None:
     await ws_manager.broadcast({"type": "button_label", "id": btn_id, "sublabel": text})
 
 
+def _counter_keys(config: Dict[str, Any]):
+    """Ids of every key whose tap, gesture or second state is a counter, on every page."""
+    for page in config.get("pages", []):
+        for slot in page.get("slots", []):
+            if slot.get("type") != "button":
+                continue
+            actions = [slot, slot.get("long_press"), slot.get("double_tap"), (slot.get("alt") or {}).get("action")]
+            if any(isinstance(a, dict) and a.get("action_type") == "counter" for a in actions):
+                yield slot["id"]
+
+
 def current_labels(config: Dict[str, Any]) -> Dict[str, str]:
     """Counters show their saved value as soon as a phone connects, then any live text on top."""
-    labels = {
-        slot["id"]: str(live_buttons.counter_value(slot["id"]))
-        for slot in config.get("slots", []) if slot.get("type") == "button" and slot.get("action_type") == "counter"
-    }
+    labels = {key: str(live_buttons.counter_value(key)) for key in _counter_keys(config)}
     labels.update(button_labels)
     return labels
+
+
+def sync_message() -> Dict[str, Any]:
+    """The profile for the phones, with the counters' values: a page a phone has not shown yet must already carry them."""
+    config = config_manager.get_config()
+    return {"type": "config_sync", "config": config, "button_labels": current_labels(config)}
 
 
 async def prune_timers() -> None:
@@ -1012,7 +1057,7 @@ async def navigate_pages(target: str) -> Dict[str, Any]:
         wanted = _page_history.pop()
         index = next(i for i, page in enumerate(pages) if page["id"] == wanted)
         if index != current and config_manager.set_active_page(index):
-            await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+            await ws_manager.broadcast(sync_message())
         return {"success": True, "action": "page"}
     if target == "next":
         index = (current + 1) % len(pages)
@@ -1030,7 +1075,7 @@ async def navigate_pages(target: str) -> Dict[str, Any]:
             if previous:
                 _page_history.append(previous)
                 del _page_history[:-20]
-            await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+            await ws_manager.broadcast(sync_message())
     return {"success": True, "action": "page"}
 
 
@@ -1103,6 +1148,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
         return
     if not is_localhost and not auth_manager.is_token_authorized(token):
         diagnostics.record("error", "Conexión rechazada: el móvil no está emparejado (código 1008)", client_ip, user_agent)
+        # Accepted first and closed afterwards: closed before the handshake, the browser only reports a failed
+        # connection (1006) and the phone would retry forever instead of asking for the PIN again.
+        await websocket.accept()
         await websocket.close(code=1008, reason="No autorizado. Empareja primero con el PIN.")
         return
 
@@ -1112,7 +1160,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
         diagnostics.record("ok", "Móvil conectado", client_ip, user_agent)
 
     try:
-        audio_state = await run_audio(read_audio_state)
+        try:
+            audio_state = await run_audio(read_audio_state)
+        except (asyncio.TimeoutError, TimeoutError):
+            # Windows audio is not answering: the phone still gets its keys, and the volumes arrive when it recovers.
+            audio_state = {"master": {"volume": 0, "muted": False}, "sessions": [], "mic": {"muted": None}}
         init_state = {
             "type": "init_state",
             "config": config_manager.get_config(),

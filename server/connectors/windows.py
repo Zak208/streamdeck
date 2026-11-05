@@ -11,8 +11,12 @@ import comtypes
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, DEVICE_STATE, EDataFlow, IAudioEndpointVolume
 
+import threading
+import time
+
 from server.audio_controller import audio_controller
 from server.com_worker import com_worker
+from server.settings_store import settings
 
 INFO = {
     "id": "windows",
@@ -26,7 +30,7 @@ DEVICE_ID = re.compile(r"^\{[0-9A-Fa-f.]{1,40}\}\.\{[0-9A-Fa-f-]{36}\}$")
 
 
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-PLAN_LINE = re.compile(r"([0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})\s+\((.+?)\)")
+PLAN_LINE = re.compile(r"([0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})\s+\((.+)\)\s*\*?\s*$")
 SHUTDOWN_ARGS = {"shutdown": ["/s"], "restart": ["/r"], "logoff": ["/l"], "hibernate": ["/h"], "cancel": ["/a"]}
 
 
@@ -46,8 +50,29 @@ def _run(command: List[str]) -> subprocess.CompletedProcess:
     return done
 
 
+POWER_DISABLED = "Apagar, reiniciar, suspender y cerrar sesión están desactivados. Actívalos en Ajustes de Studio."
+MIN_POWER_DELAY = 10  # seconds: time to cancel a shutdown or restart that was not meant
+SCREENSHOT_GAP = 2.0
+_last_screenshot = 0.0
+_screenshot_lock = threading.Lock()
+
+
+def power_enabled() -> bool:
+    return settings.get("power").get("enabled") is True
+
+
+def set_power_enabled(value: bool) -> None:
+    settings.update("power", {"enabled": bool(value)})
+
+
 def power(extra: Dict[str, Any]) -> Dict[str, Any]:
     mode, delay = extra.get("mode", "sleep"), int(extra.get("delay", 15))
+    # Off until the user switches it on in Studio: the confirmation of a button lives on the phone, so the PC must
+    # not depend on it (a paired phone, or a profile from someone else, could otherwise switch the PC off).
+    if mode != "cancel" and not power_enabled():
+        return {"success": False, "error": POWER_DISABLED}
+    if mode in ("shutdown", "restart"):
+        delay = max(delay, MIN_POWER_DELAY)
     if mode == "sleep":
         # SetSuspendState(hibernate=False, force=True, wakeupEventsDisabled=False)
         ok = bool(ctypes.windll.powrprof.SetSuspendState(False, True, False))
@@ -84,10 +109,16 @@ def display_mode(mode: str) -> Dict[str, Any]:
 
 
 def screenshot() -> Dict[str, Any]:
+    global _last_screenshot
     from PIL import ImageGrab
+    with _screenshot_lock:
+        now = time.monotonic()
+        if now - _last_screenshot < SCREENSHOT_GAP:
+            return {"success": False, "error": "Espera un par de segundos entre capturas"}
+        _last_screenshot = now
     folder = os.path.join(os.path.expanduser("~"), "Pictures", "StreamDesk")
     os.makedirs(folder, exist_ok=True)
-    name = f"captura_{datetime.now():%Y%m%d_%H%M%S}.png"  # the name is built here, never taken from the profile
+    name = f"captura_{datetime.now():%Y%m%d_%H%M%S_%f}"[:-3] + ".png"  # built here (with milliseconds), never from the profile
     ImageGrab.grab(all_screens=True).save(os.path.join(folder, name))
     return {"success": True, "action": "windows_screenshot", "file": name}
 

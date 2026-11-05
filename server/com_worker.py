@@ -58,7 +58,14 @@ class ComWorker:
         return future
 
     def call(self, fn: Callable[..., Any], *args: Any, timeout: float = 20) -> Any:
-        return self.submit(fn, *args).result(timeout)
+        future = self.submit(fn, *args)
+        try:
+            return future.result(timeout)
+        except concurrent.futures.TimeoutError:
+            # Taken off the queue if it has not started: otherwise it would run minutes later, when nobody waits for it
+            # (a sound that plays by itself, a ghost reading of the Discord window).
+            future.cancel()
+            raise TimeoutError("Windows tardó demasiado en responder. Inténtalo de nuevo.") from None
 
 
 com_worker = ComWorker()
