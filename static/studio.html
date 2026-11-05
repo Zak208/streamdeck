@@ -8,8 +8,8 @@
     // Apply the saved theme before first paint so the window does not flash the wrong colours.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.13.0">
-  <link rel="stylesheet" href="/static/css/studio.css?v=2.13.0">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.13.1">
+  <link rel="stylesheet" href="/static/css/studio.css?v=2.13.1">
 </head>
 <body>
 
@@ -34,7 +34,8 @@
 
     <div class="topbar-right">
       <span class="save-status" id="save-status" data-state="saved"><span id="save-status-text">Guardado</span></span>
-      <div class="update-cylinder" id="update-cylinder" title="Estado de las actualizaciones">
+      <div class="update-cylinder" id="update-cylinder" role="button" tabindex="0" title="Versión de StreamDesk. Pulsa para buscar actualizaciones">
+        <span class="update-dot" aria-hidden="true"></span>
         <span id="update-status-text">Comprobando versión...</span>
         <button class="update-btn-action" id="btn-apply-update" style="display: none;">Actualizar</button>
       </div>
@@ -118,7 +119,13 @@
     <main>
       <div class="preview-container">
         <div class="phone-mockup">
-          <div class="preview-label">Así se verá en tu móvil</div>
+          <div class="preview-head">
+            <div class="preview-label">Así se verá en tu móvil</div>
+            <button class="grid-chip" id="btn-grid-open" type="button" title="Cambiar cuántas casillas tiene la pantalla">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M1 1h6v6H1zM9 1h6v6H9zM1 9h6v6H1zM9 9h6v6H9z"/></svg>
+              <span id="grid-chip-text">6x2 · 12 casillas</span>
+            </button>
+          </div>
           <div class="drag-delete-hint" id="drag-delete-hint" aria-hidden="true">Suelta fuera de la cuadrícula para eliminar</div>
           <div class="phone-screen-wrapper">
             <div class="phone-status-bar">
@@ -143,7 +150,12 @@
       <div id="inspector-content">
         <div class="empty-inspector-tip">
           <img src="/static/icons/sliders.svg" alt="">
-          <p>Selecciona una casilla de la pantalla para asignarle una acción, conectar una app y cambiar su aspecto.</p>
+          <ol class="empty-steps">
+            <li><strong>Elige una casilla</strong> de la pantalla del centro.</li>
+            <li><strong>Pulsa «Elegir acción»</strong> o arrastra una de la biblioteca de la izquierda.</li>
+            <li><strong>Ajusta el aspecto</strong>: título, color e icono.</li>
+          </ol>
+          <p class="empty-arrow">← Prueba con la biblioteca de acciones</p>
         </div>
       </div>
     </section>
@@ -151,9 +163,9 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/monitors.js?v=2.13.0"></script>
-  <script src="/static/js/studio.js?v=2.13.0"></script>
-  <script src="/static/js/studio-library.js?v=2.13.0"></script>
-  <script src="/static/js/studio-ui.js?v=2.13.0"></script>
+  <script src="/static/js/monitors.js?v=2.13.1"></script>
+  <script src="/static/js/studio.js?v=2.13.1"></script>
+  <script src="/static/js/studio-library.js?v=2.13.1"></script>
+  <script src="/static/js/studio-ui.js?v=2.13.1"></script>
 </body>
 </html>

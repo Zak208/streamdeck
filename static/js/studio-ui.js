@@ -370,6 +370,39 @@ function wireGridControls(root) {
   sync();
 }
 
+// The size button above the preview: shows the current grid and opens the same controls as Ajustes.
+function updateGridChip() {
+  const chip = document.getElementById("grid-chip-text");
+  if (chip) chip.textContent = `${gridCols()}x${gridRows()} · ${gridTotal()} casillas`;
+}
+
+function gridControlsMarkup() {
+  return `
+    <p class="modal-desc">Cuántos botones caben en cada página, en el móvil y aquí. Al cambiarla se convierten todas tus páginas.</p>
+    <select id="settings-grid" aria-label="Tamaño de la cuadrícula">
+      ${GRID_PRESETS.map(p => `<option value="${p.id}" ${p.id === `${gridCols()}x${gridRows()}` ? "selected" : ""}>${gridPresetLabel(p)}</option>`).join("")}
+      <option value="custom">Personalizada</option>
+    </select>
+    <div class="grid-custom">
+      <label>Columnas <input type="number" id="grid-cols" min="2" max="10" step="1" inputmode="numeric"></label>
+      <label>Filas <input type="number" id="grid-rows" min="2" max="8" step="1" inputmode="numeric"></label>
+      <button class="btn-secondary" id="grid-apply" type="button">Aplicar</button>
+    </div>
+    <p class="integration-hint" id="grid-hint"></p>`;
+}
+
+function openGridDialog() {
+  const modal = openModal({
+    title: "Tamaño de la pantalla",
+    body: gridControlsMarkup(),
+    actions: [{ label: "Cerrar", kind: "primary" }],
+    onMount: (m) => wireGridControls(m.el),
+  });
+  return modal;
+}
+document.getElementById("btn-grid-open")?.addEventListener("click", openGridDialog);
+updateGridChip();
+
 // ---------- Settings ----------
 
 function openSettings() {
@@ -429,7 +462,10 @@ function openSettings() {
       <section class="settings-section">
         <h3>Versión</h3>
         <p id="settings-version">Comprobando...</p>
-        <button class="btn-secondary" id="settings-check-update">Buscar actualizaciones</button>
+        <div class="inline-row">
+          <button class="btn-secondary" id="settings-check-update">Buscar actualizaciones</button>
+          <button class="btn-primary" id="settings-apply-update" hidden>Actualizar</button>
+        </div>
       </section>
       <section class="settings-section">
         <h3>Primeros pasos</h3>
@@ -446,11 +482,19 @@ function openSettings() {
       wireGridControls(m.el);
       wireCommandsSwitch(m.el);
       m.el.querySelector("#settings-welcome").addEventListener("click", () => { m.close(); openWelcome(); });
+      const showVersion = () => {
+        m.el.querySelector("#settings-version").textContent = updateStatusText.textContent;
+        const ready = updateCylinder.classList.contains("update-ready");
+        const apply = m.el.querySelector("#settings-apply-update");
+        apply.hidden = !ready;
+        apply.textContent = btnApplyUpdate.textContent || "Actualizar";
+      };
       m.el.querySelector("#settings-check-update").addEventListener("click", async () => {
         await checkGitHubUpdates();
-        m.el.querySelector("#settings-version").textContent = updateStatusText.textContent;
+        showVersion();
       });
-      m.el.querySelector("#settings-version").textContent = updateStatusText.textContent;
+      m.el.querySelector("#settings-apply-update").addEventListener("click", () => { m.close(); btnApplyUpdate.click(); });
+      showVersion();
       m.el.querySelector("#settings-export").addEventListener("click", saveProfileCopy);
       const importInput = m.el.querySelector("#settings-import-file");
       m.el.querySelector("#settings-import").addEventListener("click", () => importInput.click());

@@ -260,6 +260,8 @@ function commitAction(btn) {
   saveConfigToServer();
   const summary = document.getElementById("action-summary");
   if (summary) summary.textContent = describeAction(btn);
+  const top = document.getElementById("inspector-summary-action");
+  if (top) top.textContent = describeAction(btn) || "Nada todavía";
 }
 
 function hotkeyFromEvent(event) {

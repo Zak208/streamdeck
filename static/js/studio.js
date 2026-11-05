@@ -17,7 +17,7 @@ let detectedSystemApps = [];
 let draggedLibraryItem = null; // the action being dragged out of the library
 let dragSourceType = null; // 'palette_btn' | 'palette_slider' | 'slot' | 'library'
 let draggedSlotIndex = null;
-let activeInspectorTab = "apps"; // apps | media | obs | telemetry | integrations | design
+let activeInspectorTab = "action"; // what to open when a button is selected: action | apps | integrations | design
 
 const phoneScreen = document.getElementById("phone-screen");
 const inspectorTitle = document.getElementById("inspector-title");
@@ -136,17 +136,19 @@ async function checkGitHubUpdates() {
     updateMode = data.mode || "";
     if (data.update_available) {
       updateCylinder.className = "update-cylinder update-ready";
-      updateStatusText.textContent = data.mode === "release"
-        ? `Hay una versión nueva: v${data.latest_version} (tienes la v${data.current_version})`
-        : `Hay una versión nueva: ${data.commit_message || "actualización disponible"}`;
+      const label = data.mode === "release" ? `v${data.latest_version}` : (data.commit_message || "nueva");
+      updateStatusText.textContent = `Versión ${label} disponible`;
       updateStatusText.title = data.notes || "";
-      btnApplyUpdate.textContent = "Actualizar";
+      updateCylinder.title = `Tienes la v${data.current_version}. Pulsa «Actualizar» para instalar la ${label}`;
+      btnApplyUpdate.textContent = data.mode === "release" ? `Actualizar a v${data.latest_version}` : "Actualizar";
       btnApplyUpdate.style.display = "inline-block";
+      announceUpdateOnce(label);
     } else {
       updateCylinder.className = "update-cylinder";
       const suffix = data.status === "offline" ? "sin conexión" : (data.can_update === false ? "" : "al día");
       updateStatusText.textContent = `v${data.current_version || ""}${suffix ? ` · ${suffix}` : ""}`;
       updateStatusText.title = "";
+      updateCylinder.title = "Versión de StreamDesk. Pulsa para buscar actualizaciones";
       btnApplyUpdate.style.display = "none";
     }
   } catch (e) {
@@ -154,8 +156,38 @@ async function checkGitHubUpdates() {
   }
 }
 
+// One notice per session: an update that shows up while Studio is open (or at startup) is announced once.
+function announceUpdateOnce(label) {
+  try {
+    if (sessionStorage.getItem("streamdesk_update_announced") === label) return;
+    sessionStorage.setItem("streamdesk_update_announced", label);
+  } catch (e) { /* storage blocked: announce every time */ }
+  showToast(`Hay una versión nueva (${label}). Pulsa «Actualizar» arriba a la derecha.`);
+}
+
+// The chip is also a button: a click looks for updates now.
+updateCylinder?.addEventListener("click", async (event) => {
+  if (event.target.closest("#btn-apply-update") || updateCylinder.classList.contains("update-busy")) return;
+  updateStatusText.textContent = "Buscando...";
+  await checkGitHubUpdates();
+  if (!updateCylinder.classList.contains("update-ready")) showToast(`${updateStatusText.textContent}`);
+});
+updateCylinder?.addEventListener("keydown", (event) => {
+  if ((event.key === "Enter" || event.key === " ") && event.target === updateCylinder) { event.preventDefault(); updateCylinder.click(); }
+});
+
 // Follows the download and the installation of a new version until the app closes itself or it fails.
 async function followReleaseUpdate() {
+  updateCylinder.classList.add("update-busy");
+  btnApplyUpdate.style.display = "none";
+  try {
+    await followReleaseUpdateSteps();
+  } finally {
+    updateCylinder.classList.remove("update-busy");
+  }
+}
+
+async function followReleaseUpdateSteps() {
   for (;;) {
     await new Promise(resolve => setTimeout(resolve, 700));
     let status;
@@ -172,6 +204,7 @@ async function followReleaseUpdate() {
     } else if (status.state === "error") {
       updateStatusText.textContent = "No se pudo actualizar";
       btnApplyUpdate.disabled = false;
+      btnApplyUpdate.style.display = "inline-block";
       showToast(status.message || "No se pudo actualizar");
       return;
     } else {
@@ -275,6 +308,7 @@ async function loadConfig() {
 // Render Page Tabs
 function renderPageTabs() {
   if (!config) return;
+  if (typeof updateGridChip === "function") updateGridChip();
   pageTabs.innerHTML = "";
 
   const pages = config.pages || [];
@@ -357,7 +391,12 @@ function resetInspectorDrawer() {
   inspectorContent.innerHTML = `
     <div class="empty-inspector-tip">
       <img src="/static/icons/sliders.svg" alt="">
-      <p>Selecciona una casilla de la pantalla para asignarle una acción, conectar una app y cambiar su aspecto.</p>
+      <ol class="empty-steps">
+        <li><strong>Elige una casilla</strong> de la pantalla del centro.</li>
+        <li><strong>Pulsa «Elegir acción»</strong> o arrastra una de la biblioteca de la izquierda.</li>
+        <li><strong>Ajusta el aspecto</strong>: título, color e icono.</li>
+      </ol>
+      <p class="empty-arrow">← Prueba con la biblioteca de acciones</p>
     </div>
   `;
 }
@@ -1157,69 +1196,76 @@ function renderEmptySlotInspector(index) {
   });
 }
 
-// Button inspector: what it does (Apps, Controles, Conectores) and how it looks (Aspecto).
+// Button inspector: a summary of what the button does, then three folding sections:
+// what it does, how it looks, and the extras (long press, double tap, confirmation, off).
+// The actions are chosen in one dialog (see openActionPicker).
 const INSPECTOR_TABS = [
   ["apps", "Apps"],
   ["integrations", "Conectores"],
   ["action", "Acción"],
   ["design", "Aspecto"],
 ];
-
-// One line under the tabs, so it is clear what each one is for.
-const INSPECTOR_TAB_HINTS = {
-  apps: "Apps: el botón solo abre el programa que elijas.",
-  integrations: "Conectores: acciones dentro de un programa (silenciar, escenas, sonidos...). Si el botón abre una app, solo se ven las de esa app.",
-  action: "Acción: los ajustes de lo que hace este botón y sus gestos.",
-  design: "Aspecto: título, color e icono.",
-};
+let openSections = { what: true, look: false, more: false };
 
 function renderButtonInspector(btn, index) {
   const currentSlots = config.pages[activePageIndex].slots;
-  if (!INSPECTOR_TABS.some(([id]) => id === activeInspectorTab)) {
-    // A tab remembered from an older layout (media and telemetry moved to the library).
-    activeInspectorTab = activeInspectorTab === "obs" ? "integrations" : "apps";
-  }
+  // A placer (new button, Spotify/Discord pickers) may ask for the action dialog on a given tab.
+  const wantedPicker = activeInspectorTab === "apps" ? "apps" : (activeInspectorTab === "integrations" ? "programs" : "");
+  if (activeInspectorTab === "design") openSections.look = true;
+  if (activeInspectorTab !== "action") activeInspectorTab = "action";
 
   inspectorContent.innerHTML = `
-    <div class="inspector-preview-card">
-      <div class="preview-btn-mock">
-        <div class="slot-keycap-inner">
-          <div class="slot-accent" style="background: ${escapeHtml(btn.color || '#f8c700')};"></div>
-          <img src="${escapeHtml(btn.image || btn.icon || '/static/icons/power.svg')}" class="slot-keycap-img" id="inspector-preview-img" alt="">
-          <div class="slot-keycap-title" id="inspector-preview-title">${escapeHtml(btn.label || 'Botón')}</div>
-          <div class="slot-keycap-sub" id="inspector-preview-sub">${escapeHtml(btn.sublabel || '')}</div>
+    <div class="inspector-summary">
+      <div class="inspector-preview-card">
+        <div class="preview-btn-mock">
+          <div class="slot-keycap-inner">
+            <div class="slot-accent" style="background: ${escapeHtml(btn.color || '#f8c700')};"></div>
+            <img src="${escapeHtml(btn.image || btn.icon || '/static/icons/power.svg')}" class="slot-keycap-img" id="inspector-preview-img" alt="">
+            <div class="slot-keycap-title" id="inspector-preview-title">${escapeHtml(btn.label || 'Botón')}</div>
+            <div class="slot-keycap-sub" id="inspector-preview-sub">${escapeHtml(btn.sublabel || '')}</div>
+          </div>
         </div>
+      </div>
+      <div class="inspector-summary-text">
+        <span class="inspector-summary-label">Este botón hace</span>
+        <strong id="inspector-summary-action">${escapeHtml(describeAction(btn) || "Nada todavía")}</strong>
+        <button class="btn-primary btn-choose-action" id="btn-choose-action" type="button">Elegir acción</button>
       </div>
     </div>
 
-    <div class="inspector-tabs" role="tablist">
-      ${INSPECTOR_TABS.map(([id, name]) => `<button class="inspector-tab-btn ${activeInspectorTab === id ? 'active' : ''}" role="tab" data-tab="${id}">${name}</button>`).join("")}
-    </div>
-
-    <p class="tab-hint" id="inspector-tab-hint">${escapeHtml(INSPECTOR_TAB_HINTS[activeInspectorTab] || "")}</p>
-
-    <div id="inspector-tab-content"></div>
+    <details class="inspector-section" id="section-what" ${openSections.what ? "open" : ""}>
+      <summary>1. Qué hace</summary>
+      <div class="inspector-section-body" id="inspector-tab-content"></div>
+    </details>
+    <details class="inspector-section" id="section-look" ${openSections.look ? "open" : ""}>
+      <summary>2. Apariencia <small>título, color e icono</small></summary>
+      <div class="inspector-section-body" id="inspector-look-content"></div>
+    </details>
+    <details class="inspector-section" id="section-more" ${openSections.more ? "open" : ""}>
+      <summary>3. Más opciones <small>pulsación larga, confirmar, desactivar</small></summary>
+      <div class="inspector-section-body" id="inspector-more-content"></div>
+    </details>
 
     <button class="btn-danger" id="btn-delete-slot">
       <img src="/static/icons/trash.svg" alt=""> Vaciar esta casilla
     </button>
   `;
 
-  inspectorContent.querySelectorAll(".inspector-tab-btn").forEach(t => {
-    t.addEventListener("click", () => {
-      activeInspectorTab = t.dataset.tab;
-      renderButtonInspector(btn, index);
-    });
+  [["what", "section-what"], ["look", "section-look"], ["more", "section-more"]].forEach(([key, id]) => {
+    document.getElementById(id)?.addEventListener("toggle", (event) => { openSections[key] = event.target.open; });
   });
 
-  const tabContainer = document.getElementById("inspector-tab-content");
-  const renderers = {
-    apps: renderTabApps,
-    integrations: renderTabConnectors,
-    action: renderTabAction,
-    design: renderTabDesign,
-  };
-  renderers[activeInspectorTab](tabContainer, btn, index);
+  const whatBox = document.getElementById("inspector-tab-content");
+  renderTabAction(whatBox, btn, index);
+  // The extras (gestures, confirm, disabled) get their own section: move them out of the action editor.
+  const extras = whatBox.querySelector("#gesture-section");
+  const moreBox = document.getElementById("inspector-more-content");
+  if (extras) moreBox.appendChild(extras);
+  else moreBox.innerHTML = `<p class="integration-hint">Los monitores del PC solo muestran datos: no tienen más opciones.</p>`;
+  renderTabDesign(document.getElementById("inspector-look-content"), btn, index);
+
+  document.getElementById("btn-choose-action")?.addEventListener("click", () => openActionPicker(btn, index));
+  if (wantedPicker) openActionPicker(btn, index, wantedPicker);
 
   document.getElementById("btn-delete-slot")?.addEventListener("click", () => {
     currentSlots[index] = { index, type: "empty" };
@@ -1228,6 +1274,86 @@ function renderButtonInspector(btn, index) {
     saveConfigToServer();
     showToast(`Casilla ${index + 1} vaciada`);
   });
+}
+
+// One dialog to choose what a button does: an app to open, the actions inside a program (connectors),
+// keyboard shortcuts, or system actions. Replaces the separate Apps and Connectors tabs.
+let actionPicker = null;
+function closeActionPicker() {
+  if (actionPicker) { const picker = actionPicker; actionPicker = null; picker.close(); }
+}
+
+function openActionPicker(btn, index, startTab = "apps") {
+  closeActionPicker();
+  const tabs = [["apps", "Abrir una app"], ["programs", "Acciones de un programa"], ["shortcuts", "Atajos y texto"], ["system", "Sistema"]];
+  let current = startTab;
+  const modal = openModal({
+    title: "Elegir qué hace este botón",
+    body: `
+      <div class="picker-tabs" role="tablist">
+        ${tabs.map(([id, name]) => `<button class="picker-tab ${id === current ? "active" : ""}" role="tab" data-picker-tab="${id}">${name}</button>`).join("")}
+      </div>
+      <p class="tab-hint" id="picker-hint"></p>
+      <div class="picker-body" id="picker-body"></div>`,
+    actions: [{ label: "Cerrar", kind: "secondary" }],
+    onMount: () => {},
+  });
+  modal.el.querySelector(".modal-card").classList.add("picker-card");
+  actionPicker = modal;
+  const previousClose = modal.close;
+  modal.onClose = () => { if (actionPicker === modal) actionPicker = null; };
+
+  const hints = {
+    apps: "Solo abre el programa que elijas.",
+    programs: "Acciones dentro de un programa (silenciar, cambiar de escena, poner un sonido...). Si este botón abre una app, solo ves las de esa app.",
+    shortcuts: "Pulsa teclas, escribe un texto, abre una web o una carpeta, o encadena varias acciones.",
+    system: "Volumen, bloqueo del PC, comandos de consola, monitores del PC y navegación entre páginas.",
+  };
+  const body = modal.el.querySelector("#picker-body");
+  const hint = modal.el.querySelector("#picker-hint");
+
+  const libraryGroups = (names, host) => {
+    host.innerHTML = `<input type="search" id="picker-search" placeholder="Buscar una acción" aria-label="Buscar una acción">` + `<div id="picker-list"></div>`;
+    const list = host.querySelector("#picker-list");
+    const draw = (term) => {
+      const t = term.trim().toLowerCase();
+      list.innerHTML = libraryCategories
+        .filter(c => names.some(n => c.category.toLowerCase().startsWith(n.toLowerCase())))
+        .map(c => {
+          const items = c.items.filter(i => !i.opensTab && (!t || `${i.label} ${i.sub}`.toLowerCase().includes(t)));
+          if (!items.length) return "";
+          return `<div class="picker-category">${escapeHtml(c.category)}</div><div class="picker-items">${items.map(i => `
+            <button class="picker-item" data-pick="${escapeHtml(i.id)}"><img src="${escapeHtml(i.icon)}" alt=""><div><strong>${escapeHtml(i.label)}</strong><span>${escapeHtml(i.sub || "")}</span></div></button>`).join("")}</div>`;
+        }).join("") || `<div class="empty-note">Ninguna acción coincide.</div>`;
+      list.querySelectorAll("[data-pick]").forEach(el => el.addEventListener("click", () => {
+        const item = libraryCategories.flatMap(c => c.items).find(i => i.id === el.dataset.pick);
+        assignFromTemplate(btn, index, {
+          label: item.label, sublabel: item.sub || "", icon: item.icon, color: item.color,
+          action_type: item.action_type, target: item.target, extra: item.extra,
+          configure: item.configure, confirm_default: item.confirm_default,
+        });
+      }));
+    };
+    host.querySelector("#picker-search").addEventListener("input", (e) => draw(e.target.value));
+    draw("");
+  };
+
+  const show = (tab) => {
+    current = tab;
+    modal.el.querySelectorAll(".picker-tab").forEach(b => b.classList.toggle("active", b.dataset.pickerTab === tab));
+    hint.textContent = hints[tab];
+    // A fresh holder per tab: a slow tab (connectors) that finishes later draws into a detached node and is ignored.
+    body.innerHTML = "";
+    const host = document.createElement("div");
+    body.appendChild(host);
+    if (tab === "apps") renderTabApps(host, btn, index);
+    else if (tab === "programs") renderTabConnectors(host, btn, index);
+    else if (tab === "shortcuts") libraryGroups(["Sistema", "Reuniones", "Vídeo", "Creación", "Navegador", "Atajos de Windows", "Edición", "Música"], host);
+    else libraryGroups(["Windows", "Páginas", "Multimedia", "Monitores"], host);
+  };
+  modal.el.querySelectorAll(".picker-tab").forEach(b => b.addEventListener("click", () => show(b.dataset.pickerTab)));
+  show(startTab);
+  return modal;
 }
 
 // Apps installed on this PC, found by the scanner. One click links the button.
@@ -1316,7 +1442,8 @@ function assignFromTemplate(btn, index, template, overrides = {}) {
   btn.target = t.target;
   btn.extra = JSON.parse(JSON.stringify(t.extra || {}));
   if (t.confirm_default) btn.confirm = true; // e.g. console commands: ask before running
-  if (t.configure) activeInspectorTab = "action"; // it asks for choices (a scene, a source, commands...)
+  activeInspectorTab = "action"; // show what the button now does, and its settings
+  if (typeof closeActionPicker === "function") closeActionPicker();
   renderPhoneScreen();
   renderButtonInspector(btn, index);
   saveConfigToServer();
