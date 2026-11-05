@@ -8,8 +8,8 @@
     // Apply the saved theme before first paint so the window does not flash the wrong colours.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.13.1">
-  <link rel="stylesheet" href="/static/css/studio.css?v=2.13.1">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.14.0">
+  <link rel="stylesheet" href="/static/css/studio.css?v=2.14.0">
 </head>
 <body>
 
@@ -72,28 +72,22 @@
           </div>
         </details>
 
-        <div class="panel-card library-panel">
-          <div class="panel-title"><span>Biblioteca de acciones</span></div>
-          <input type="search" id="library-search" placeholder="Buscar una acción" aria-label="Buscar una acción">
-          <div id="library-list" class="library-list"></div>
-        </div>
-
         <div class="panel-card">
           <div class="panel-title"><span>Añadir</span></div>
           <p class="panel-hint">Arrastra un control a la pantalla o pulsa una casilla vacía.</p>
           <div class="drag-palette-box">
-            <div class="palette-item" draggable="true" id="palette-new-btn">
-              <span class="palette-item-icon"><img src="/static/icons/power.svg" class="palette-svg-icon" alt=""></span>
+            <div class="palette-item" draggable="true" id="palette-new-btn" title="Arrástralo a una casilla">
+              <span class="palette-preview palette-preview-key" aria-hidden="true"></span>
               <div>
                 <div class="palette-item-title">Botón</div>
-                <div class="palette-item-desc">Una app, una acción o un servicio</div>
+                <div class="palette-item-desc">Vacío: tú eliges qué hace</div>
               </div>
             </div>
-            <div class="palette-item palette-slider" draggable="true" id="palette-new-slider">
-              <span class="palette-item-icon"><img src="/static/icons/fader.svg" class="palette-svg-icon" alt=""></span>
+            <div class="palette-item palette-slider" draggable="true" id="palette-new-slider" title="Arrástralo a una columna">
+              <span class="palette-preview palette-preview-fader" aria-hidden="true"></span>
               <div>
-                <div class="palette-item-title">Fader de volumen</div>
-                <div class="palette-item-desc">Master o una app, ocupa 2 casillas</div>
+                <div class="palette-item-title">Fader</div>
+                <div class="palette-item-desc">Volumen general de Windows</div>
               </div>
             </div>
           </div>
@@ -152,10 +146,10 @@
           <img src="/static/icons/sliders.svg" alt="">
           <ol class="empty-steps">
             <li><strong>Elige una casilla</strong> de la pantalla del centro.</li>
-            <li><strong>Pulsa «Elegir acción»</strong> o arrastra una de la biblioteca de la izquierda.</li>
+            <li><strong>Pulsa «Elegir acción»</strong> para decidir qué hace. Un botón nuevo nace vacío.</li>
             <li><strong>Ajusta el aspecto</strong>: título, color e icono.</li>
           </ol>
-          <p class="empty-arrow">← Prueba con la biblioteca de acciones</p>
+          <p class="empty-arrow">← Arrastra un botón o un fader desde «Añadir»</p>
         </div>
       </div>
     </section>
@@ -163,9 +157,9 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/monitors.js?v=2.13.1"></script>
-  <script src="/static/js/studio.js?v=2.13.1"></script>
-  <script src="/static/js/studio-library.js?v=2.13.1"></script>
-  <script src="/static/js/studio-ui.js?v=2.13.1"></script>
+  <script src="/static/js/monitors.js?v=2.14.0"></script>
+  <script src="/static/js/studio.js?v=2.14.0"></script>
+  <script src="/static/js/studio-library.js?v=2.14.0"></script>
+  <script src="/static/js/studio-ui.js?v=2.14.0"></script>
 </body>
 </html>

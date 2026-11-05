@@ -60,7 +60,14 @@ def main():
 
     print(f"[*] StreamDesk Pro Desktop iniciando en {studio_url}")
 
-    # 2. Open native Windows desktop window (like Spotify)
+    # Own taskbar identity: without it, running from source groups the window under Python's icon.
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Zak208.StreamDesk.Pro")
+    except Exception:
+        pass
+
+    # 2. Open native Windows desktop window
     window = webview.create_window(
         title="StreamDesk Pro",
         url=studio_url,

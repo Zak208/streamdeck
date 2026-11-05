@@ -353,13 +353,16 @@ process.stdout.write(vm.runInContext("JSON.stringify(builtInLibrary())", sandbox
 
     def test_the_interface_has_what_the_library_needs(self):
         html = open(os.path.join(STATIC_DIR, "studio.html"), encoding="utf-8").read()
-        for element in ("library-search", "library-list", "btn-page-settings", "pairing-panel"):
+        for element in ("btn-page-settings", "pairing-panel", "palette-new-btn", "palette-new-slider"):
             self.assertIn(f'id="{element}"', html)
+        # The action list is chosen from the dialog of each key: the sidebar no longer carries a library.
+        for gone in ("library-search", "library-list"):
+            self.assertNotIn(f'id="{gone}"', html)
         self.assertIn("studio-library.js", html)
         studio = open(os.path.join(STATIC_DIR, "js", "studio.js"), encoding="utf-8").read()
         self.assertIn('["action", "Acción"]', studio)
         self.assertNotIn('["controls", "Controles"]', studio)  # media and monitors live in the library now
-        self.assertIn('dragSourceType === "library"', studio)
+        self.assertNotIn('dragSourceType === "library"', studio)
 
 
 class IconTests(unittest.TestCase):

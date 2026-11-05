@@ -348,6 +348,7 @@ header {
   pointer-events: none;
 }
 .deck-btn.is-disabled { opacity: 0.35; filter: grayscale(1); }
+.deck-btn.is-blank { cursor: default; opacity: 0.7; }
 .deck-btn.has-gestures { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
 
 /* A short fader card (a 3-row grid on a landscape phone) gives the track the room the header and footer take. */
@@ -393,10 +394,10 @@ header {
   .deck-fader-card .fader-header-title { font-size: 10px; }
   .deck-fader-card .app-select-btn { padding: 1px 6px; font-size: 9px; }
   .deck-fader-card .fader-val { font-size: 11px; }
-  .deck-fader-card .mute-btn { width: 30px; height: 24px; }
+  .deck-fader-card .mute-btn { width: 32px; height: 28px; }
 }
 @container (max-height: 190px) {
   .deck-fader-card .app-select-btn { display: none; }
   .deck-fader-card .fader-header-title { font-size: 9px; }
-  .deck-fader-card .mute-btn { width: 26px; height: 22px; }
+  .deck-fader-card .mute-btn { width: 32px; height: 28px; }
 }

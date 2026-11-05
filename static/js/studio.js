@@ -5,17 +5,38 @@ let config = null;
 function gridCols() { return config?.layout?.columns || 6; }
 function gridRows() { return config?.layout?.rows || 2; }
 function gridTotal() { return config?.layout?.total_slots || gridCols() * gridRows(); }
-// A fader takes the first two rows of its column. True when this cell is part of one (or could hold one).
+// A fader starts on the first row of its column and is `row_span` rows tall (2 unless set). True when this cell is part of one.
+function faderSpan(slot) {
+  const span = Number(slot?.row_span);
+  return Math.max(1, Math.min(Number.isInteger(span) ? span : 2, gridRows()));
+}
 function inFaderColumn(slots, index) {
   const col = index % gridCols();
-  return Math.floor(index / gridCols()) < 2 && (slots[col]?.type === "slider" || slots[index]?.type === "occupied_by_slider");
+  const row = Math.floor(index / gridCols());
+  return (slots[col]?.type === "slider" && row < faderSpan(slots[col])) || slots[index]?.type === "occupied_by_slider";
+}
+// Indices of the cells a fader covers (its own and the ones under it), or none when the column has no fader.
+function faderCells(slots, col) {
+  if (slots[col]?.type !== "slider") return [];
+  return Array.from({ length: faderSpan(slots[col]) }, (_, k) => col + k * gridCols());
+}
+
+// What a new control looks like. A new key does nothing until the user chooses; a new fader controls the Windows volume.
+const NEW_BUTTON = { label: "Botón", sublabel: "", icon: "", image: "/static/icons/plus.svg", color: "#555555", action_type: "none", target: "", extra: {} };
+function newEmptyButton(index) {
+  return { index, type: "button", id: `btn_${Date.now()}`, ...JSON.parse(JSON.stringify(NEW_BUTTON)) };
+}
+function newMasterFader(col, span = 2) {
+  return {
+    index: col, type: "slider", id: `slider_${Date.now()}`, label: "Master", sublabel: "PC", slider_type: "master", target_app: null,
+    row_span: span, color: "#f8c700", icon: "/static/icons/volume_up.svg", image: "/static/icons/volume_up.svg",
+  };
 }
 let activePageIndex = 0;
 let selectedSlotIndex = null;
 let audioSessions = [];
 let detectedSystemApps = [];
-let draggedLibraryItem = null; // the action being dragged out of the library
-let dragSourceType = null; // 'palette_btn' | 'palette_slider' | 'slot' | 'library'
+let dragSourceType = null; // 'palette_btn' | 'palette_slider' | 'slot'
 let draggedSlotIndex = null;
 let activeInspectorTab = "action"; // what to open when a button is selected: action | apps | integrations | design
 
@@ -62,7 +83,9 @@ const MEDIA_PRESETS = [
   { id: "play_pause", name: "Play / Pausa", icon: "/static/icons/play_pause.svg", color: "#22c55e", sub: "Reproducir / Pausar", target: "play_pause" },
   { id: "next", name: "Siguiente Pista", icon: "/static/icons/next.svg", color: "#38bdf8", sub: "Canción siguiente", target: "next" },
   { id: "prev", name: "Anterior Pista", icon: "/static/icons/prev.svg", color: "#38bdf8", sub: "Canción anterior", target: "prev" },
-  { id: "mute", name: "Mute Master", icon: "/static/icons/mute.svg", color: "#ef4444", sub: "Silenciar ordenador", target: "mute" }
+  { id: "mute", name: "Mute Master", icon: "/static/icons/mute.svg", color: "#ef4444", sub: "Silenciar ordenador", target: "mute" },
+  { id: "volume_up", name: "Subir volumen", icon: "/static/icons/volume_up.svg", color: "#0ea5e9", sub: "Volumen de Windows", target: "volume_up" },
+  { id: "volume_down", name: "Bajar volumen", icon: "/static/icons/mute.svg", color: "#0ea5e9", sub: "Volumen de Windows", target: "volume_down" },
 ];
 
 // System gauges offered in the action library. How each one reads is in monitors.js.
@@ -393,10 +416,10 @@ function resetInspectorDrawer() {
       <img src="/static/icons/sliders.svg" alt="">
       <ol class="empty-steps">
         <li><strong>Elige una casilla</strong> de la pantalla del centro.</li>
-        <li><strong>Pulsa «Elegir acción»</strong> o arrastra una de la biblioteca de la izquierda.</li>
+        <li><strong>Pulsa «Elegir acción»</strong> para decidir qué hace. Un botón nuevo nace vacío.</li>
         <li><strong>Ajusta el aspecto</strong>: título, color e icono.</li>
       </ol>
-      <p class="empty-arrow">← Prueba con la biblioteca de acciones</p>
+      <p class="empty-arrow">← Arrastra un botón o un fader desde «Añadir»</p>
     </div>
   `;
 }
@@ -431,7 +454,7 @@ function renderPhoneScreen() {
     cell.style.gridColumn = `${col}`;
 
     if (slot.type === "slider") {
-      cell.style.gridRow = "1 / span 2"; // Occupies 2 vertical spaces!
+      cell.style.gridRow = `1 / span ${faderSpan(slot)}`;
       cell.classList.add("cell-slider-spanning");
     } else {
       cell.style.gridRow = `${row}`;
@@ -576,24 +599,12 @@ let slotDragHandled = false;   // a drop on a cell or the trash already dealt wi
 let slotDragCancelled = false; // Escape was pressed during the drag
 window.addEventListener("keydown", (e) => { if (e.key === "Escape" && dragSourceType) slotDragCancelled = true; }, true);
 
-// The drag image is a copy of the real control: a keycap or a tall fader, with its icon, name and colour.
-function setDragGhost(event, kind, data, size) {
-  if (!event.dataTransfer?.setDragImage) return;
-  const width = size?.width || (kind === "fader" ? 92 : 116);
-  const height = size?.height || (kind === "fader" ? 232 : 116);
-  const ghost = document.createElement("div");
-  ghost.className = "drag-ghost";
-  ghost.style.width = `${width}px`;
-  ghost.style.height = `${height}px`;
+// The same markup the deck uses for a key and for a fader: the drag image and the tiles of the sidebar are built from it,
+// so what you pick up looks like what you will get.
+function keycapHtml(data) {
   const colour = escapeHtml(data.color || "#f8c700");
-  const icon = escapeHtml(data.image || data.icon || (kind === "fader" ? "/static/icons/volume_up.svg" : "/static/icons/power.svg"));
-  ghost.innerHTML = kind === "fader" ? `
-    <div class="slot-fader">
-      <div class="slot-fader-head"><img src="${icon}" alt=""><span>${escapeHtml(data.label || "Volumen")}</span></div>
-      <div class="slot-fader-track"><div class="slot-fader-fill" style="height: 60%; background: ${colour};"></div></div>
-      <div class="slot-fader-val">60%</div>
-    </div>` : `
-    <div class="slot-keycap">
+  const icon = escapeHtml(data.image || data.icon || "/static/icons/power.svg");
+  return `<div class="slot-keycap">
       <div class="slot-keycap-inner">
         <div class="slot-accent" style="background: ${colour};"></div>
         <img src="${icon}" class="slot-keycap-img" alt="">
@@ -601,10 +612,52 @@ function setDragGhost(event, kind, data, size) {
         <div class="slot-keycap-sub">${escapeHtml(data.sublabel || data.sub || "")}</div>
       </div>
     </div>`;
+}
+
+function faderHtml(data, percent = 60) {
+  const colour = escapeHtml(data.color || "#f8c700");
+  const icon = escapeHtml(data.image || data.icon || "/static/icons/volume_up.svg");
+  return `<div class="slot-fader">
+      <div class="slot-fader-head"><img src="${icon}" alt=""><span>${escapeHtml(data.label || "Volumen")}</span></div>
+      <div class="slot-fader-track"><div class="slot-fader-fill" style="height: ${percent}%; background: ${colour};"></div></div>
+      <div class="slot-fader-val">${percent}%</div>
+    </div>`;
+}
+
+// Size of a cell of the deck as it is on screen now, so the drag image is as big as the real thing.
+function deckCellSize(kind, span = 2) {
+  const cell = phoneScreen?.querySelector(".slot-cell:not(.cell-slider-spanning)");
+  if (!cell) return null;
+  const box = cell.getBoundingClientRect();
+  if (!box.width || !box.height) return null;
+  const gap = parseFloat(getComputedStyle(phoneScreen).rowGap) || 0;
+  return kind === "fader" ? { width: box.width, height: box.height * span + gap * (span - 1) } : { width: box.width, height: box.height };
+}
+
+// The drag image is a copy of the real control: a keycap or a tall fader, with its icon, name and colour.
+function setDragGhost(event, kind, data, size) {
+  if (!event.dataTransfer?.setDragImage) return;
+  const measured = size || deckCellSize(kind, faderSpan(data));
+  const width = measured?.width || (kind === "fader" ? 92 : 116);
+  const height = measured?.height || (kind === "fader" ? 232 : 116);
+  const ghost = document.createElement("div");
+  ghost.className = "drag-ghost";
+  ghost.style.width = `${width}px`;
+  ghost.style.height = `${height}px`;
+  ghost.innerHTML = kind === "fader" ? faderHtml(data) : keycapHtml(data);
   document.body.appendChild(ghost);
   event.dataTransfer.setDragImage(ghost, width / 2, height / 2);
   setTimeout(() => ghost.remove(), 0); // the browser has taken its snapshot by then
 }
+
+// The tiles of "Añadir" show a key and a fader exactly as they will look once dropped.
+function renderPalettePreviews() {
+  const key = document.querySelector(".palette-preview-key");
+  if (key) key.innerHTML = keycapHtml(NEW_BUTTON);
+  const fader = document.querySelector(".palette-preview-fader");
+  if (fader) fader.innerHTML = faderHtml(newMasterFader(0), 60);
+}
+renderPalettePreviews();
 
 function startSlotDrag(event, index, wrap, kind, data) {
   dragSourceType = "slot";
@@ -686,9 +739,7 @@ function deleteSlotByDrag(index) {
   if (!slot || slot.type === "empty" || slot.type === "occupied_by_slider") return;
   const name = slot.label || (slot.type === "slider" ? "Fader" : "Botón");
   if (slot.type === "slider") {
-    const col = index % gridCols();
-    rememberDeleted(activePageIndex, slots, [col, col + gridCols()]);
-    clearColumn(slots, col);
+    removeFader(slots, index % gridCols());
   } else {
     rememberDeleted(activePageIndex, slots, [index]);
     slots[index] = { index, type: "empty" };
@@ -734,8 +785,58 @@ function triggerDropBounce(index) {
 }
 
 function clearColumn(slots, col) {
-  slots[col] = { index: col, type: "empty" };
-  slots[col + gridCols()] = { index: col + gridCols(), type: "empty" };
+  const cells = faderCells(slots, col);
+  (cells.length ? cells : [col, col + gridCols()]).forEach(i => { slots[i] = { index: i, type: "empty" }; });
+}
+
+// Takes a fader out (all the cells it covers), keeping it for Ctrl+Z.
+function removeFader(slots, col) {
+  const cells = faderCells(slots, col);
+  const targets = cells.length ? cells : [col, col + gridCols()];
+  rememberDeleted(activePageIndex, slots, targets);
+  clearColumn(slots, col);
+}
+
+// Puts a fader of `span` rows in a column. What was in those cells goes to Ctrl+Z, never silently lost.
+function placeFader(slots, col, fader, span = 2) {
+  span = Math.max(1, Math.min(span, gridRows()));
+  const cols = gridCols();
+  const affected = new Set([...faderCells(slots, col), ...Array.from({ length: span }, (_, k) => col + k * cols)]);
+  if ([...affected].some(i => slots[i] && slots[i].type !== "empty")) rememberDeleted(activePageIndex, slots, [...affected].sort((a, b) => a - b));
+  affected.forEach(i => { slots[i] = { index: i, type: "empty" }; });
+  slots[col] = { ...fader, index: col, row_span: span };
+  for (let k = 1; k < span; k++) {
+    const index = col + k * cols;
+    slots[index] = { index, type: "occupied_by_slider", id: `occ_${col}_${k}_${Date.now()}`, parent_slot: col };
+  }
+}
+
+// Changes how many rows a fader covers. Growing needs the cells under it to be free: nothing is deleted to make room.
+function resizeFader(col, wanted) {
+  const slots = config.pages[activePageIndex].slots;
+  const top = slots[col];
+  if (top?.type !== "slider") return false;
+  const cols = gridCols();
+  const span = Math.max(1, Math.min(wanted, gridRows()));
+  const old = faderSpan(top);
+  if (span === old) return false;
+  for (let k = old; k < span; k++) {
+    const cell = slots[col + k * cols];
+    if (cell && cell.type !== "empty") {
+      showToast(`Para hacer el fader más alto, libera antes la casilla ${col + k * cols + 1}`);
+      return false;
+    }
+  }
+  for (let k = Math.min(old, span); k < Math.max(old, span); k++) {
+    const index = col + k * cols;
+    slots[index] = span > old
+      ? { index, type: "occupied_by_slider", id: `occ_${col}_${k}_${Date.now()}`, parent_slot: col }
+      : { index, type: "empty" };
+  }
+  top.row_span = span;
+  renderPhoneScreen();
+  saveConfigToServer();
+  return true;
 }
 
 function emptySlotByIndex(idx) {
@@ -746,8 +847,7 @@ function emptySlotByIndex(idx) {
   if (!slot || slot.type === "empty") return;
 
   if (slot.type === "slider" || slot.type === "occupied_by_slider" || inFaderColumn(currentSlots, idx)) {
-    rememberDeleted(activePageIndex, currentSlots, [col, col + gridCols()]);
-    clearColumn(currentSlots, col);
+    removeFader(currentSlots, col);
     showToast(`Columna #${col + 1} vaciada (Ctrl+Z para deshacer)`);
   } else {
     rememberDeleted(activePageIndex, currentSlots, [idx]);
@@ -766,18 +866,9 @@ function pasteCopiedSlot(targetIdx) {
   const tCol = targetIdx % gridCols();
 
   if (copiedSlotConfig.type === "slider") {
-    clearColumn(currentSlots, tCol);
     const pastedSlider = JSON.parse(JSON.stringify(copiedSlotConfig));
-    pastedSlider.index = tCol;
     pastedSlider.id = `slider_${Date.now()}`;
-    currentSlots[tCol] = pastedSlider;
-    currentSlots[tCol + gridCols()] = {
-      index: tCol + gridCols(),
-      type: "occupied_by_slider",
-      id: `slot_${tCol + gridCols()}`,
-      label: "Ocupado por Slider",
-      parent_slot: tCol
-    };
+    placeFader(currentSlots, tCol, pastedSlider, faderSpan(pastedSlider));
     renderPhoneScreen();
     selectSlot(tCol);
     triggerDropBounce(tCol);
@@ -785,7 +876,7 @@ function pasteCopiedSlot(targetIdx) {
     showToast(`Fader pegado en Columna #${tCol + 1} (Ctrl+V)`);
   } else {
     if (inFaderColumn(currentSlots, targetIdx)) {
-      clearColumn(currentSlots, tCol);
+      removeFader(currentSlots, tCol);
     }
     const pastedBtn = JSON.parse(JSON.stringify(copiedSlotConfig));
     pastedBtn.index = targetIdx;
@@ -855,9 +946,56 @@ function createStudioFaderCard(slider, index) {
       <div class="slot-fader-fill" style="height: 60%; background: ${accentColor};"></div>
     </div>
     <div class="slot-fader-val">60%</div>
+    <div class="fader-resize-handle" role="slider" tabindex="0" title="Arrastra para cambiar el alto del fader"
+         aria-label="Alto del fader en filas" aria-valuemin="1" aria-valuemax="${gridRows()}" aria-valuenow="${faderSpan(slider)}"></div>
   `;
+  wireFaderResize(wrap, slider, index);
 
   return wrap;
+}
+
+// Dragging the bottom edge of a fader changes its height row by row; the arrow keys do the same.
+function wireFaderResize(wrap, slider, index) {
+  const handle = wrap.querySelector(".fader-resize-handle");
+  if (!handle) return;
+  const col = index % gridCols();
+  handle.addEventListener("keydown", (event) => {
+    if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (resizeFader(col, faderSpan(slider) + (event.key === "ArrowDown" ? 1 : -1))) {
+      selectSlot(col);
+      document.querySelector(`#cell_slot_${col} .fader-resize-handle`)?.focus();
+    }
+  });
+  handle.addEventListener("click", (event) => event.stopPropagation());
+  handle.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const cell = wrap.closest(".slot-cell");
+    const start = faderSpan(slider);
+    const gap = parseFloat(getComputedStyle(phoneScreen).rowGap) || 0;
+    const pitch = (cell.getBoundingClientRect().height + gap) / start; // one row, with its gap
+    let target = start;
+    wrap.draggable = false; // the fader itself must not start a drag of its own
+    handle.setPointerCapture(event.pointerId);
+    handle.classList.add("is-active");
+    const move = (e) => {
+      target = Math.max(1, Math.min(gridRows(), start + Math.round((e.clientY - event.clientY) / pitch)));
+      cell.style.gridRow = `1 / span ${target}`;
+    };
+    const finish = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", finish);
+      handle.removeEventListener("pointercancel", finish);
+      wrap.draggable = true;
+      if (target === start || !resizeFader(col, target)) renderPhoneScreen(); // cancelled or blocked: back to how it was
+      else selectSlot(col);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish);
+  });
 }
 
 // Drag & Drop Handling on Slots
@@ -870,64 +1008,24 @@ function handleDropOnSlot(targetIndex) {
   const currentSlots = config.pages[activePageIndex].slots;
 
   if (dragSourceType === "palette_slider") {
-    clearColumn(currentSlots, col);
-    currentSlots[topSlot] = {
-      index: topSlot,
-      type: "slider",
-      id: `slider_${Date.now()}`,
-      label: "Volumen",
-      sublabel: "Master",
-      slider_type: "master",
-      target_app: null,
-      row_span: 2,
-      color: "#0ea5e9",
-      icon: "/static/icons/volume_up.svg",
-      image: "/static/icons/volume_up.svg"
-    };
-    currentSlots[bottomSlot] = {
-      index: bottomSlot,
-      type: "occupied_by_slider",
-      id: `slot_${bottomSlot}`,
-      label: "Ocupado por Slider",
-      parent_slot: topSlot
-    };
-
+    placeFader(currentSlots, col, newMasterFader(col), 2);
     renderPhoneScreen();
     selectSlot(topSlot);
     triggerDropBounce(topSlot);
     saveConfigToServer();
-    showToast(`Fader de volumen colocado en Columna #${col + 1}`);
+    showToast(`Fader del volumen de Windows colocado en la columna ${col + 1}`);
 
   } else if (dragSourceType === "palette_btn") {
-    // If target column had a slider, clean up both slots cleanly!
-    if (inFaderColumn(currentSlots, targetIndex)) {
-      clearColumn(currentSlots, col);
-    }
-
-    currentSlots[targetIndex] = {
-      index: targetIndex,
-      type: "button",
-      id: `btn_${Date.now()}`,
-      label: "Nueva Acción",
-      sublabel: "App / Media",
-      icon: "",
-      image: "/static/icons/discord.svg",
-      color: "#5865f2",
-      action_type: "preset_app",
-      target: "discord"
-    };
+    // A key dropped on a fader replaces it (Ctrl+Z brings it back).
+    if (inFaderColumn(currentSlots, targetIndex)) removeFader(currentSlots, col);
+    else if (currentSlots[targetIndex] && currentSlots[targetIndex].type !== "empty") rememberDeleted(activePageIndex, currentSlots, [targetIndex]);
+    currentSlots[targetIndex] = newEmptyButton(targetIndex);
 
     renderPhoneScreen();
     selectSlot(targetIndex);
     triggerDropBounce(targetIndex);
     saveConfigToServer();
-    showToast("Botón colocado en la cuadrícula");
-
-  } else if (dragSourceType === "library" && draggedLibraryItem) {
-    const item = draggedLibraryItem;
-    dragSourceType = null;
-    draggedLibraryItem = null;
-    placeLibraryItem(targetIndex, item);
+    showToast("Botón vacío colocado: elige a la derecha qué hace");
 
   } else if (dragSourceType === "slot" && draggedSlotIndex !== null) {
     if (draggedSlotIndex !== targetIndex) {
@@ -939,16 +1037,7 @@ function handleDropOnSlot(targetIndex) {
         if (sCol !== tCol) {
           const sourceSlider = JSON.parse(JSON.stringify(currentSlots[sCol]));
           clearColumn(currentSlots, sCol);
-          clearColumn(currentSlots, tCol);
-
-          sourceSlider.index = tCol;
-          currentSlots[tCol] = sourceSlider;
-          currentSlots[tCol + gridCols()] = {
-            index: tCol + gridCols(),
-            type: "occupied_by_slider",
-            id: `slot_${tCol + gridCols()}`,
-            parent_slot: tCol
-          };
+          placeFader(currentSlots, tCol, sourceSlider, faderSpan(sourceSlider));
 
           renderPhoneScreen();
           selectSlot(tCol);
@@ -962,9 +1051,9 @@ function handleDropOnSlot(targetIndex) {
         const tCol = tIdx % gridCols();
         const sourceBtn = JSON.parse(JSON.stringify(currentSlots[sIdx]));
 
-        // Check if target is part of a fader (the first two rows of its column)
+        // Check if target is part of a fader (the rows it covers in its column)
         if (inFaderColumn(currentSlots, tIdx)) {
-          clearColumn(currentSlots, tCol);
+          removeFader(currentSlots, tCol);
           currentSlots[sIdx] = { index: sIdx, type: "empty" };
           sourceBtn.index = tIdx;
           currentSlots[tIdx] = sourceBtn;
@@ -1035,7 +1124,7 @@ if (paletteNewBtn) {
   paletteNewBtn.addEventListener("dragstart", (e) => {
     dragSourceType = "palette_btn";
     e.dataTransfer.effectAllowed = "copy";
-    setDragGhost(e, "button", { label: "Nueva Acción", sublabel: "App / Media", image: "/static/icons/discord.svg", color: "#5865f2" });
+    setDragGhost(e, "button", NEW_BUTTON);
     paletteNewBtn.classList.add("is-dragging");
   });
   paletteNewBtn.addEventListener("dragend", () => {
@@ -1050,7 +1139,7 @@ if (paletteNewSlider) {
   paletteNewSlider.addEventListener("dragstart", (e) => {
     dragSourceType = "palette_slider";
     e.dataTransfer.effectAllowed = "copy";
-    setDragGhost(e, "fader", { label: "Volumen", image: "/static/icons/volume_up.svg", color: "#0ea5e9" });
+    setDragGhost(e, "fader", newMasterFader(0));
     paletteNewSlider.classList.add("is-dragging");
   });
   paletteNewSlider.addEventListener("dragend", () => {
@@ -1143,56 +1232,28 @@ function renderEmptySlotInspector(index) {
     <p class="integration-hint" style="margin-bottom: 14px;">Esta casilla está vacía. ¿Qué quieres poner aquí?</p>
     <div class="inspector-actions">
       <button class="btn-primary" id="btn-create-button-here">
-        <img src="/static/icons/power.svg" alt=""> Añadir un botón
+        <img src="/static/icons/plus.svg" alt=""> Añadir un botón vacío
       </button>
       <button class="btn-secondary" id="btn-create-slider-here">
-        <img src="/static/icons/fader.svg" alt=""> Añadir un fader de volumen (columna ${col + 1})
+        <img src="/static/icons/fader.svg" alt=""> Añadir un fader del volumen de Windows (columna ${col + 1})
       </button>
     </div>
   `;
 
   document.getElementById("btn-create-button-here")?.addEventListener("click", () => {
-    currentSlots[index] = {
-      index,
-      type: "button",
-      id: `btn_${Date.now()}`,
-      label: "Acción",
-      sublabel: "",
-      icon: "",
-      image: "/static/icons/power.svg",
-      color: "#f8c700",
-      action_type: "preset_app",
-      target: "calc"
-    };
-    activeInspectorTab = "apps";
+    currentSlots[index] = newEmptyButton(index);
+    activeInspectorTab = "action";
     renderPhoneScreen();
     selectSlot(index);
     saveConfigToServer();
   });
 
   document.getElementById("btn-create-slider-here")?.addEventListener("click", () => {
-    currentSlots[col] = {
-      index: col,
-      type: "slider",
-      id: `slider_${Date.now()}`,
-      label: "Volumen",
-      sublabel: "Master",
-      slider_type: "master",
-      target_app: null,
-      row_span: 2,
-      color: "#0ea5e9",
-      icon: "/static/icons/volume_up.svg",
-      image: "/static/icons/volume_up.svg"
-    };
-    currentSlots[col + gridCols()] = {
-      index: col + gridCols(),
-      type: "occupied_by_slider",
-      id: `slot_${col + gridCols()}`,
-      parent_slot: col
-    };
+    placeFader(currentSlots, col, newMasterFader(col), 2);
     renderPhoneScreen();
     selectSlot(col);
     saveConfigToServer();
+    showToast("Fader del volumen de Windows colocado");
   });
 }
 
@@ -1205,7 +1266,7 @@ const INSPECTOR_TABS = [
   ["action", "Acción"],
   ["design", "Aspecto"],
 ];
-let openSections = { what: true, look: false, more: false };
+let openSections = { what: true, look: false, more: false, states: false };
 
 function renderButtonInspector(btn, index) {
   const currentSlots = config.pages[activePageIndex].slots;
@@ -1242,16 +1303,20 @@ function renderButtonInspector(btn, index) {
       <div class="inspector-section-body" id="inspector-look-content"></div>
     </details>
     <details class="inspector-section" id="section-more" ${openSections.more ? "open" : ""}>
-      <summary>3. Más opciones <small>pulsación larga, confirmar, desactivar</small></summary>
+      <summary>3. Más opciones <small>pulsación larga, doble toque, confirmar, desactivar</small></summary>
       <div class="inspector-section-body" id="inspector-more-content"></div>
     </details>
+    ${btn.action_type === "hardware_monitor" || btn.action_type === "none" ? "" : `<details class="inspector-section" id="section-states" ${openSections.states || btn.toggle ? "open" : ""}>
+      <summary>4. Dos estados <small>${btn.toggle ? "activado" : "encendido y apagado"}</small></summary>
+      <div class="inspector-section-body" id="inspector-states-content"></div>
+    </details>`}
 
     <button class="btn-danger" id="btn-delete-slot">
       <img src="/static/icons/trash.svg" alt=""> Vaciar esta casilla
     </button>
   `;
 
-  [["what", "section-what"], ["look", "section-look"], ["more", "section-more"]].forEach(([key, id]) => {
+  [["what", "section-what"], ["look", "section-look"], ["more", "section-more"], ["states", "section-states"]].forEach(([key, id]) => {
     document.getElementById(id)?.addEventListener("toggle", (event) => { openSections[key] = event.target.open; });
   });
 
@@ -1261,8 +1326,12 @@ function renderButtonInspector(btn, index) {
   const extras = whatBox.querySelector("#gesture-section");
   const moreBox = document.getElementById("inspector-more-content");
   if (extras) moreBox.appendChild(extras);
-  else moreBox.innerHTML = `<p class="integration-hint">Los monitores del PC solo muestran datos: no tienen más opciones.</p>`;
+  else moreBox.innerHTML = `<p class="integration-hint">${btn.action_type === "none"
+    ? "Elige primero qué hace el botón: después podrás darle pulsación larga, doble toque o dos estados."
+    : "Los monitores del PC solo muestran datos: no tienen más opciones."}</p>`;
   renderTabDesign(document.getElementById("inspector-look-content"), btn, index);
+  const statesBox = document.getElementById("inspector-states-content");
+  if (statesBox) renderToggleSection(statesBox, btn, index);
 
   document.getElementById("btn-choose-action")?.addEventListener("click", () => openActionPicker(btn, index));
   if (wantedPicker) openActionPicker(btn, index, wantedPicker);
@@ -1279,12 +1348,18 @@ function renderButtonInspector(btn, index) {
 // One dialog to choose what a button does: an app to open, the actions inside a program (connectors),
 // keyboard shortcuts, or system actions. Replaces the separate Apps and Connectors tabs.
 let actionPicker = null;
+// When the dialog is opened to choose the action of a long press, a second state... (not the key's own), the choice
+// goes to `onPick` instead of replacing the key: {onPick(action), onCancel()}.
+let pickerSession = null;
 function closeActionPicker() {
   if (actionPicker) { const picker = actionPicker; actionPicker = null; picker.close(); }
 }
 
-function openActionPicker(btn, index, startTab = "apps") {
+function openActionPicker(btn, index, startTab = "apps", session = null) {
   closeActionPicker();
+  pickerSession = session;
+  // Choosing for a gesture must not be narrowed to the app this key opens, nor place sounds on the key itself.
+  const scopeBtn = session ? { action_type: "none" } : btn;
   const tabs = [["apps", "Abrir una app"], ["programs", "Acciones de un programa"], ["shortcuts", "Atajos y texto"], ["system", "Sistema"]];
   let current = startTab;
   const modal = openModal({
@@ -1301,7 +1376,10 @@ function openActionPicker(btn, index, startTab = "apps") {
   modal.el.querySelector(".modal-card").classList.add("picker-card");
   actionPicker = modal;
   const previousClose = modal.close;
-  modal.onClose = () => { if (actionPicker === modal) actionPicker = null; };
+  modal.onClose = () => {
+    if (actionPicker === modal) actionPicker = null;
+    if (session && pickerSession === session) { pickerSession = null; session.onCancel?.(); }
+  };
 
   const hints = {
     apps: "Solo abre el programa que elijas.",
@@ -1346,8 +1424,8 @@ function openActionPicker(btn, index, startTab = "apps") {
     body.innerHTML = "";
     const host = document.createElement("div");
     body.appendChild(host);
-    if (tab === "apps") renderTabApps(host, btn, index);
-    else if (tab === "programs") renderTabConnectors(host, btn, index);
+    if (tab === "apps") renderTabApps(host, scopeBtn, index);
+    else if (tab === "programs") renderTabConnectors(host, scopeBtn, index, Boolean(session));
     else if (tab === "shortcuts") libraryGroups(["Sistema", "Reuniones", "Vídeo", "Creación", "Navegador", "Atajos de Windows", "Edición", "Música"], host);
     else libraryGroups(["Windows", "Páginas", "Multimedia", "Monitores", "Contadores", "Conexiones web"], host);
   };
@@ -1433,6 +1511,14 @@ async function connectorApi(path, body) {
 
 function assignFromTemplate(btn, index, template, overrides = {}) {
   const t = { ...template, ...overrides };
+  if (pickerSession?.onPick) {
+    // The dialog was opened for a gesture or a second state: hand over just the action.
+    const session = pickerSession;
+    pickerSession = null;
+    closeActionPicker();
+    session.onPick({ action_type: t.action_type, target: t.target, extra: JSON.parse(JSON.stringify(t.extra || {})) });
+    return;
+  }
   btn.label = String(t.label || "Acción").slice(0, 32);
   btn.sublabel = String(t.sublabel || "").slice(0, 36);
   btn.image = t.icon;
@@ -1649,7 +1735,10 @@ let discordSounds = null;
 function renderDiscordSounds(area, ctx) {
   const sections = [...new Set(discordSounds.map(s => s.section))];
   const current = discordSounds.find(s => s.current)?.section || sections[0];
+  const cached = discordSounds.find(s => s.cached);
   area.innerHTML = `
+    ${cached ? `<div class="inspector-note dc-cache-note"><strong>Sonidos guardados${cached.scanned_at ? ` el ${escapeHtml(cached.scanned_at)}` : ""}.</strong>
+      ${cached.reason ? escapeHtml(cached.reason) : "Discord no se ha leído ahora."} Puedes elegirlos y asignarlos igualmente; se reproducen cuando estés en un canal de voz. Entra en uno y pulsa «Actualizar mis sonidos» para refrescar la lista.</div>` : ""}
     <label for="dc-guild">Sonidos de este servidor</label>
     <select id="dc-guild">${sections.map(name => `<option value="${escapeHtml(name)}" ${name === current ? "selected" : ""}>${escapeHtml(name)}${name === current ? " (donde estás)" : ""}</option>`).join("")}</select>
     <div class="option-list" id="dc-sounds"></div>
@@ -1675,6 +1764,7 @@ function renderDiscordSounds(area, ctx) {
       : `Crear página con estos sonidos (${count})`;
     // Placing them elsewhere only makes sense with more than one: with a single sound use its «Asignar».
     fillCells.hidden = oneButton.hidden = count < 2;
+    if (ctx.pick) { makePage.hidden = true; fillCells.hidden = true; }
     fillCells.textContent = "Poner en casillas libres desde la elegida";
     oneButton.textContent = "Un solo botón con todos en orden";
   };
@@ -1790,9 +1880,9 @@ function connectorBodyDiscord(c, body, ctx) {
   body.innerHTML = `
     ${statusLine(c)}
     <span class="section-label">Soundboard de tus servidores</span>
-    <p class="integration-hint">StreamDesk lee el panel de sonidos de tu Discord y pulsa el sonido que elijas, igual que harías tú con el ratón. No usa tu cuenta ni bots. Discord tiene que estar abierto (puede quedar detrás de otras ventanas, pero no minimizado) y tú dentro de un canal de voz.</p>
+    <p class="integration-hint">StreamDesk lee el panel de sonidos de tu Discord y pulsa el sonido que elijas, igual que harías tú con el ratón. No usa tu cuenta ni bots. La primera lectura y cada reproducción necesitan Discord abierto (puede quedar detrás de otras ventanas, pero no minimizado) y tú dentro de un canal de voz, porque Discord solo ofrece ese panel en una llamada. Después de leerlos una vez, los sonidos quedan guardados y los puedes elegir sin estar en voz.</p>
     <p class="integration-hint" id="dc-voice">Mirando en qué canal de voz estás...</p>
-    <button class="btn-primary" id="dc-scan">${discordSounds ? "Volver a buscar mis sonidos" : "Buscar mis sonidos"}</button>
+    <button class="btn-primary" id="dc-scan">${discordSounds && !discordSounds.some(x => x.cached) ? "Actualizar mis sonidos" : "Leer mis sonidos desde Discord"}</button>
     <div id="dc-sounds-area"></div>
     <span class="section-label">Silenciar y ensordecer</span>
     <label for="dc-mute">Atajo para silenciar</label>
@@ -1820,6 +1910,12 @@ function connectorBodyDiscord(c, body, ctx) {
 
   const area = body.querySelector("#dc-sounds-area");
   if (discordSounds) renderDiscordSounds(area, ctx);
+  else {
+    // The last reading is on disk: show it without touching Discord.
+    apiJson("/api/discord/sounds/cache").then(({ options }) => {
+      if (!discordSounds && options.length && area.isConnected) { discordSounds = options; renderDiscordSounds(area, ctx); }
+    }).catch(() => {});
+  }
   const scan = body.querySelector("#dc-scan");
   scan.addEventListener("click", async () => {
     scan.disabled = true;
@@ -1827,7 +1923,7 @@ function connectorBodyDiscord(c, body, ctx) {
     try {
       discordSounds = (await connectorApi("/discord/options/sounds")).options;
       if (area.isConnected) renderDiscordSounds(area, ctx);
-      scan.textContent = "Volver a buscar mis sonidos";
+      scan.textContent = discordSounds.some(x => x.cached) ? "Leer mis sonidos desde Discord" : "Actualizar mis sonidos";
     } catch (err) {
       if (area.isConnected) area.innerHTML = `<p class="integration-hint">${escapeHtml(err.message)}</p>`;
     }
@@ -1850,8 +1946,8 @@ function connectorScope(btn) {
   return null; // an empty or generic button: every connector
 }
 
-function renderTabConnectors(container, btn, index) {
-  const ctx = { btn, index, refresh: null };
+function renderTabConnectors(container, btn, index, pick = false) {
+  const ctx = { btn, index, refresh: null, pick };
   const scope = connectorScope(btn);
   let showAll = !scope;
   if (scope?.connector) openConnectorId = scope.connector;
@@ -2071,6 +2167,16 @@ function renderSliderInspector(slider, index) {
     ` : ''}
 
     <div class="form-group">
+      <label for="fader-span-value">Alto del fader</label>
+      <div class="stepper">
+        <button type="button" id="fader-shorter" aria-label="Fader más bajo" ${faderSpan(slider) <= 1 ? "disabled" : ""}>−</button>
+        <strong id="fader-span-value">${faderSpan(slider)} ${faderSpan(slider) === 1 ? "fila" : "filas"}</strong>
+        <button type="button" id="fader-taller" aria-label="Fader más alto" ${faderSpan(slider) >= gridRows() ? "disabled" : ""}>+</button>
+      </div>
+      <p class="integration-hint">Más alto da más recorrido para ajustar el volumen. También puedes arrastrar el borde inferior del fader en la vista previa. Para crecer necesita libres las casillas de debajo.</p>
+    </div>
+
+    <div class="form-group">
       <label for="edit-slider-label">Título</label>
       <input type="text" id="edit-slider-label" maxlength="32" value="${escapeHtml(slider.label || '')}" placeholder="Ej. Master o Spotify">
     </div>
@@ -2140,13 +2246,16 @@ function renderSliderInspector(slider, index) {
     });
   });
 
+  const changeSpan = (delta) => { if (resizeFader(col, faderSpan(slider) + delta)) renderSliderInspector(slider, index); };
+  document.getElementById("fader-shorter")?.addEventListener("click", () => changeSpan(-1));
+  document.getElementById("fader-taller")?.addEventListener("click", () => changeSpan(1));
+
   document.getElementById("btn-delete-slider")?.addEventListener("click", () => {
-    currentSlots[col] = { index: col, type: "empty" };
-    currentSlots[col + gridCols()] = { index: col + gridCols(), type: "empty" };
+    removeFader(currentSlots, col);
     renderPhoneScreen();
     selectSlot(col);
     saveConfigToServer();
-    showToast(`Fader quitado de la columna ${col + 1}`);
+    showToast(`Fader quitado de la columna ${col + 1} (Ctrl+Z para deshacer)`);
   });
 }
 

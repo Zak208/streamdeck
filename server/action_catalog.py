@@ -19,12 +19,16 @@ from server.layouts import LAYOUTS, layout_dict, layout_name, size_of
 ACTION_TYPES = frozenset({
     "preset_app", "launch", "media", "url", "obs_action", "hardware_monitor",
     "sound", "multi", "spotify_uri", "discord_hotkey", "discord_sound", "windows", "hotkey", "text", "page", "folder", "command", "counter", "timer", "webhook",
+    "none", "steam",
 })
 # These need the button they belong to (its own value or timer), so a macro step cannot be one.
-SLOT_ONLY_TYPES = frozenset({"counter", "timer"})
+SLOT_ONLY_TYPES = frozenset({"counter", "timer", "none"})
 COUNTER_TARGETS = frozenset({"inc", "dec", "reset"})
 GESTURES = ("long_press", "double_tap")  # extra actions a button can run on a long press or a double tap
-WINDOWS_TARGETS = frozenset({"mic_mute", "app_mute", "output_device", "lock_pc"})
+WINDOWS_TARGETS = frozenset({"mic_mute", "app_mute", "output_device", "lock_pc", "power", "power_plan", "display_mode", "screenshot", "master_volume"})
+POWER_MODES = frozenset({"sleep", "hibernate", "restart", "shutdown", "logoff", "cancel"})
+DISPLAY_MODES = frozenset({"internal", "clone", "extend", "external"})
+STEAM_APP_ID = re.compile(r"^[0-9]{1,10}$")
 PAGE_KEYWORDS = frozenset({"next", "prev", "first", "back"})
 MAX_TEXT_LENGTH = 300
 HOTKEY_MODIFIERS = frozenset({"CTRL", "ALT", "SHIFT", "WIN"})
@@ -36,7 +40,7 @@ HOTKEY_KEYS = frozenset(
     | {f"F{number}" for number in range(1, 25)}
 )
 WINDOWS_DEVICE_ID = re.compile(r"^\{[0-9A-Fa-f.]{1,40}\}\.\{[0-9A-Fa-f-]{36}\}$")
-MEDIA_TARGETS = frozenset({"play_pause", "play", "next", "next_track", "prev", "previous", "prev_track", "stop", "mute"})
+MEDIA_TARGETS = frozenset({"play_pause", "play", "next", "next_track", "prev", "previous", "prev_track", "stop", "mute", "volume_up", "volume_down"})
 OBS_TARGETS = frozenset({
     "record_toggle", "toggle_record", "record", "record_pause", "pause_record", "stream_toggle", "toggle_stream", "stream",
     "next_scene", "prev_scene", "mute_mic", "toggle_mute_mic",
@@ -50,6 +54,10 @@ OBS_TARGETS_WITH_FIELDS = {
     "source_toggle": ("scene_name", "source_name"),
     "input_mute": ("source_name",),
     "hotkey": ("hotkey_name",),
+    "filter_toggle": ("source_name", "filter_name"),
+    "input_volume_up": ("source_name",),
+    "input_volume_down": ("source_name",),
+    "source_refresh": ("source_name",),
 }
 OBS_HOTKEY_NAME = re.compile(r"^[A-Za-z0-9_.:\- ]{1,100}$")
 HARDWARE_TARGETS = frozenset({"cpu", "ram", "disk", "gpu", "vram", "net", "disk_speed"})
@@ -145,6 +153,9 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
         raise ValueError("Tipo de acción no permitido")
 
     action_extra = extra if isinstance(extra, dict) else {}
+    if action_type == "none":
+        # A key that does nothing yet: it can be saved and placed, and tapping it is ignored.
+        return {"action_type": "none", "target": "", "extra": {}}
     if action_type == "text":
         return {
             "action_type": "text",
@@ -236,6 +247,32 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
             if not WINDOWS_DEVICE_ID.fullmatch(device_id):
                 raise ValueError("Dispositivo de audio no válido")
             clean_extra = {"device_id": device_id}
+        elif target_text == "power":
+            mode = _text(action_extra.get("mode", "sleep"), "modo de energía", 20, allow_empty=False).lower()
+            if mode not in POWER_MODES:
+                raise ValueError("Elige suspender, hibernar, reiniciar, apagar, cerrar sesión o cancelar")
+            delay = action_extra.get("delay", 15)
+            if not isinstance(delay, int) or isinstance(delay, bool) or not 0 <= delay <= 600:
+                raise ValueError("La espera debe estar entre 0 y 600 segundos")
+            clean_extra = {"mode": mode, "delay": delay}
+        elif target_text == "power_plan":
+            plan = _text(action_extra.get("plan"), "plan de energía", 80, allow_empty=False)
+            if any(not char.isprintable() for char in plan):
+                raise ValueError("El nombre del plan de energía no es válido")
+            clean_extra = {"plan": plan}
+        elif target_text == "display_mode":
+            mode = _text(action_extra.get("mode", "extend"), "modo de pantalla", 20, allow_empty=False).lower()
+            if mode not in DISPLAY_MODES:
+                raise ValueError("Modo de pantalla no válido")
+            clean_extra = {"mode": mode}
+        elif target_text == "master_volume":
+            mode = _text(action_extra.get("mode", "step"), "modo de volumen", 10, allow_empty=False).lower()
+            value = action_extra.get("value", 10)
+            if mode not in {"set", "step"} or not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError("El volumen debe ser fijar o subir/bajar, con un número entero")
+            if (mode == "set" and not 0 <= value <= 100) or (mode == "step" and (value == 0 or not -50 <= value <= 50)):
+                raise ValueError("El volumen fijo va de 0 a 100 y el cambio, de -50 a 50")
+            clean_extra = {"mode": mode, "value": value}
     elif action_type == "obs_action":
         if target_text.lower().startswith("scene_"):
             scene_name = _text(action_extra.get("scene_name", target_text[6:]), "escena de OBS", 80, allow_empty=False)
@@ -253,6 +290,10 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
         else:
             raise ValueError("Acción de OBS no válida")
         target_text = target_text.lower()
+    elif action_type == "steam":
+        if not STEAM_APP_ID.fullmatch(target_text):
+            raise ValueError("El juego de Steam se elige de tu biblioteca (un número de aplicación)")
+        clean_extra = {}
     elif action_type == "hardware_monitor":
         if target_text.lower() not in HARDWARE_TARGETS:
             raise ValueError("Monitor no válido")
@@ -364,8 +405,10 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
                         continue
                     if not isinstance(raw_gesture, dict):
                         raise ValueError("La acción de toque largo o doble toque no es válida")
-                    clean_slot[gesture] = validate_action(
+                    gesture_action = validate_action(
                         raw_gesture.get("action_type"), raw_gesture.get("target"), raw_gesture.get("extra"))
+                    if gesture_action["action_type"] != "none":
+                        clean_slot[gesture] = gesture_action
                 alt = slot.get("alt")
                 if alt:
                     # The look the key takes while it is "on" (a toggle): same limits as the key itself.
@@ -380,6 +423,14 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
                         "image": _image_path(alt.get("image", clean_slot["image"])),
                         "color": alt_color,
                     }
+                    alt_action = alt.get("action")
+                    if alt_action:
+                        # What a tap does while the key is "on". Without it, both states run the key's own action.
+                        if not isinstance(alt_action, dict):
+                            raise ValueError("La acción del segundo estado no es válida")
+                        second = validate_action(alt_action.get("action_type"), alt_action.get("target"), alt_action.get("extra"))
+                        if second["action_type"] != "none":
+                            clean_slot["alt"]["action"] = second
                 for flag in ("confirm", "disabled", "toggle"):
                     value = slot.get(flag)
                     if value not in (None, True, False, 0, 1) or isinstance(value, str):
@@ -395,20 +446,26 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
                     target_app = _text(target_app, "aplicación de audio", 128, allow_empty=False)
                     if not SAFE_PROCESS.fullmatch(target_app):
                         raise ValueError("Aplicación de audio no válida")
-                clean_slot.update({"slider_type": slider_type, "target_app": target_app if slider_type == "app_dynamic" else None, "row_span": 2})
+                span = slot.get("row_span", 2)
+                if not isinstance(span, int) or isinstance(span, bool) or not 1 <= span <= rows:
+                    raise ValueError(f"El alto de un fader debe estar entre 1 y {rows} filas")
+                clean_slot.update({"slider_type": slider_type, "target_app": target_app if slider_type == "app_dynamic" else None, "row_span": span})
             clean_slots.append(clean_slot)
 
         for index, slot in enumerate(clean_slots):
-            # A fader's second cell is always the one right under it, on the second row.
-            if slot["type"] == "occupied_by_slider" and index != slot["parent_slot"] + columns:
+            # The cells a fader covers are the ones right under it, in its own column.
+            if slot["type"] == "occupied_by_slider" and (index <= slot["parent_slot"] or (index - slot["parent_slot"]) % columns):
                 raise ValueError("Una casilla ocupada tiene que estar justo debajo de su fader")
         for column in range(columns):
-            top, bottom = clean_slots[column], clean_slots[column + columns]
-            if top["type"] == "slider":
-                if bottom["type"] != "occupied_by_slider" or bottom.get("parent_slot") != column:
-                    raise ValueError("Cada fader debe ocupar las dos casillas de su columna")
-            elif bottom["type"] == "occupied_by_slider":
-                raise ValueError("Una casilla ocupada necesita un fader encima")
+            top = clean_slots[column]
+            span = top["row_span"] if top["type"] == "slider" else 1
+            for row in range(1, rows):
+                cell = clean_slots[column + row * columns]
+                covered = row < span
+                if covered and not (cell["type"] == "occupied_by_slider" and cell.get("parent_slot") == column):
+                    raise ValueError("Cada fader debe ocupar todas las casillas de su alto")
+                if not covered and cell["type"] == "occupied_by_slider":
+                    raise ValueError("Una casilla ocupada necesita un fader encima")
         clean_page: Dict[str, Any] = {"id": page_id, "name": page_name, "slots": clean_slots}
         if auto_app:
             clean_page["auto_app"] = auto_app  # switch to this page when this program is in the foreground

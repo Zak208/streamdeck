@@ -1,8 +1,8 @@
 """Grid sizes of the deck and the conversion of a profile from one size to another.
 
-Slots are stored row by row: the index of a slot is row * columns + column. A fader always takes the
-first two rows of its column: the slider sits at index `column` and the cell under it
-(`column + columns`) is marked `occupied_by_slider`. Rows below those two are plain buttons.
+Slots are stored row by row: the index of a slot is row * columns + column. A fader starts on the first row
+of its column and is `row_span` rows tall (2 by default): the slider sits at index `column` and every cell under
+it, down to its height, is marked `occupied_by_slider`. Rows below the fader are plain buttons.
 """
 
 from __future__ import annotations
@@ -73,9 +73,15 @@ def size_of(raw: Any) -> Tuple[int, int]:
     return parse_layout(raw)
 
 
-def _occupied(column: int, columns: int) -> Dict[str, Any]:
-    return {"index": column + columns, "type": "occupied_by_slider",
-            "id": f"occ_{column}_{uuid.uuid4().hex[:6]}", "parent_slot": column}
+def _occupied(column: int, columns: int, row: int = 1) -> Dict[str, Any]:
+    return {"index": column + row * columns, "type": "occupied_by_slider",
+            "id": f"occ_{column}_{row}_{uuid.uuid4().hex[:6]}", "parent_slot": column}
+
+
+def fader_span(slot: Dict[str, Any], rows: int) -> int:
+    """How many rows a fader covers: its own `row_span` (2 when missing), never more than the grid has."""
+    span = slot.get("row_span", 2)
+    return max(1, min(span if _is_int(span) else 2, rows))
 
 
 def _holds_fader(cell: Any) -> bool:
@@ -110,8 +116,10 @@ def convert_slots(slots: List[Dict[str, Any]], old: Tuple[int, int], new: Tuple[
     all_fit = all(column < new_columns for column, _ in sliders)
     for column, slot in sliders:
         if all_fit:
-            placed[column] = {**copy.deepcopy(slot), "index": column}
-            placed[column + new_columns] = _occupied(column, new_columns)
+            span = fader_span(slot, new_rows)
+            placed[column] = {**copy.deepcopy(slot), "index": column, "row_span": span}
+            for row in range(1, span):
+                placed[column + row * new_columns] = _occupied(column, new_columns, row)
         else:
             misplaced.append(slot)
 
@@ -125,15 +133,17 @@ def convert_slots(slots: List[Dict[str, Any]], old: Tuple[int, int], new: Tuple[
 
     for slot in reversed(misplaced):  # the last fader takes the rightmost column, so they keep their order
         column = next((c for c in range(new_columns - 1, -1, -1)
-                       if not _holds_fader(placed[c]) and not _holds_fader(placed[c + new_columns])), None)
+                       if not any(_holds_fader(placed[c + row * new_columns]) for row in range(new_rows))), None)
         if column is None:
             dropped += 1
             continue
-        for index in (column, column + new_columns):
-            if placed[index] is not None:
-                leftovers.append(placed[index])
-        placed[column] = {**copy.deepcopy(slot), "index": column}
-        placed[column + new_columns] = _occupied(column, new_columns)
+        span = fader_span(slot, new_rows)
+        for row in range(span):
+            if placed[column + row * new_columns] is not None:
+                leftovers.append(placed[column + row * new_columns])
+        placed[column] = {**copy.deepcopy(slot), "index": column, "row_span": span}
+        for row in range(1, span):
+            placed[column + row * new_columns] = _occupied(column, new_columns, row)
 
     for slot in leftovers:  # whatever is left goes to the first free cells
         index = next((i for i, cell in enumerate(placed) if cell is None), None)

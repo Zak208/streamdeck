@@ -48,10 +48,10 @@ from server.audio_controller import audio_controller
 from server.com_worker import com_worker
 from server.actions import execute_action
 from server.auth import auth_manager
-from server import diagnostics, discord_ui, firewall, layouts, live_buttons, shell_actions, templates, updater, webhooks
+from server import diagnostics, discord_ui, firewall, layouts, live_buttons, page_library, shell_actions, steam, templates, updater, webhooks
 from server.action_catalog import GESTURES, validate_deck_config
 from server.config_manager import CONFIG_FILE, config_manager
-from server.connectors import spotify, windows
+from server.connectors import discord as discord_connector, spotify, windows
 from server.settings_store import settings
 from server.system_scanner import system_scanner
 from server.telemetry import Telemetry
@@ -554,22 +554,41 @@ async def set_webhook_settings(values: Dict[str, Any] = Body(...), _: None = Dep
 
 @app.get("/api/templates")
 def list_templates(_: None = Depends(require_local_request)):
-    return {"templates": templates.TEMPLATES}
+    """The library of pages: each with its category, the program it belongs to (if any) and a thumbnail."""
+    listed = [{**template, "preview": templates.preview(template["id"])} for template in templates.TEMPLATES]
+    return {"templates": listed, "categories": page_library.CATEGORIES}
 
 
 @app.post("/api/templates/apply")
 async def apply_template(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    cfg = copy.deepcopy(config_manager.get_config())
     try:
         page = templates.build_page(str(values.get("template_id", "")), str(values.get("name") or ""), _grid())
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     dropped = page.pop("_dropped", 0)
-    cfg = copy.deepcopy(config_manager.get_config())
+    # Two pages for the same program would fight over who opens: only the first one opens by itself.
+    program = (page.get("auto_app") or "").lower()
+    if program and any((existing.get("auto_app") or "").lower() == program for existing in cfg["pages"]):
+        page.pop("auto_app")
     cfg["pages"].append(page)
     if not config_manager.save_config(cfg):
         raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo crear la página")
     await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
-    return {"success": True, "index": len(config_manager.get_config()["pages"]) - 1, "dropped": dropped}
+    return {"success": True, "index": len(config_manager.get_config()["pages"]) - 1, "dropped": dropped,
+            "auto_app": page.get("auto_app", "")}
+
+
+@app.get("/api/steam/games")
+def steam_games(_: None = Depends(require_local_request)):
+    """The games installed in this PC's Steam, to choose one for a button."""
+    return {"games": steam.installed_games()}
+
+
+@app.get("/api/discord/sounds/cache")
+def discord_sounds_cache(_: None = Depends(require_local_request)):
+    """The sounds of the last reading, so picking one needs neither Discord nor a voice channel."""
+    return {"options": discord_connector.saved_sounds()}
 
 
 @app.post("/api/discord/server-page")
@@ -690,7 +709,7 @@ async def switch_deck_page(page_index: int = Body(..., embed=True), _: None = De
 
 @app.post("/api/deck/page/add")
 async def add_deck_page(name: str = Body(default="Nueva Página", embed=True), _: None = Depends(require_local_request)):
-    cfg = config_manager.get_config()
+    cfg = copy.deepcopy(config_manager.get_config())  # a copy: a refused page must not stay in the live profile
     pages = cfg.setdefault("pages", [])
     page_name = name or f"Página {len(pages) + 1}"
     rows, columns = _grid()
@@ -940,7 +959,8 @@ async def prune_timers() -> None:
     timer_keys = {
         slot["id"] for page in config.get("pages", []) for slot in page.get("slots", [])
         if slot.get("type") == "button" and "timer" in (slot.get("action_type"), (slot.get("long_press") or {}).get("action_type"),
-                                                       (slot.get("double_tap") or {}).get("action_type"))
+                                                       (slot.get("double_tap") or {}).get("action_type"),
+                                                       ((slot.get("alt") or {}).get("action") or {}).get("action_type"))
     }
     for btn_id in [key for key in _timers if key not in timer_keys]:
         task = _timers.pop(btn_id, None)
@@ -1144,6 +1164,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                         if gesture != "tap":
                             # A long press or a double tap runs its own action in place of the button's usual one.
                             slot = {**slot, **{key: slot[gesture][key] for key in ("action_type", "target", "extra")}}
+                        elif slot.get("toggle") and button_states.get(btn_id) and (slot.get("alt") or {}).get("action"):
+                            # A two-state key that is "on" runs the action of its second state.
+                            slot = {**slot, **{key: slot["alt"]["action"][key] for key in ("action_type", "target", "extra")}}
                         # Mark it busy now, not when the task starts: two quick taps arrive before
                         # the first task gets to run and would both pass the check.
                         _running_actions.add(btn_id)

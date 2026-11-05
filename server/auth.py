@@ -56,6 +56,8 @@ class AuthManager:
         return max(0, int(PIN_TTL_SECONDS - (time.monotonic() - self.pin_issued_at)))
 
     def _pin_matches(self, entered: str) -> bool:
+        if not entered.isascii():
+            return False  # compare_digest raises on non-ASCII text: that would be a 500 instead of "wrong PIN"
         if secrets.compare_digest(entered, self.get_current_pin().strip()):
             return True
         return bool(self.previous_pin) and time.monotonic() < self.previous_pin_until \

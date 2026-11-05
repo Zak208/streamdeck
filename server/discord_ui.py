@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 
 import psutil
 
+from server import discord_cache
 from server.com_worker import ComWorker
 
 # Discord's own words, as read from its window. Change them here for another language.
@@ -214,7 +215,7 @@ class _Panel(_Window):
             # Two buttons carry this name (the call bar and the full-screen view): press whichever can be pressed.
             openers = [e for e, n, _ in self._all(UIA_BUTTON) if n == OPEN_PANEL and e.GetCurrentPattern(INVOKE_PATTERN)]
             if not openers:
-                raise DiscordUiError("No veo el panel de sonidos. Entra en un canal de voz de un servidor y vuelve a probar.")
+                raise DiscordUiError("Discord solo ofrece el panel de sonidos dentro de un canal de voz. Entra en uno de un servidor y vuelve a pulsar.")
             self._invoke(openers[0])
             for _ in range(16):
                 time.sleep(0.25)
@@ -397,8 +398,14 @@ def _play(section: str, label: str) -> None:
 
 
 def list_sounds() -> List[Dict[str, Any]]:
-    """Every sound of every server in the panel, as {"section", "label", "current"}. Takes a few seconds."""
-    return ui_worker.call(_scan, timeout=90)
+    """Every sound of every server in the panel, as {"section", "label", "current"}. Takes a few seconds.
+    A successful reading is also kept on disk, so Studio can list the sounds later without a voice channel."""
+    found = ui_worker.call(_scan, timeout=90)
+    try:
+        discord_cache.save(found)
+    except OSError:
+        pass  # the list is still returned: only the saved copy is missing
+    return found
 
 
 def current_voice_server() -> Optional[str]:

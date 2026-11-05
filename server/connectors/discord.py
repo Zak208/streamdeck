@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 
 import psutil
 
-from server import discord_ui
+from server import discord_cache, discord_ui
 from server.action_catalog import validate_hotkey
 from server.settings_store import settings
 
@@ -54,7 +54,9 @@ def public_settings() -> Dict[str, Any]:
 def status() -> Dict[str, Any]:
     if not _discord_running():
         return {"state": "offline", "detail": "Discord no está abierto"}
-    return {"state": "ready", "detail": "Discord abierto. Para los sonidos entra en un canal de voz y pulsa Buscar mis sonidos."}
+    saved = discord_cache.count()
+    kept = f" Tienes {saved} sonidos guardados para elegirlos sin estar en voz." if saved else ""
+    return {"state": "ready", "detail": "Discord abierto. Para leer los sonidos la primera vez entra en un canal de voz." + kept}
 
 
 def actions() -> List[Dict[str, Any]]:
@@ -69,17 +71,31 @@ def actions() -> List[Dict[str, Any]]:
     ]
 
 
+def _decorate(sounds: List[Dict[str, Any]], **extra: Any) -> List[Dict[str, Any]]:
+    return [{**sound, "emoji": discord_ui.split_label(sound["label"])[0], "name": discord_ui.split_label(sound["label"])[1], **extra}
+            for sound in sounds]
+
+
+def saved_sounds() -> List[Dict[str, Any]]:
+    """The sounds of the last successful reading, marked `cached` so Studio can say where they come from."""
+    saved = discord_cache.load()
+    return _decorate(saved["sounds"], cached=True, scanned_at=discord_cache.describe_age(saved["scanned_at"]) or "")
+
+
 def options(name: str) -> List[Dict[str, Any]]:
-    """Live lists from Discord. Raises RuntimeError with a readable reason."""
+    """Live lists from Discord. Raises RuntimeError with a readable reason.
+
+    Sounds fall back to the last reading when Discord cannot be read now (no voice channel, minimized...).
+    """
     if name == "sounds":
         try:
-            sounds = discord_ui.list_sounds()
-        except discord_ui.DiscordUiError as exc:
-            raise RuntimeError(str(exc)) from exc
-        except Exception as exc:  # Windows UI Automation failed in a way we cannot explain better
-            raise RuntimeError("No se pudo leer el panel de sonidos de Discord. Comprueba que está abierto y a la vista.") from exc
-        return [{**sound, "emoji": discord_ui.split_label(sound["label"])[0], "name": discord_ui.split_label(sound["label"])[1]}
-                for sound in sounds]
+            return _decorate(discord_ui.list_sounds())
+        except Exception as exc:
+            reason = str(exc) if isinstance(exc, discord_ui.DiscordUiError) else                 "No se pudo leer el panel de sonidos de Discord. Comprueba que está abierto y a la vista."
+            kept = saved_sounds()
+            if kept:
+                return [{**sound, "reason": reason} for sound in kept]
+            raise RuntimeError(reason) from exc
     if name == "voice":
         server = discord_ui.current_voice_server()
         return [{"server": server}] if server else []

@@ -124,6 +124,17 @@ class OBSClient:
             raise RuntimeError(self.failure(res)["error"])
         return [{"name": t["transitionName"]} for t in res.get("responseData", {}).get("transitions", [])]
 
+    def list_filters(self) -> List[Dict[str, Any]]:
+        """The filters of every source, as {"name": filter, "scene": source} (Studio filters them by the source chosen)."""
+        found: List[Dict[str, Any]] = []
+        for source in self.list_inputs():
+            res = self.request("GetSourceFilterList", {"sourceName": source["name"]})
+            if not _request_ok(res):
+                raise RuntimeError(self.failure(res)["error"])
+            for item in res.get("responseData", {}).get("filters", []):
+                found.append({"name": item.get("filterName", ""), "scene": source["name"]})
+        return found
+
     def list_scene_items(self) -> List[Dict[str, Any]]:
         """Every source of every scene, as {"name": source, "scene": scene}: what 'show or hide a source' needs."""
         items: List[Dict[str, Any]] = []
@@ -272,6 +283,29 @@ class OBSClient:
             elif cmd == "hotkey":
                 res = call("TriggerHotkeyByName", {"hotkeyName": extra.get("hotkey_name", "")})
                 return {"success": True, "action": "obs_hotkey"} if _request_ok(res) else failure(res)
+
+            elif cmd == "filter_toggle":
+                source, name = extra.get("source_name", ""), extra.get("filter_name", "")
+                current = call("GetSourceFilter", {"sourceName": source, "filterName": name})
+                if not _request_ok(current):
+                    return failure(current)
+                enabled = not current.get("responseData", {}).get("filterEnabled", False)
+                res = call("SetSourceFilterEnabled", {"sourceName": source, "filterName": name, "filterEnabled": enabled})
+                return {"success": True, "action": "obs_filter_toggle", "active": enabled} if _request_ok(res) else failure(res)
+
+            elif cmd in ("input_volume_up", "input_volume_down"):
+                source = extra.get("source_name", "")
+                current = call("GetInputVolume", {"inputName": source})
+                if not _request_ok(current):
+                    return failure(current)
+                db = float(current.get("responseData", {}).get("inputVolumeDb", 0.0))
+                db = max(-60.0, min(0.0, db + (3.0 if cmd.endswith("up") else -3.0)))  # 3 dB a press, between -60 and 0
+                res = call("SetInputVolume", {"inputName": source, "inputVolumeDb": db})
+                return {"success": True, "action": f"obs_{cmd}", "db": db} if _request_ok(res) else failure(res)
+
+            elif cmd == "source_refresh":
+                res = call("PressInputPropertiesButton", {"inputName": extra.get("source_name", ""), "propertyName": "refreshnocache"})
+                return {"success": True, "action": "obs_source_refresh"} if _request_ok(res) else failure(res)
 
             return {"success": False, "error": f"Acción OBS desconocida: {cmd}"}
         except Exception as e:

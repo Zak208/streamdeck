@@ -87,6 +87,15 @@ def actions() -> List[Dict[str, Any]]:
         _action("replay_toggle", "Búfer de repetición", "OBS", "/static/icons/pause.svg", "#f59e0b", "replay_toggle"),
         _action("replay_save", "Guardar repetición", "OBS", "/static/icons/play.svg", "#f59e0b", "replay_save"),
         _action("virtualcam", "Cámara virtual", "OBS", "/static/icons/video.svg", "#10b981", "virtualcam_toggle"),
+        _action("filter_toggle", "Activar o desactivar un filtro", "OBS", "/static/icons/sliders.svg", "#10b981", "filter_toggle",
+                [{"name": "source_name", "label": "Fuente", "options": "inputs", "filter_by": None, "required": True},
+                 {"name": "filter_name", "label": "Filtro", "options": "filters", "filter_by": "source_name", "required": True}]),
+        _action("volume_up", "Subir volumen de una fuente", "OBS, 3 dB", "/static/icons/volume_up.svg", "#10b981", "input_volume_up",
+                [{"name": "source_name", "label": "Fuente de audio", "options": "inputs", "filter_by": None, "required": True}]),
+        _action("volume_down", "Bajar volumen de una fuente", "OBS, 3 dB", "/static/icons/mute.svg", "#10b981", "input_volume_down",
+                [{"name": "source_name", "label": "Fuente de audio", "options": "inputs", "filter_by": None, "required": True}]),
+        _action("source_refresh", "Refrescar fuente de navegador", "OBS", "/static/icons/play.svg", "#10b981", "source_refresh",
+                [{"name": "source_name", "label": "Fuente de navegador", "options": "inputs", "filter_by": None, "required": True}]),
         _action("hotkey", "Atajo de OBS por nombre", "OBS", "/static/icons/keyboard.svg", "#a855f7", "hotkey",
                 [{"name": "hotkey_name", "label": "Nombre del atajo (por ejemplo OBSBasic.StartRecording)", "options": None, "filter_by": None, "required": True}]),
     ]
@@ -102,4 +111,6 @@ def options(name: str) -> List[Dict[str, Any]]:
         return obs_client.list_transitions()
     if name == "scene_items":
         return obs_client.list_scene_items()
+    if name == "filters":
+        return obs_client.list_filters()
     return []

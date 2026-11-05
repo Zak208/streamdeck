@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import support
-from server import action_catalog, actions, discord_ui
+from server import action_catalog, actions, discord_cache, discord_ui
 from server.connectors import discord
 from server.discord_ui import DiscordUiError
 
@@ -222,6 +222,41 @@ class ActionAndConnectorTests(unittest.TestCase):
         with mock.patch.object(discord_ui, "list_sounds", side_effect=OSError("boom")):
             with self.assertRaises(RuntimeError):
                 discord.options("sounds")
+
+
+class SavedSoundsTests(unittest.TestCase):
+    def setUp(self):
+        self.addCleanup(lambda: discord_cache.CACHE_FILE and __import__("os").path.exists(discord_cache.CACHE_FILE) and __import__("os").remove(discord_cache.CACHE_FILE))
+
+    def test_a_reading_is_kept_and_other_servers_survive_a_new_one(self):
+        discord_cache.save([{"section": "Casa", "label": "bonk"}, {"section": "Clan", "label": "gg"}])
+        discord_cache.save([{"section": "Casa", "label": "nuevo"}])
+        saved = {(s["section"], s["label"]) for s in discord_cache.load()["sounds"]}
+        self.assertEqual(saved, {("Casa", "nuevo"), ("Clan", "gg")})
+
+    def test_without_a_voice_channel_the_saved_sounds_are_listed_with_the_reason(self):
+        discord_cache.save([{"section": "Casa", "label": "🚪 Puerta"}])
+        with mock.patch.object(discord_ui, "list_sounds", side_effect=DiscordUiError("Entra en un canal de voz.")):
+            options = discord.options("sounds")
+        self.assertEqual([(o["name"], o["emoji"], o["cached"], o["reason"]) for o in options], [("Puerta", "🚪", True, "Entra en un canal de voz.")])
+
+    def test_a_good_reading_is_not_marked_as_saved(self):
+        discord_cache.save([{"section": "Casa", "label": "viejo"}])
+        with mock.patch.object(discord_ui, "list_sounds", return_value=[{"section": "Casa", "label": "bonk", "current": True}]):
+            options = discord.options("sounds")
+        self.assertEqual([o["name"] for o in options], ["bonk"])
+        self.assertNotIn("cached", options[0])
+
+    def test_without_anything_saved_the_failure_is_still_a_reason(self):
+        with mock.patch.object(discord_ui, "list_sounds", side_effect=DiscordUiError("Entra en un canal de voz.")):
+            with self.assertRaises(RuntimeError):
+                discord.options("sounds")
+
+    def test_the_real_scan_saves_what_it_read(self):
+        found = [{"section": "Casa", "label": "bonk", "current": False}]
+        with mock.patch.object(discord_ui.ui_worker, "call", return_value=found):
+            discord_ui.list_sounds()
+        self.assertEqual(discord_cache.load()["sounds"], [{"section": "Casa", "label": "bonk"}])
 
 
 class EndpointTests(unittest.TestCase):

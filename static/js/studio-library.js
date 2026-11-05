@@ -27,6 +27,7 @@ function builtInLibrary() {
       { id: "folder", label: "Abrir una carpeta", sub: "En el Explorador", icon: "/static/icons/folder.svg", color: LIBRARY_ACCENT, action_type: "folder", target: "C:\\Users", configure: true },
       { id: "macro", label: "Multiacción", sub: "Varias acciones en una", icon: "/static/icons/macro.svg", color: "#a855f7", action_type: "multi", target: "macro", extra: { actions: [{ action_type: "sound", target: "beep", delay_ms: 150 }] }, configure: true },
       { id: "taskmgr", label: "Administrador de tareas", sub: "Abrir", icon: "/static/icons/sliders.svg", color: LIBRARY_ACCENT, action_type: "preset_app", target: "taskmgr" },
+      { id: "steam_game", label: "Lanzar un juego de Steam", sub: "Elige de tu biblioteca", icon: "/static/icons/steam.svg", color: "#171a21", action_type: "steam", target: "0", configure: true },
     ] },
     { category: "Páginas", items: [
       { id: "page_next", label: "Página siguiente", sub: "Navegación", icon: "/static/icons/chevron_right.svg", color: LIBRARY_ACCENT, action_type: "page", target: "next" },
@@ -124,12 +125,10 @@ function builtInLibrary() {
   ];
 }
 
-let libraryCategories = [];
-let libraryFilter = "";
+let libraryCategories = []; // every action there is: the dialog that chooses what a key does reads it
 
 async function loadLibrary() {
   libraryCategories = builtInLibrary();
-  renderLibrary();
   try {
     const { connectors } = await connectorApi("/catalog");
     const fromConnectors = connectors
@@ -152,84 +151,9 @@ async function loadLibrary() {
       discord.items.push({ id: "discord_sound", label: "Sonido del soundboard", sub: "Elige de tus servidores", icon: "/static/icons/soundboard.svg", color: "#5865f2", action_type: "sound", target: "beep", opensTab: "integrations", openConnector: "discord" });
     }
     libraryCategories = [...libraryCategories, ...fromConnectors.filter(c => c !== spotify), ...extra];
-    renderLibrary();
   } catch (e) {
     console.error("Library connectors", e);
   }
-}
-
-function libraryMatches(item) {
-  const term = libraryFilter.trim().toLowerCase();
-  return !term || `${item.label} ${item.sub}`.toLowerCase().includes(term);
-}
-
-function renderLibrary() {
-  const container = document.getElementById("library-list");
-  if (!container) return;
-  const searching = libraryFilter.trim() !== "";
-  const html = libraryCategories.map((cat, index) => {
-    const items = cat.items.filter(libraryMatches);
-    if (!items.length) return "";
-    return `
-      <details class="library-category" ${searching || index === 0 ? "open" : ""}>
-        <summary>${escapeHtml(cat.category)} <span class="library-count">${items.length}</span></summary>
-        <div class="library-items">
-          ${items.map(item => `
-            <div class="library-item" draggable="true" data-item="${escapeHtml(item.id)}" title="Arrástralo a una casilla, o pulsa para ponerlo en la casilla elegida">
-              <img src="${escapeHtml(item.icon)}" alt="">
-              <div><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.sub)}</span></div>
-            </div>`).join("")}
-        </div>
-      </details>`;
-  }).join("");
-  container.innerHTML = html || `<div class="empty-note">Ninguna acción coincide con "${escapeHtml(libraryFilter)}"</div>`;
-
-  container.querySelectorAll(".library-item").forEach(el => {
-    const item = libraryCategories.flatMap(c => c.items).find(i => i.id === el.dataset.item);
-    el.addEventListener("dragstart", (event) => {
-      dragSourceType = "library";
-      draggedLibraryItem = item;
-      event.dataTransfer.effectAllowed = "copy";
-      setDragGhost(event, "button", { label: item.label, sublabel: item.sub, image: item.icon, color: item.color });
-      event.dataTransfer.setData("text/plain", item.label);
-    });
-    el.addEventListener("dragend", () => {
-      dragSourceType = null;
-      draggedLibraryItem = null;
-      clearAllDragHighlights();
-    });
-    el.addEventListener("click", () => {
-      if (selectedSlotIndex === null) return showToast("Selecciona una casilla, o arrastra la acción hasta ella");
-      const slot = config.pages[activePageIndex].slots[selectedSlotIndex];
-      if (slot && slot.type === "occupied_by_slider") return showToast("Esa casilla la ocupa un fader");
-      placeLibraryItem(selectedSlotIndex, item);
-    });
-  });
-}
-
-// Puts a library action on a key. A fader in that column is replaced, as with any other drop.
-function placeLibraryItem(index, item) {
-  const slots = config.pages[activePageIndex].slots;
-  const col = index % gridCols();
-  if (inFaderColumn(slots, index)) clearColumn(slots, col);
-  slots[index] = {
-    index, type: "button", id: `btn_${Date.now()}`,
-    label: item.label.slice(0, 32), sublabel: (item.sub || "").slice(0, 36), icon: "", image: item.icon,
-    color: item.color, action_type: item.action_type, target: item.target,
-    extra: JSON.parse(JSON.stringify(item.extra || {})),
-  };
-  if (item.confirm_default) slots[index].confirm = true; // e.g. console commands: ask before running
-  if (item.opensTab) {
-    activeInspectorTab = item.opensTab;
-    if (item.openConnector) openConnectorId = item.openConnector;
-  } else if (item.configure) {
-    activeInspectorTab = "action";
-  }
-  renderPhoneScreen();
-  selectSlot(index);
-  triggerDropBounce(index);
-  saveConfigToServer();
-  showToast(item.opensTab ? "Elige a la derecha lo que quieres usar" : `"${item.label}" colocado en la casilla ${index + 1}`);
 }
 
 // ---------------------------------------------------------------- the "Acción" tab
@@ -261,11 +185,20 @@ function describeAction(a) {
     case "obs_action": return `OBS: ${t.replace("_", " ")}`;
     case "discord_hotkey": return t === "sound" ? `Sonido de Discord (${a.extra?.sound_name || "sin nombre"})` : `Discord: ${t}`;
     case "discord_sound": return `Reproduce «${a.extra?.sound_name || "un sonido"}» en tu canal de voz`;
-    case "windows": return `Windows: ${t.replace("_", " ")}`;
+    case "windows": {
+      const names = { power: { sleep: "Suspende el PC", hibernate: "Hiberna el PC", restart: "Reinicia el PC", shutdown: "Apaga el PC",
+          logoff: "Cierra la sesión", cancel: "Cancela el apagado" }[a.extra?.mode],
+        power_plan: `Plan de energía «${a.extra?.plan || "?"}»`, screenshot: "Guarda una captura de pantalla",
+        display_mode: { internal: "Solo la pantalla del PC", clone: "Duplica las pantallas", extend: "Extiende las pantallas", external: "Solo la segunda pantalla" }[a.extra?.mode],
+        master_volume: a.extra?.mode === "set" ? `Volumen de Windows al ${a.extra?.value}%` : `Volumen de Windows ${a.extra?.value > 0 ? "+" : ""}${a.extra?.value}` };
+      return names[t] || `Windows: ${t.replace("_", " ")}`;
+    }
+    case "steam": return `Lanza el juego de Steam ${t}`;
     case "spotify_uri": return `Spotify: ${t}`;
     case "hardware_monitor": return `Muestra ${t.toUpperCase()} en vivo`;
     case "sound": return `Sonido ${t}`;
     case "multi": return `Multiacción de ${a.extra?.actions?.length || 0} pasos`;
+    case "none": return "";
     default: return a.action_type || "";
   }
 }
@@ -274,6 +207,7 @@ function describeAction(a) {
 function commitAction(btn) {
   renderPhoneScreen();
   saveConfigToServer();
+  if (btn.type !== "button") return; // a long press, a second state or a macro step: it has its own summary
   const summary = document.getElementById("action-summary");
   if (summary) summary.textContent = describeAction(btn);
   const top = document.getElementById("inspector-summary-action");
@@ -367,22 +301,88 @@ const ACTION_EDITORS = {
   },
 
   multi(el, btn) { renderMacroEditor(el, btn); },
+
+  steam(el, btn) {
+    el.innerHTML = `
+      <label for="st-game">Juego de tu biblioteca de Steam</label>
+      <select id="st-game"><option value="">Cargando...</option></select>
+      <label for="st-id">O su número de aplicación</label>
+      <input id="st-id" type="text" inputmode="numeric" maxlength="10" value="${escapeHtml(btn.target)}" placeholder="Por ejemplo 730">
+      <p class="integration-hint">Lanza el juego a través de Steam, que tiene que estar instalado. El número está en la dirección de su página en la tienda.</p>`;
+    const select = el.querySelector("#st-game");
+    const input = el.querySelector("#st-id");
+    input.addEventListener("input", () => {
+      btn.target = input.value.trim().replace(/\D/g, "");
+      if (btn.target) commitAction(btn);
+    });
+    select.addEventListener("change", () => {
+      if (!select.value) return;
+      input.value = btn.target = select.value;
+      if (btn.type === "button") { btn.label = select.selectedOptions[0].textContent.slice(0, 32); }
+      commitAction(btn);
+    });
+    apiJson("/api/steam/games").then(({ games }) => {
+      select.innerHTML = `<option value="">${games.length ? "Elige un juego..." : "No se encontró ningún juego instalado"}</option>`
+        + games.map(g => `<option value="${escapeHtml(g.appid)}" ${g.appid === btn.target ? "selected" : ""}>${escapeHtml(g.name)}</option>`).join("");
+    }).catch(() => { select.innerHTML = `<option value="">No se pudo leer Steam: escribe el número</option>`; });
+  },
 };
 
+// The editor of an action's own settings (a hotkey, a scene, a timer...). `action` is any {action_type, target, extra}:
+// a key, a long press, a second state, so the same editors serve all of them.
+function editorFor(action) {
+  const fieldSpec = fieldsForButton(action);
+  return ACTION_EDITORS[action.action_type] || (fieldSpec ? (el, b) => renderFieldsEditor(el, b, fieldSpec) : null);
+}
+
 function renderTabAction(container, btn, index) {
-  const fieldSpec = fieldsForButton(btn);
-  const editor = ACTION_EDITORS[btn.action_type] || (fieldSpec ? (el, b) => renderFieldsEditor(el, b, fieldSpec) : null);
+  const editor = editorFor(btn);
   container.innerHTML = `
     <div class="action-summary">
       <span class="section-label" style="margin: 0 0 4px;">Este botón</span>
       <strong id="action-summary">${escapeHtml(describeAction(btn))}</strong>
     </div>
     <div id="action-editor"></div>
-    ${editor ? "" : `<p class="integration-hint" style="margin-top: 12px;">Esta acción no necesita ajustes. Para cambiarla, elige otra en la biblioteca, en Apps o en Conectores.</p>`}
-    ${btn.action_type === "hardware_monitor" ? "" : `<div id="gesture-section"></div>`}`;
+    ${editor ? "" : `<p class="integration-hint" style="margin-top: 12px;">${btn.action_type === "none"
+      ? "Este botón está vacío: no hace nada hasta que pulses «Elegir acción» y decidas qué hace."
+      : "Esta acción no necesita ajustes. Para cambiarla, pulsa «Elegir acción»."}</p>`}
+    ${btn.action_type === "hardware_monitor" || btn.action_type === "none" ? "" : `<div id="gesture-section"></div>`}`;
   editor?.(container.querySelector("#action-editor"), btn, index);
   const gestures = container.querySelector("#gesture-section");
-  if (gestures) renderGestureSection(gestures, btn);
+  if (gestures) renderGestureSection(gestures, btn, index);
+}
+
+// One "what does it do" slot that lives inside a button: a long press, a double tap, the second state.
+// holder[key] is the action ({action_type, target, extra}) or missing. The action is chosen in the same
+// dialog as the key's own, and edited with the same editors.
+function renderActionSlot(el, holder, key, { btn, index, emptyText, removable, startTab = "programs", onChange }) {
+  const action = holder[key];
+  el.innerHTML = `
+    <div class="action-slot">
+      <div class="action-slot-head">
+        <strong class="action-slot-summary">${action ? escapeHtml(describeAction(action)) : escapeHtml(emptyText)}</strong>
+        <span class="inline-row">
+          <button type="button" class="btn-secondary" data-slot-pick>${action ? "Cambiar acción" : "Elegir acción"}</button>
+          ${removable && action ? `<button type="button" class="btn-secondary" data-slot-clear>Quitar</button>` : ""}
+        </span>
+      </div>
+      <div class="action-slot-editor"></div>
+    </div>`;
+  const editor = action ? editorFor(action) : null;
+  if (editor) {
+    const box = el.querySelector(".action-slot-editor");
+    editor(box, action, index);
+    const refresh = () => { el.querySelector(".action-slot-summary").textContent = describeAction(action); };
+    box.addEventListener("input", refresh);
+    box.addEventListener("change", refresh);
+  }
+  el.querySelector("[data-slot-pick]").addEventListener("click", () => {
+    openActionPicker(btn, index, startTab, {
+      onPick: (picked) => { holder[key] = picked; commitAction(btn); onChange(); },
+      onCancel: onChange,
+    });
+  });
+  el.querySelector("[data-slot-clear]")?.addEventListener("click", () => { delete holder[key]; commitAction(btn); onChange(); });
 }
 
 // ---------------------------------------------------------------- console commands
@@ -540,55 +540,46 @@ function renderFieldsEditor(el, btn, { fields, connector }) {
 
 const GESTURE_LABELS = { long_press: "Pulsación larga", double_tap: "Doble toque" };
 
-// What a gesture can run: the simple, self-contained actions (the same ones a macro step can use).
-function gestureChoices() {
-  return macroStepChoices();
-}
-
-function renderGestureSection(el, btn) {
-  const redraw = () => renderGestureSection(el, btn);
-  const gestureRow = (gesture) => {
-    const action = btn[gesture];
-    const choices = gestureChoices();
-    const inline = action && ["hotkey", "text", "url", "folder"].includes(action.action_type)
-      ? `<input class="step-input" data-gesture="${gesture}" value="${escapeHtml(action.target)}" maxlength="300" aria-label="${GESTURE_LABELS[gesture]}">` : "";
-    return `
-      <div class="gesture-row">
-        <label class="check-row"><input type="checkbox" data-toggle="${gesture}" ${action ? "checked" : ""}> ${GESTURE_LABELS[gesture]}</label>
-        ${action ? `
-          <select data-pick="${gesture}" aria-label="Acción de ${GESTURE_LABELS[gesture].toLowerCase()}">
-            <option value="">${escapeHtml(describeAction(action))}</option>
-            ${choices.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`).join("")}
-          </select>${inline}` : ""}
-      </div>`;
-  };
+function renderGestureSection(el, btn, index) {
+  const pending = renderGestureSection.pending || (renderGestureSection.pending = new WeakMap());
+  const wanted = pending.get(btn) || new Set(); // ticked, but no action chosen yet: nothing is saved until one is
+  pending.set(btn, wanted);
+  const redraw = () => renderGestureSection(el, btn, index);
+  const gestureRow = (gesture) => `
+    <div class="gesture-row">
+      <label class="check-row"><input type="checkbox" data-toggle="${gesture}" ${btn[gesture] || wanted.has(gesture) ? "checked" : ""}> ${GESTURE_LABELS[gesture]}</label>
+      <div data-gesture-slot="${gesture}"></div>
+    </div>`;
   el.innerHTML = `
     <span class="section-label" style="margin: 16px 0 6px;">Más formas de usar este botón</span>
     ${gestureRow("long_press")}
     ${gestureRow("double_tap")}
     <label class="check-row"><input type="checkbox" id="g-confirm" ${btn.confirm ? "checked" : ""}> Pedir confirmación antes de ejecutar</label>
     <label class="check-row"><input type="checkbox" id="g-disabled" ${btn.disabled ? "checked" : ""}> Desactivar el botón (no se borra)</label>
-    <p class="integration-hint">Con una pulsación larga o un doble toque, el toque normal espera unas décimas de segundo para saber cuál de los gestos haces. Se avisa con dos puntitos en el botón del móvil.</p>
-    <div id="toggle-section"></div>`;
-  renderToggleSection(el.querySelector("#toggle-section"), btn);
+    <p class="integration-hint">Cada gesto puede hacer cualquier cosa: una escena de OBS, ir a una página, un sonido, una multiacción... Con una pulsación larga o un doble toque, el toque normal espera unas décimas de segundo para saber cuál de los gestos haces. Se avisa con dos puntitos en el botón del móvil.</p>`;
 
+  for (const gesture of Object.keys(GESTURE_LABELS)) {
+    if (!btn[gesture] && !wanted.has(gesture)) continue;
+    renderActionSlot(el.querySelector(`[data-gesture-slot="${gesture}"]`), btn, gesture, {
+      btn, index, emptyText: "Elige qué hará", startTab: "shortcuts",
+      onChange: () => { wanted.delete(gesture); redraw(); },
+    });
+  }
   el.querySelectorAll("[data-toggle]").forEach(box => box.addEventListener("change", () => {
     const gesture = box.dataset.toggle;
-    if (box.checked) btn[gesture] = { action_type: "hotkey", target: "CTRL+SHIFT+M", extra: {} };
-    else delete btn[gesture];
-    commitAction(btn);
+    if (!box.checked) {
+      wanted.delete(gesture);
+      delete btn[gesture];
+      commitAction(btn);
+      return redraw();
+    }
+    wanted.add(gesture);
     redraw();
-  }));
-  el.querySelectorAll("[data-pick]").forEach(select => select.addEventListener("change", () => {
-    const choice = gestureChoices().find(c => c.id === select.value);
-    if (!choice) return;
-    btn[select.dataset.pick] = choice.build();
-    commitAction(btn);
-    redraw();
-  }));
-  el.querySelectorAll("[data-gesture]").forEach(input => input.addEventListener("input", () => {
-    btn[input.dataset.gesture].target = input.value;
-    commitAction(btn);
+    // Straight to the choice: a gesture with no action would be a box ticked that does nothing.
+    openActionPicker(btn, index, "shortcuts", {
+      onPick: (picked) => { btn[gesture] = picked; wanted.delete(gesture); commitAction(btn); redraw(); },
+      onCancel: () => { wanted.delete(gesture); redraw(); },
+    });
   }));
   el.querySelector("#g-confirm").addEventListener("change", (event) => {
     if (event.target.checked) btn.confirm = true; else delete btn.confirm;
@@ -685,10 +676,6 @@ function renderMacroEditor(el, btn) {
 // Drops from the library are handled by studio.js through this hook.
 window.addEventListener("DOMContentLoaded", () => {
   loadLibrary();
-  document.getElementById("library-search")?.addEventListener("input", (event) => {
-    libraryFilter = event.target.value;
-    renderLibrary();
-  });
   // Opening the editor tab needs the pages (for "go to page"): nothing else to prepare.
 });
 
@@ -764,7 +751,7 @@ function renderTimerEditor(el, btn) {
 
 function renderWebhookEditor(el, btn) {
   btn.extra = btn.extra || {};
-  btn.extra.method = btn.extra.method === "POST" ? "POST" : "GET";
+  btn.extra.method = ["POST", "PUT"].includes(btn.extra.method) ? btn.extra.method : "GET";
   btn.extra.body = btn.extra.body || "";
   el.innerHTML = `
     <label for="wh-url">Dirección a la que llamar</label>
@@ -773,8 +760,9 @@ function renderWebhookEditor(el, btn) {
     <select id="wh-method">
       <option value="GET" ${btn.extra.method === "GET" ? "selected" : ""}>GET (llamar sin enviar datos)</option>
       <option value="POST" ${btn.extra.method === "POST" ? "selected" : ""}>POST (enviar un texto o JSON)</option>
+      <option value="PUT" ${btn.extra.method === "PUT" ? "selected" : ""}>PUT (cambiar algo, p. ej. una luz Elgato)</option>
     </select>
-    <div id="wh-body-box" ${btn.extra.method === "POST" ? "" : "hidden"}>
+    <div id="wh-body-box" ${btn.extra.method === "GET" ? "hidden" : ""}>
       <label for="wh-body">Contenido que se envía</label>
       <textarea id="wh-body" rows="3" maxlength="1000" placeholder='{"escena": "cine"}'>${escapeHtml(btn.extra.body)}</textarea>
     </div>
@@ -808,7 +796,7 @@ function renderWebhookEditor(el, btn) {
   el.querySelector("#wh-url").addEventListener("input", (event) => { btn.target = event.target.value.trim(); commitAction(btn); renderAllow(); });
   el.querySelector("#wh-method").addEventListener("change", (event) => {
     btn.extra.method = event.target.value;
-    el.querySelector("#wh-body-box").hidden = btn.extra.method !== "POST";
+    el.querySelector("#wh-body-box").hidden = btn.extra.method === "GET";
     commitAction(btn);
   });
   el.querySelector("#wh-body").addEventListener("input", (event) => { btn.extra.body = event.target.value; commitAction(btn); });
@@ -841,68 +829,121 @@ async function wireWebhookList(root) {
   draw(await loadWebhookHosts());
 }
 
-// A key that changes look every time it is pressed (on / off): the alternative title, subtitle, icon and colour.
-function renderToggleSection(el, btn) {
-  const alt = btn.alt || {};
+// A key with two states (on / off): each state has its own title, subtitle, colour, icon and, if wanted, its own action.
+// State 1 is the key itself; state 2 lives in btn.alt (and btn.alt.action).
+let toggleEditing = "off";
+
+function renderToggleSection(el, btn, index) {
   const on = Boolean(btn.toggle);
-  const look = (label, sub, image, colour) => `
-    <div class="toggle-look"><span class="toggle-look-name">${label}</span>
-      <div class="slot-keycap" style="border-top: 3px solid ${escapeHtml(colour)};"><img src="${escapeHtml(image || "/static/icons/power.svg")}" alt="">
-        <div class="slot-keycap-title">${escapeHtml(sub.title)}</div><div class="slot-keycap-sub">${escapeHtml(sub.sub)}</div></div></div>`;
-  const preview = () => `
-    <div class="toggle-previews">
-      ${look("Apagado", { title: btn.label || "Botón", sub: btn.sublabel || "" }, btn.image, btn.color || "#f8c700")}
-      ${look("Encendido", { title: alt.label || btn.label || "Botón", sub: alt.sublabel ?? (btn.sublabel || "") }, alt.image || btn.image, alt.color || btn.color || "#f8c700")}
-    </div>`;
+  const keycap = (look, name, state) => `
+    <button type="button" class="toggle-look state-tab ${toggleEditing === state ? "active" : ""}" data-state="${state}" aria-pressed="${toggleEditing === state}">
+      <span class="toggle-look-name">${name}</span>
+      <span class="slot-keycap" style="border-top: 3px solid ${escapeHtml(look.color || "#f8c700")};"><img src="${escapeHtml(look.image || "/static/icons/power.svg")}" alt="">
+        <span class="slot-keycap-title">${escapeHtml(look.label || "Botón")}</span><span class="slot-keycap-sub">${escapeHtml(look.sublabel || "")}</span></span>
+    </button>`;
+  const previews = () => `${keycap(btn, "Estado 1 · Apagado", "off")}${keycap({ ...btn, ...(btn.alt || {}) }, "Estado 2 · Encendido", "on")}`;
+
   el.innerHTML = `
-    <span class="section-label" style="margin: 16px 0 6px;">Botón de dos estados</span>
-    <label class="check-row"><input type="checkbox" id="tg-on" ${on ? "checked" : ""}> Cambia de aspecto cada vez que lo pulsas</label>
+    <label class="check-row"><input type="checkbox" id="tg-on" ${on ? "checked" : ""}> Este botón alterna entre dos estados cada vez que lo pulsas</label>
     <div id="tg-body" ${on ? "" : "hidden"}>
-      <p class="integration-hint">Después de cada pulsación correcta el botón alterna entre su aspecto normal y este. Sirve, por ejemplo, para «Micro activo» y «Micro silenciado». Lo que dejes vacío se queda como el aspecto normal.</p>
-      <div id="tg-preview">${on ? preview() : ""}</div>
-      <label for="tg-label">Título cuando está encendido</label>
-      <input id="tg-label" type="text" maxlength="32" value="${escapeHtml(alt.label || "")}" placeholder="${escapeHtml(btn.label || "Título")}">
-      <label for="tg-sub">Subtítulo cuando está encendido</label>
-      <input id="tg-sub" type="text" maxlength="36" value="${escapeHtml(alt.sublabel || "")}" placeholder="${escapeHtml(btn.sublabel || "")}">
-      <label>Color cuando está encendido</label>
-      <div class="color-swatches-grid" id="tg-colors">${colorSwatchesHtml(alt.color || "")}</div>
-      <label>Icono cuando está encendido</label>
-      <div class="icon-picker-grid" id="tg-icons">${SVG_ICONS.map(ic => `
-        <button class="icon-choice-btn ${alt.image === `/static/icons/${ic}.svg` ? "active" : ""}" data-icon="/static/icons/${ic}.svg" title="${ic}" type="button"><img src="/static/icons/${ic}.svg" alt="${ic}"></button>`).join("")}</div>
+      <p class="integration-hint">Elige un estado para editarlo. Cada uno puede tener su título, subtítulo, color, icono y acción. Si el estado 2 no tiene acción propia, pulsarlo hace lo mismo que el estado 1. Si la acción informa de su estado (grabar en OBS, silenciar el micro), el botón sigue a esa acción.</p>
+      <div class="toggle-previews" id="tg-previews">${on ? previews() : ""}</div>
+      <div id="tg-look"></div>
+      <div id="tg-action"></div>
     </div>`;
 
-  const refresh = () => { const box = el.querySelector("#tg-preview"); if (box) box.innerHTML = btn.toggle ? preview() : ""; };
-  const saveAlt = () => {
-    const a = btn.alt || (btn.alt = {});
-    a.label = el.querySelector("#tg-label").value.trim() || btn.label || "Botón";
-    a.sublabel = el.querySelector("#tg-sub").value.trim();
-    a.color = a.color || btn.color || "#f8c700";
-    a.image = a.image || btn.image || "";
-    renderPhoneScreen();
-    saveConfigToServer();
-    refresh();
-  };
   el.querySelector("#tg-on").addEventListener("change", (event) => {
     if (event.target.checked) {
       btn.toggle = true;
       btn.alt = btn.alt || { label: btn.label || "Botón", sublabel: btn.sublabel || "", image: btn.image || "", color: btn.color || "#f8c700" };
+      toggleEditing = "off";
     } else {
       delete btn.toggle;
       delete btn.alt;
     }
     commitAction(btn);
-    renderToggleSection(el, btn);
+    renderToggleSection(el, btn, index);
   });
-  el.querySelector("#tg-label")?.addEventListener("input", () => { alt.label = undefined; saveAlt(); });
-  el.querySelector("#tg-sub")?.addEventListener("input", saveAlt);
-  el.querySelectorAll("#tg-colors .color-swatch-btn").forEach(swatch => swatch.addEventListener("click", () => {
-    (btn.alt || (btn.alt = {})).color = swatch.dataset.color;
-    saveAlt();
-    el.querySelectorAll("#tg-colors .color-swatch-btn").forEach(s => s.classList.toggle("active", s === swatch));
+  if (!on) return;
+
+  const editsSecond = toggleEditing === "on";
+  if (editsSecond) btn.alt = btn.alt || { label: btn.label || "Botón", sublabel: btn.sublabel || "", image: btn.image || "", color: btn.color || "#f8c700" };
+  const look = editsSecond ? btn.alt : btn;
+  const redraw = () => renderToggleSection(el, btn, index);
+
+  const wireTabs = () => el.querySelectorAll("#tg-previews [data-state]").forEach(tab => tab.addEventListener("click", () => {
+    toggleEditing = tab.dataset.state;
+    redraw();
   }));
-  el.querySelectorAll("#tg-icons .icon-choice-btn").forEach(choice => choice.addEventListener("click", () => {
-    (btn.alt || (btn.alt = {})).image = choice.dataset.icon;
-    saveAlt();
-    el.querySelectorAll("#tg-icons .icon-choice-btn").forEach(c => c.classList.toggle("active", c === choice));
+  wireTabs();
+  const refreshPreviews = () => { el.querySelector("#tg-previews").innerHTML = previews(); wireTabs(); };
+  // The key's own look also shows in the main preview and in "Apariencia": keep them in step.
+  const syncMain = () => {
+    const set = (id, value) => { const node = document.getElementById(id); if (node) node.textContent = value; };
+    set("inspector-preview-title", btn.label || "Botón");
+    set("inspector-preview-sub", btn.sublabel || "");
+    const input = document.getElementById("edit-btn-label");
+    if (input && input !== document.activeElement) input.value = btn.label || "";
+    const image = document.getElementById("inspector-preview-img");
+    if (image) image.src = btn.image || btn.icon || "/static/icons/power.svg";
+  };
+  const changed = () => { renderPhoneScreen(); saveConfigToServer(); syncMain(); refreshPreviews(); };
+
+  const lookEl = el.querySelector("#tg-look");
+  lookEl.innerHTML = `
+    <label for="tg-label">Título</label>
+    <input id="tg-label" type="text" maxlength="32" value="${escapeHtml(look.label || "")}" placeholder="Título del botón">
+    <label for="tg-sub">Subtítulo</label>
+    <input id="tg-sub" type="text" maxlength="36" value="${escapeHtml(look.sublabel || "")}" placeholder="Subtítulo (opcional)">
+    <label>Color</label>
+    <div class="color-swatches-grid" id="tg-colors">${colorSwatchesHtml(look.color || "")}</div>
+    <input type="color" id="tg-color-picker" value="${escapeHtml(/^#[0-9a-f]{6}$/i.test(look.color || "") ? look.color : "#f8c700")}" aria-label="Otro color">
+    <label>Icono</label>
+    <div class="icon-picker-grid" id="tg-icons">${SVG_ICONS.map(ic => `
+      <button class="icon-choice-btn ${look.image === `/static/icons/${ic}.svg` ? "active" : ""}" data-icon="/static/icons/${ic}.svg" title="${ic}" type="button"><img src="/static/icons/${ic}.svg" alt="${ic}"></button>`).join("")}</div>`;
+  lookEl.querySelector("#tg-label").addEventListener("input", (event) => {
+    const value = event.target.value.trim();
+    if (value) look.label = value; // the title cannot be empty: the last one stays until there is a new one
+    changed();
+  });
+  lookEl.querySelector("#tg-sub").addEventListener("input", (event) => { look.sublabel = event.target.value.trim(); changed(); });
+  const setColor = (colour) => {
+    look.color = colour;
+    lookEl.querySelectorAll("#tg-colors .color-swatch-btn").forEach(s => s.classList.toggle("active", s.dataset.color.toLowerCase() === colour.toLowerCase()));
+    changed();
+  };
+  lookEl.querySelectorAll("#tg-colors .color-swatch-btn").forEach(swatch => swatch.addEventListener("click", () => {
+    lookEl.querySelector("#tg-color-picker").value = swatch.dataset.color;
+    setColor(swatch.dataset.color);
   }));
+  lookEl.querySelector("#tg-color-picker").addEventListener("input", (event) => setColor(event.target.value));
+  lookEl.querySelectorAll("#tg-icons .icon-choice-btn").forEach(choice => choice.addEventListener("click", () => {
+    look.image = choice.dataset.icon;
+    if (!editsSecond) btn.icon = "";
+    lookEl.querySelectorAll("#tg-icons .icon-choice-btn").forEach(c => c.classList.toggle("active", c === choice));
+    changed();
+  }));
+
+  // What a tap does in the state being edited.
+  const actionEl = el.querySelector("#tg-action");
+  if (editsSecond) {
+    actionEl.innerHTML = `<span class="section-label" style="margin: 16px 0 6px;">Al pulsarlo en el estado 2</span><div id="tg-action-slot"></div>`;
+    renderActionSlot(actionEl.querySelector("#tg-action-slot"), btn.alt, "action", {
+      btn, index, emptyText: "Hace lo mismo que el estado 1", removable: true, onChange: redraw,
+    });
+  } else {
+    actionEl.innerHTML = `
+      <span class="section-label" style="margin: 16px 0 6px;">Al pulsarlo en el estado 1</span>
+      <div class="action-slot"><div class="action-slot-head">
+        <strong id="tg-first-summary">${escapeHtml(describeAction(btn) || "Nada todavía")}</strong>
+        <button type="button" class="btn-secondary" id="tg-first-pick">Cambiar acción</button></div></div>`;
+    actionEl.querySelector("#tg-first-pick").addEventListener("click", () => openActionPicker(btn, index, "programs", {
+      // Only the action changes: the title, colour and icon of both states stay.
+      onPick: (picked) => {
+        Object.assign(btn, { action_type: picked.action_type, target: picked.target, extra: picked.extra });
+        commitAction(btn);
+        renderButtonInspector(btn, index);
+      },
+    }));
+  }
 }

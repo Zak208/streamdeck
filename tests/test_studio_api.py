@@ -42,10 +42,12 @@ class TemplateTests(unittest.TestCase):
                 checked = validate_deck_config(profile)  # raises on any unsafe or malformed slot
                 self.assertEqual(len(checked["pages"][-1]["slots"]), 12)
 
-    def test_blank_page_is_empty_and_named_pages_keep_their_name(self):
+    def test_blank_page_has_no_keys_only_the_windows_volume(self):
         page = templates.build_page("blank", "  Mi página ")
         self.assertEqual(page["name"], "Mi página")
-        self.assertTrue(all(slot["type"] == "empty" for slot in page["slots"]))
+        self.assertFalse([slot for slot in page["slots"] if slot["type"] == "button"])
+        faders = [slot for slot in page["slots"] if slot["type"] == "slider"]
+        self.assertEqual([(f["slider_type"], f["target_app"]) for f in faders], [("master", None)])
 
     def test_streamer_uses_the_saved_discord_shortcuts(self):
         settings.clear("discord")
@@ -58,6 +60,26 @@ class TemplateTests(unittest.TestCase):
     def test_unknown_template_is_rejected(self):
         with self.assertRaises(ValueError):
             templates.build_page("nope")
+
+    def test_the_library_is_well_formed(self):
+        ids = [meta["id"] for meta in templates.TEMPLATES]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertGreaterEqual(len(ids), 20)
+        for meta in templates.TEMPLATES:
+            with self.subTest(template=meta["id"]):
+                self.assertTrue(os.path.exists(os.path.join(STATIC_DIR, meta["icon"].lstrip("/").replace("static/", "", 1))), meta["icon"])
+                page = templates.build_page(meta["id"])
+                for slot in page["slots"]:
+                    if slot["type"] == "button":
+                        self.assertTrue(os.path.exists(os.path.join(STATIC_DIR, slot["image"].lstrip("/").replace("static/", "", 1))), slot["image"])
+                self.assertEqual(bool(page.get("auto_app")), bool(meta["app"]))
+
+    def test_a_page_of_a_program_opens_when_that_program_is_in_front(self):
+        page = templates.build_page("spotify")
+        self.assertEqual(page["auto_app"], "Spotify.exe")
+        self.assertIn("Spotify.exe", [s["target_app"] for s in page["slots"] if s["type"] == "slider"])
+        self.assertNotIn("auto_app", templates.build_page("spotify", auto_app=False))
+        self.assertNotIn("auto_app", templates.build_page("gamer"))
 
 
 class StudioApiTests(unittest.TestCase):
@@ -86,14 +108,38 @@ class StudioApiTests(unittest.TestCase):
         pages = self.call("/api/config")[1]["pages"]
         self.assertEqual((len(pages), pages[-1]["name"]), (before + 1, "Directos"))
 
+    def test_a_second_page_for_the_same_program_does_not_steal_the_auto_open(self):
+        first = self.call("/api/templates/apply", {"template_id": "obs"})
+        second = self.call("/api/templates/apply", {"template_id": "obs"})
+        self.assertEqual(first[1]["auto_app"], "obs64.exe")
+        self.assertEqual(second[1]["auto_app"], "")
+        pages = self.call("/api/config")[1]["pages"]
+        self.assertEqual(sum(1 for p in pages if p.get("auto_app") == "obs64.exe"), 1)
+
+    def test_a_refused_page_does_not_stay_in_the_live_profile(self):
+        before = len(self.call("/api/config")[1]["pages"])
+        self.assertEqual(self.call("/api/deck/page/add", {"name": "x" * 50})[0], 422)
+        self.assertEqual(len(self.call("/api/config")[1]["pages"]), before)
+
+    def test_a_wrong_pin_with_accents_is_a_refusal_not_a_crash(self):
+        status, _ = self.call("/api/auth/verify", {"pin": "é12345"})
+        self.assertLess(status, 500)
+
+    def test_the_profile_is_saved_whole(self):
+        from server import config_manager as cm
+        self.assertTrue(os.path.exists(cm.CONFIG_FILE))
+        self.assertFalse(os.path.exists(cm.CONFIG_FILE + ".tmp"))
+        json.loads(open(cm.CONFIG_FILE, encoding="utf-8").read())
+
     def test_bad_template_requests_are_refused(self):
         self.assertEqual(self.call("/api/templates/apply", {"template_id": "nope"})[0], 404)
         self.assertEqual(self.call("/api/templates/apply", {"template_id": "blank", "name": "x" * 60})[0], 422)
 
     def test_template_list_hides_the_slots(self):
         _, body = self.call("/api/templates")
-        self.assertEqual({t["id"] for t in body["templates"]}, {"streamer", "gamer", "work", "blank"})
+        self.assertTrue({"streamer", "gamer", "work", "blank", "spotify", "obs", "discord"} <= {t["id"] for t in body["templates"]})
         self.assertTrue(all("slots" not in t for t in body["templates"]))
+        self.assertTrue(all(t["category"] in body["categories"] and t["preview"] for t in body["templates"]))
 
     def test_theme_is_saved_validated_and_pushed_to_phones(self):
         self.assertEqual(self.call("/api/ui")[1]["theme"], "ctma")

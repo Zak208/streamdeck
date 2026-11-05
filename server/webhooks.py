@@ -17,7 +17,8 @@ from server.settings_store import settings
 MAX_HOSTS = 20
 TIMEOUT_SECONDS = 8
 MAX_BODY = 1000
-METHODS = ("GET", "POST")
+METHODS = ("GET", "POST", "PUT")
+WITH_BODY = ("POST", "PUT")
 HOST_RULE = re.compile(r"[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?", re.ASCII)
 NOT_ALLOWED = "Esa dirección no está en la lista de destinos permitidos (Ajustes de Studio > Webhooks)."
 
@@ -60,11 +61,11 @@ def validate_extra(extra: Any) -> Dict[str, Any]:
     extra = extra if isinstance(extra, dict) else {}
     method = str(extra.get("method", "GET")).upper()
     if method not in METHODS:
-        raise ValueError("El método del webhook debe ser GET o POST")
+        raise ValueError("El método del webhook debe ser GET, POST o PUT")
     body = extra.get("body", "")
     if not isinstance(body, str) or len(body) > MAX_BODY or any(ord(c) < 32 and c not in "\n\t\r" for c in body):
         raise ValueError(f"El cuerpo del webhook admite como máximo {MAX_BODY} caracteres de texto")
-    return {"method": method, "body": body if method == "POST" else ""}
+    return {"method": method, "body": body if method in WITH_BODY else ""}
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -80,7 +81,7 @@ def run(url: str, extra: Dict[str, Any]) -> Dict[str, Any]:
     if (parsed.hostname or "") in ("localhost", "127.0.0.1", "::1") and parsed.port == PORT:
         # A button must not call StreamDesk's own admin API: that request would come from this PC.
         return {"success": False, "error": "Un webhook no puede llamar al propio StreamDesk"}
-    data = extra.get("body", "").encode("utf-8") if extra.get("method") == "POST" else None
+    data = extra.get("body", "").encode("utf-8") if extra.get("method") in WITH_BODY else None
     headers = {"User-Agent": "StreamDesk-Webhook"}
     if data is not None:
         headers["Content-Type"] = "application/json" if extra["body"].lstrip().startswith(("{", "[")) else "text/plain; charset=utf-8"

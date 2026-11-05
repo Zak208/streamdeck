@@ -431,7 +431,7 @@ function renderDeck(config) {
     } else if (slot.type === "slider") {
       cell = createFaderElement(slot);
       rowStart = 1;
-      span = 2; // a fader takes both rows of its column
+      span = Math.max(1, Math.min(Number.isInteger(slot.row_span) ? slot.row_span : 2, rows)); // its own height, 2 rows by default
     } else {
       cell = document.createElement("div");
       cell.className = "deck-slot-empty";
@@ -653,11 +653,13 @@ function createButtonElement(btn) {
     sendWS(gesture === "tap" ? { type: "trigger_button", id: btn.id } : { type: "trigger_button", id: btn.id, gesture });
   };
   if (btn.disabled) keycap.classList.add("is-disabled");
+  if (btn.action_type === "none") keycap.classList.add("is-blank");
   if (longAction || doubleAction) keycap.classList.add("has-gestures");
 
   // Tactile touch & trigger micro-animation
   let holdTimer = null, tapTimer = null, longFired = false, secondPress = false, moved = false, startX = 0, startY = 0;
   keycap.addEventListener("pointerdown", (event) => {
+    if (btn.action_type === "none") return; // an empty key: nothing to press yet
     haptic(25);
     keycap.classList.add("triggered");
     keycap.style.borderColor = btnColor;

@@ -24,6 +24,8 @@ VK_MEDIA_PREV_TRACK = 0xB1
 VK_MEDIA_STOP = 0xB2
 VK_MEDIA_PLAY_PAUSE = 0xB3
 VK_VOLUME_MUTE = 0xAD
+VK_VOLUME_DOWN = 0xAE
+VK_VOLUME_UP = 0xAF
 KEYEVENTF_KEYUP = 0x0002
 
 HOTKEY_VK = {
@@ -221,6 +223,7 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
                 "next": VK_MEDIA_NEXT_TRACK, "next_track": VK_MEDIA_NEXT_TRACK,
                 "prev": VK_MEDIA_PREV_TRACK, "previous": VK_MEDIA_PREV_TRACK,
                 "prev_track": VK_MEDIA_PREV_TRACK, "stop": VK_MEDIA_STOP, "mute": VK_VOLUME_MUTE,
+                "volume_up": VK_VOLUME_UP, "volume_down": VK_VOLUME_DOWN,
             }
             if media_key not in MEDIA_TARGETS:
                 return {"success": False, "error": "Comando multimedia desconocido"}
@@ -253,6 +256,14 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
             # These actions render live data on the deck. They do not open or
             # execute anything on the computer when a user taps them.
             return {"success": True, "action": action_type, "target": target, "read_only": True}
+
+        if action_type == "steam":
+            # steam:// is Steam's own protocol: the id is digits only (validated above), so nothing else can be passed.
+            os.startfile(f"steam://rungameid/{target}")
+            return {"success": True, "action": action_type, "target": target}
+
+        if action_type == "none":
+            return {"success": True, "action": "none", "noop": True}
 
         if action_type == "sound":
             if target == "beep":

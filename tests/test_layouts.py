@@ -22,8 +22,9 @@ def check_page_shape(test, slots, rows, columns):
         test.assertEqual(slot["index"], index)
         if slot["type"] == "slider":
             test.assertLess(index, columns, "a fader sits on the first row")
-            test.assertEqual(slots[index + columns]["type"], "occupied_by_slider")
-            test.assertEqual(slots[index + columns]["parent_slot"], index)
+            for row in range(1, slot.get("row_span", 2)):
+                test.assertEqual(slots[index + row * columns]["type"], "occupied_by_slider")
+                test.assertEqual(slots[index + row * columns]["parent_slot"], index)
         if slot["type"] == "occupied_by_slider":
             test.assertEqual(slots[slot["parent_slot"]]["type"], "slider")
 
@@ -221,3 +222,59 @@ class LayoutEndpointTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def tall_profile(rows, columns, span):
+    """A profile whose only page has one fader of `span` rows in the last column."""
+    config = {"schema_version": 2, "deck_name": "t", "layout": layouts.layout_dict({"rows": rows, "columns": columns}), "current_page": 0}
+    slots = [{"index": i, "type": "empty"} for i in range(rows * columns)]
+    column = columns - 1
+    slots[column] = {"index": column, "type": "slider", "id": "fader", "label": "Master", "sublabel": "PC", "slider_type": "master",
+                     "color": "#f8c700", "row_span": span, "icon": "/static/icons/volume_up.svg", "image": "/static/icons/volume_up.svg"}
+    for row in range(1, span):
+        slots[column + row * columns] = {"index": column + row * columns, "type": "occupied_by_slider", "id": f"occ{row}", "parent_slot": column}
+    config["pages"] = [{"id": "p", "name": "P", "slots": slots}]
+    return config
+
+
+class TallFaderTests(unittest.TestCase):
+    def test_a_fader_can_be_one_row_or_as_tall_as_the_grid(self):
+        for rows, span in ((2, 1), (4, 3), (4, 4), (3, 2)):
+            with self.subTest(rows=rows, span=span):
+                config = validate_deck_config(tall_profile(rows, 4, span))
+                check_page_shape(self, config["pages"][0]["slots"], rows, 4)
+                self.assertEqual(config["pages"][0]["slots"][3]["row_span"], span)
+
+    def test_a_missing_or_wrong_height_is_refused_or_defaults(self):
+        raw = tall_profile(3, 4, 2)
+        raw["pages"][0]["slots"][3].pop("row_span")
+        self.assertEqual(validate_deck_config(raw)["pages"][0]["slots"][3]["row_span"], 2)
+        for bad in (0, 4, True, "2"):
+            raw = tall_profile(3, 4, 2)
+            raw["pages"][0]["slots"][3]["row_span"] = bad
+            with self.subTest(span=bad), self.assertRaises(ValueError):
+                validate_deck_config(raw)
+
+    def test_the_covered_cells_must_match_the_height(self):
+        raw = tall_profile(4, 4, 3)
+        raw["pages"][0]["slots"][3 + 2 * 4] = {"index": 11, "type": "empty"}  # a hole under the fader
+        with self.assertRaises(ValueError):
+            validate_deck_config(raw)
+        raw = tall_profile(4, 4, 2)
+        raw["pages"][0]["slots"][3 + 2 * 4] = {"index": 11, "type": "occupied_by_slider", "id": "x", "parent_slot": 3}  # one cell too many
+        with self.assertRaises(ValueError):
+            validate_deck_config(raw)
+
+    def test_changing_the_grid_keeps_the_height_up_to_what_fits(self):
+        config = validate_deck_config(tall_profile(4, 4, 4))
+        converted, dropped = layouts.convert_config(config, {"rows": 3, "columns": 4})
+        slots = converted["pages"][0]["slots"]
+        self.assertEqual((dropped, slots[3]["row_span"]), (0, 3))
+        check_page_shape(self, slots, 3, 4)
+        validate_deck_config(converted)
+
+    def test_an_empty_key_is_a_valid_key_but_not_a_gesture(self):
+        from server.action_catalog import validate_action
+        self.assertEqual(validate_action("none", "", {}), {"action_type": "none", "target": "", "extra": {}})
+        with self.assertRaises(ValueError):
+            validate_action("multi", "m", {"actions": [{"action_type": "none", "target": "", "extra": {}}]})

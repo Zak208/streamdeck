@@ -7,6 +7,7 @@ Three kinds, because phones treat them differently:
   icon-maskable-192/512.png   "maskable": full-bleed square, symbol inside the safe zone, because
                               Android crops it to a circle/squircle and fills nothing around it
   apple-touch-icon.png        180x180, opaque: iOS paints transparent areas black
+  icon.ico                    the PC app (window, exe, installer): same drawing as icon-512
 The symbol is a small deck of keys in the corporate yellow on black.
 """
 
@@ -58,6 +59,10 @@ def main() -> None:
         save(f"icon-maskable-{size}.png", draw_icon(size, rounded=False, symbol_share=0.5))
     apple = draw_icon(180, rounded=False, symbol_share=0.6).convert("RGB")
     save("apple-touch-icon.png", apple)
+    # The PC app (window, exe, installer) uses the very same drawing as the phone icon.
+    draw_icon(256, rounded=True, symbol_share=0.62).save(
+        os.path.join(ICONS_DIR, "icon.ico"), sizes=[(s, s) for s in (16, 24, 32, 48, 64, 128, 256)])
+    print("icon.ico: 16-256 px")
 
 
 if __name__ == "__main__":

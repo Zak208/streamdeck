@@ -446,3 +446,102 @@ class ConnectorEndpointTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewActionTests(unittest.TestCase):
+    """Power, display, volume, screenshot, Steam, OBS filters and webhook PUT: what is accepted, and what runs."""
+
+    def test_valid_and_refused_windows_actions(self):
+        from server.action_catalog import validate_action
+        good = [("power", {"mode": "restart", "delay": 30}), ("power", {"mode": "sleep"}), ("display_mode", {"mode": "clone"}),
+                ("master_volume", {"mode": "set", "value": 40}), ("master_volume", {"mode": "step", "value": -10}),
+                ("power_plan", {"plan": "Alto rendimiento"}), ("screenshot", {})]
+        for target, extra in good:
+            with self.subTest(target=target, extra=extra):
+                self.assertEqual(validate_action("windows", target, extra)["target"], target)
+        bad = [("power", {"mode": "format"}), ("power", {"mode": "restart", "delay": 601}), ("power", {"mode": "restart", "delay": True}),
+               ("display_mode", {"mode": "rotate"}), ("master_volume", {"mode": "set", "value": 101}), ("master_volume", {"mode": "step", "value": 0}),
+               ("master_volume", {"mode": "step", "value": "5"}), ("power_plan", {}), ("power_plan", {"plan": "a\nb"})]
+        for target, extra in bad:
+            with self.subTest(target=target, extra=extra), self.assertRaises(ValueError):
+                validate_action("windows", target, extra)
+
+    def test_power_runs_fixed_commands_never_text_from_the_profile(self):
+        from server.connectors import windows
+        calls = []
+
+        def fake_run(command):
+            calls.append(command)
+            return mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch.object(windows, "_run", fake_run):
+            windows.execute("power", {"mode": "restart", "delay": 20})
+            windows.execute("power", {"mode": "cancel", "delay": 0})
+            windows.execute("display_mode", {"mode": "extend"})
+        self.assertEqual(calls[0], ["shutdown", "/r", "/t", "20"])
+        self.assertEqual(calls[1], ["shutdown", "/a"])
+        self.assertTrue(calls[2][0].lower().endswith("displayswitch.exe") and calls[2][1] == "/extend")
+
+    def test_a_power_plan_is_found_by_name_and_its_id_comes_from_powercfg(self):
+        from server.connectors import windows
+        plans = [{"name": "Equilibrado", "id": "381b4222-f694-41f0-9685-ff5bb260df2e", "active": True}]
+        calls = []
+        with mock.patch.object(windows, "list_power_plans", return_value=plans), \
+                mock.patch.object(windows, "_run", lambda c: calls.append(c) or mock.Mock(returncode=0, stdout="", stderr="")):
+            self.assertTrue(windows.execute("power_plan", {"plan": "equilibrado"})["success"])
+            self.assertFalse(windows.execute("power_plan", {"plan": "../../evil"})["success"])
+        self.assertEqual(calls, [["powercfg", "/setactive", "381b4222-f694-41f0-9685-ff5bb260df2e"]])
+
+    def test_master_volume_steps_and_clamps(self):
+        from server.connectors import windows
+        with mock.patch.object(windows.audio_controller, "get_master_volume", return_value={"volume": 95, "muted": False}), \
+                mock.patch.object(windows.audio_controller, "set_master_volume", return_value={"success": True}) as setter:
+            result = windows.master_volume({"mode": "step", "value": 10})
+        self.assertEqual((result["volume"], setter.call_args.args[0]), (100, 100))
+
+    def test_steam_games_only_take_an_application_number(self):
+        from server.action_catalog import validate_action
+        self.assertEqual(validate_action("steam", "730")["target"], "730")
+        for bad in ("", "abc", "730;calc", "../x", "12345678901"):
+            with self.subTest(target=bad), self.assertRaises(ValueError):
+                validate_action("steam", bad)
+        from server import actions
+        with mock.patch.object(actions.os, "startfile") as start:
+            self.assertTrue(actions.execute_action("steam", "730")["success"])
+        start.assert_called_once_with("steam://rungameid/730")
+
+    def test_obs_filter_volume_and_refresh(self):
+        from server.action_catalog import validate_action
+        from server.obs_client import obs_client
+        for target, extra in (("filter_toggle", {"source_name": "Cam", "filter_name": "Color"}), ("input_volume_up", {"source_name": "Mic"}),
+                              ("source_refresh", {"source_name": "Alertas"})):
+            self.assertEqual(validate_action("obs_action", target, extra)["extra"], extra)
+        with self.assertRaises(ValueError):
+            validate_action("obs_action", "filter_toggle", {"source_name": "Cam"})
+        sent = []
+
+        def fake(kind, data=None):
+            sent.append((kind, data))
+            ok = {"requestStatus": {"result": True}}
+            if kind == "GetSourceFilter":
+                return {**ok, "responseData": {"filterEnabled": False}}
+            if kind == "GetInputVolume":
+                return {**ok, "responseData": {"inputVolumeDb": -1.0}}
+            return ok
+        with mock.patch.object(obs_client, "request", fake):
+            toggled = obs_client.execute_obs_action("filter_toggle", {"source_name": "Cam", "filter_name": "Color"})
+            louder = obs_client.execute_obs_action("input_volume_up", {"source_name": "Mic"})
+            refreshed = obs_client.execute_obs_action("source_refresh", {"source_name": "Alertas"})
+        self.assertEqual((toggled["active"], louder["db"], refreshed["success"]), (True, 0.0, True))  # -1 dB + 3 stops at 0
+        self.assertIn(("SetSourceFilterEnabled", {"sourceName": "Cam", "filterName": "Color", "filterEnabled": True}), sent)
+        self.assertIn(("PressInputPropertiesButton", {"inputName": "Alertas", "propertyName": "refreshnocache"}), sent)
+
+    def test_a_webhook_can_use_put_with_a_body(self):
+        from server import webhooks
+        self.assertEqual(webhooks.validate_extra({"method": "put", "body": '{"on": 1}'}), {"method": "PUT", "body": '{"on": 1}'})
+        with self.assertRaises(ValueError):
+            webhooks.validate_extra({"method": "DELETE"})
+
+    def test_media_volume_keys_are_allowed(self):
+        from server.action_catalog import validate_action
+        for key in ("volume_up", "volume_down"):
+            self.assertEqual(validate_action("media", key)["target"], key)

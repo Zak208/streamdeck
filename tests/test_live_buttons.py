@@ -66,6 +66,15 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             profile_with(toggle="yes")
 
+    def test_the_second_state_can_have_its_own_action(self):
+        config, slot_id = profile_with(toggle=True, alt={"label": "Parado", "action": {"action_type": "hotkey", "target": "ctrl+shift+m", "extra": {}}})
+        slot = next(s for s in config["pages"][0]["slots"] if s.get("id") == slot_id)
+        self.assertEqual(slot["alt"]["action"]["action_type"], "hotkey")
+        self.assertEqual(slot["alt"]["action"]["target"], "CTRL+SHIFT+M")
+        for bad in ("texto", {"action_type": "nope", "target": "x"}, {"action_type": "url", "target": "javascript:alert(1)"}):
+            with self.subTest(action=bad), self.assertRaises(ValueError):
+                profile_with(toggle=True, alt={"label": "Parado", "action": bad})
+
 
 class CounterTests(unittest.TestCase):
     def test_it_adds_subtracts_resets_and_remembers(self):
@@ -166,6 +175,17 @@ class PhoneFlowTests(unittest.TestCase):
             second = self.press(slot_id, "button_state")
         self.assertTrue([m for m in first if m["type"] == "button_state"][-1]["active"])
         self.assertFalse([m for m in second if m["type"] == "button_state"][-1]["active"])
+
+    def test_the_second_state_runs_its_own_action_and_a_gesture_does_not_flip(self):
+        slot_id = self.install(action_type="sound", target="beep", extra={}, toggle=True,
+                               alt={"label": "Parado", "action": {"action_type": "sound", "target": "asterisk", "extra": {}}},
+                               long_press={"action_type": "sound", "target": "exclamation", "extra": {}})
+        main.button_states.pop(slot_id, None)
+        with mock.patch.object(main, "execute_action", return_value={"success": True}) as run:
+            self.press(slot_id, "button_state")           # off -> on: runs the key's own action
+            main._running_actions.clear()
+            self.press(slot_id, "button_state")           # on -> off: runs the second state's action
+        self.assertEqual([call.args[1] for call in run.call_args_list], ["beep", "asterisk"])
 
     def test_a_failed_tap_does_not_flip_it(self):
         slot_id = self.install(action_type="sound", target="beep", extra={}, toggle=True)

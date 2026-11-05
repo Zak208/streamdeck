@@ -82,46 +82,78 @@ const postJson = (path, body) => apiJson(path, {
 // ---------- New page (blank or from a template) ----------
 
 async function openNewPageDialog() {
-  let templates;
+  let data;
   try {
-    templates = (await apiJson("/api/templates")).templates;
+    data = await apiJson("/api/templates");
   } catch (err) {
     showToast(err.message);
     return;
   }
+  const { templates, categories } = data;
+  let category = "Todas";
+  let term = "";
+
+  // A thumbnail: the keys and faders of the page, drawn with their icon and colour.
+  const thumb = (t) => `
+    <span class="template-thumb" aria-hidden="true">${(t.preview || []).map(item => `
+      <span class="template-thumb-cell ${item.kind === "slider" ? "is-fader" : ""}"
+            style="--tc: ${escapeHtml(item.color || "#f8c700")}; grid-column: ${(item.index % 6) + 1}; grid-row: ${item.kind === "slider" ? "1 / span 2" : Math.floor(item.index / 6) + 1}">
+        <img src="${escapeHtml(item.image)}" alt="">
+      </span>`).join("")}</span>`;
 
   openModal({
     title: "Nueva página",
-    description: "Ponle un nombre y elige cómo empezar. Podrás cambiar cualquier botón después.",
+    description: "Elige una página ya montada o empieza en blanco. Las de un programa se abren solas cuando ese programa está a la vista. Podrás cambiar cualquier botón después.",
     body: `
-      <div class="dialog-field" style="margin-bottom: 16px;">
+      <div class="dialog-field" style="margin-bottom: 12px;">
         <label for="new-page-name" class="section-label" style="margin: 0;">Nombre</label>
-        <input type="text" id="new-page-name" maxlength="40" placeholder="Si lo dejas vacío usará el nombre de la plantilla">
+        <input type="text" id="new-page-name" maxlength="40" placeholder="Si lo dejas vacío usará el nombre de la página">
       </div>
-      <span class="section-label" style="margin-top: 0;">Empezar con</span>
-      <div class="template-grid">
-        ${templates.map(t => `
-          <button class="template-card" data-template="${escapeHtml(t.id)}">
-            <img src="${escapeHtml(t.icon)}" alt="">
-            <strong>${escapeHtml(t.name)}</strong>
-            <span>${escapeHtml(t.description)}</span>
-          </button>`).join("")}
-      </div>`,
+      <input type="search" id="template-search" placeholder="Buscar: Spotify, OBS, Zoom, atajos..." aria-label="Buscar una página">
+      <div class="template-filters" role="tablist" id="template-filters">
+        ${["Todas", ...categories].map(c => `<button type="button" class="template-filter ${c === category ? "active" : ""}" role="tab" data-category="${escapeHtml(c)}">${escapeHtml(c)}</button>`).join("")}
+      </div>
+      <div class="template-list" id="template-list"></div>`,
     actions: [{ label: "Cancelar", kind: "secondary" }],
     onMount: (modal) => {
-      modal.el.querySelectorAll("[data-template]").forEach(card => card.addEventListener("click", async () => {
-        const template = templates.find(t => t.id === card.dataset.template);
+      const list = modal.el.querySelector("#template-list");
+      const draw = () => {
+        const t = term.trim().toLowerCase();
+        const shown = templates.filter(x => (category === "Todas" || x.category === category)
+          && (!t || `${x.name} ${x.description} ${x.app || ""} ${x.category}`.toLowerCase().includes(t)));
+        list.innerHTML = shown.length ? shown.map(x => `
+          <button type="button" class="template-card" data-template="${escapeHtml(x.id)}">
+            <span class="template-card-head"><img src="${escapeHtml(x.icon)}" alt=""><strong>${escapeHtml(x.name)}</strong>
+              ${x.app ? `<small class="template-badge" title="Se abre sola cuando ${escapeHtml(x.app)} está a la vista">se abre sola</small>` : ""}</span>
+            ${thumb(x)}
+            <span class="template-desc">${escapeHtml(x.description)}</span>
+          </button>`).join("") : `<div class="empty-note">Ninguna página coincide.</div>`;
+      };
+      draw();
+      modal.el.querySelector("#template-search").addEventListener("input", (event) => { term = event.target.value; draw(); });
+      modal.el.querySelectorAll("[data-category]").forEach(button => button.addEventListener("click", () => {
+        category = button.dataset.category;
+        modal.el.querySelectorAll("[data-category]").forEach(b => b.classList.toggle("active", b === button));
+        draw();
+      }));
+      list.addEventListener("click", async (event) => {
+        const card = event.target.closest("[data-template]");
+        if (!card) return;
+        const template = templates.find(x => x.id === card.dataset.template);
         const name = modal.el.querySelector("#new-page-name").value.trim() || template.name;
         try {
           const result = await postJson("/api/templates/apply", { template_id: template.id, name });
           modal.close();
           await loadConfig();
           await switchPage(result.index);
-          showToast(result.dropped ? `Página "${name}" creada. En esta cuadrícula no caben ${result.dropped} elementos de la plantilla` : `Página "${name}" creada`);
+          const notes = [];
+          if (result.dropped) notes.push(`En esta cuadrícula no caben ${result.dropped} elementos de la plantilla`);
+          if (template.app && !result.auto_app) notes.push(`Ya había una página que se abre con ${template.app}: esta no se abre sola`);
+          showToast([`Página "${name}" creada`, ...notes].join(". "));
         } catch (err) {
           showToast(err.message);
         }
-      }));
+      });
     },
   });
 }

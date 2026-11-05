@@ -133,8 +133,11 @@ class ConfigManager:
         try:
             new_config = validate_deck_config(new_config)
             os.makedirs(CONFIG_DIR, exist_ok=True)
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            # Written next to the profile and swapped in whole: a cut during the save cannot leave a half-written profile.
+            temporary = CONFIG_FILE + ".tmp"
+            with open(temporary, "w", encoding="utf-8") as f:
                 json.dump(new_config, f, indent=2, ensure_ascii=False)
+            os.replace(temporary, CONFIG_FILE)
             self.config = new_config
             self.last_error = ""
             return True

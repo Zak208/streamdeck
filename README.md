@@ -81,25 +81,43 @@ Abre la dirección que muestra Studio (o escanea el QR) y pulsa el engranaje: **
 
 ## 🧩 Acciones y editor Studio
 
-Studio es el editor de la aplicación de escritorio: biblioteca de acciones a un lado, la cuadrícula en el centro y las propiedades de la casilla elegida al otro.
+Studio es el editor de la aplicación de escritorio: lo que puedes añadir a un lado, la cuadrícula en el centro y las propiedades de la casilla elegida al otro.
 
-- **Biblioteca de acciones** en el panel lateral, con buscador y categorías. Arrastra una acción a una casilla, o pulsa la acción con una casilla elegida.
-- **Multiacción:** varias acciones en un botón, con espera entre pasos (hasta 8). Los pasos pueden pulsar atajos, escribir texto, abrir webs y apps, o usar cualquier acción de la biblioteca.
+- **Botones vacíos y elegir acción:** un botón arrastrado desde «Añadir» nace vacío (no hace nada) y un fader nuevo controla el volumen general de Windows. «Elegir acción» abre una ventana con apps, acciones de cada programa, atajos y sistema, con buscador.
+- **Multiacción:** varias acciones en un botón, con espera entre pasos (hasta 8). Los pasos pueden pulsar atajos, escribir texto, abrir webs y apps, o usar cualquier acción de la ventana «Elegir acción».
 - **Atajo de teclado** (con botón "Grabar"), **Escribir texto** (acentos, emojis y varias líneas, con Enter opcional), **Abrir una web** y **Bloquear PC**.
 - **Páginas y carpetas:** botones "Página siguiente / anterior / primera / ir a una página" para montar carpetas.
 - **Páginas inteligentes:** en los ajustes de una página (⚙ junto a las pestañas) eliges un programa, y el móvil salta a esa página cuando ese programa pasa a primer plano. Si la cambias tú a mano no te la deshace hasta que cambies de programa.
 - **Duplicar páginas** y **guardar o cargar una copia del perfil** (Ajustes > Perfil). La copia no incluye contraseñas, móviles emparejados ni las imágenes que hayas subido; al cargar una se guarda antes una copia del perfil actual.
+
+## 🧱 Estados, gestos y faders a medida
+
+- **Botón de dos estados** (sección 4 del editor del botón): cada estado tiene su título, subtítulo, color, icono y, si quieres, su propia acción. El estado 2 sin acción propia hace lo mismo que el 1. Si la acción informa de su estado (grabar en OBS, silenciar el micro), el botón sigue a esa acción.
+- **Pulsación larga y doble toque con cualquier acción:** al marcar el gesto se abre la misma ventana «Elegir acción» del botón (escenas de OBS, páginas, sonidos, multiacciones...). Nada se guarda hasta que eliges una.
+- **Alto del fader:** de 1 fila hasta todas las de la cuadrícula. Se cambia con + y − en el panel del fader, arrastrando su borde inferior en la vista previa o con las flechas arriba y abajo sobre ese borde. Para crecer necesita libres las casillas de debajo: no se borra nada para hacer sitio. Los perfiles guardados siguen valiendo; una versión anterior de la app rechazaría un perfil con faders de otro alto.
+
+## 📚 Biblioteca de páginas
+
+«+ Página» abre una biblioteca con buscador y categorías (Para empezar, Música, Directo y voz, Reuniones, Vídeo, fotos y audio, Navegador, Windows): Streamer, Gamer, Trabajo, Spotify, OBS, Discord, Zoom, Teams, Meet, VLC, PowerPoint, DaVinci Resolve, Photoshop, Audacity, Chrome, Edge, atajos de Windows, edición y estado del PC. Las de un programa se abren solas en el móvil cuando ese programa está a la vista (si ya tienes una página para ese programa, la nueva no se abre sola, para que no se pisen). Los atajos de cada programa son los que trae por defecto y funcionan sobre la ventana que tenga el foco; no los he probado dentro de cada uno.
+
+## ➕ Acciones añadidas
+
+- **Windows:** suspender, reiniciar, apagar (con 15 s para cancelarlo con «Cancelar apagado») y cerrar sesión, todos con confirmación; plan de energía; modo de pantalla (duplicar, extender, solo una); subir y bajar el volumen; captura de pantalla a `Imágenes\StreamDesk`. Se lanzan como órdenes fijas de Windows, nunca con texto del perfil.
+- **OBS:** activar o desactivar un filtro, subir o bajar 3 dB el volumen de una fuente y refrescar una fuente de navegador.
+- **Steam:** lanzar un juego instalado, elegido de tu biblioteca.
+- **Webhooks:** además de GET y POST, ahora PUT (por ejemplo para una luz Elgato Key Light). Sigue limitado a los destinos que permitas.
+- **Discord, sonidos sin voz:** Discord solo ofrece su panel de sonidos dentro de un canal de voz, así que leer los sonidos y reproducirlos siguen necesitando estar en uno. Pero la lista se guarda tras la primera lectura: después puedes elegir sonidos y montar botones sin estar en voz, y la ventana avisa de que muestra la copia guardada.
 
 ## 🖐️ Gestos, confirmación y cuadrícula
 
 - **Pulsación larga y doble toque:** en la pestaña *Acción* de una casilla marcas «Pulsación larga» o «Doble toque» y eliges qué hace cada uno (atajo, texto, web, carpeta, aplicación, multiacción...). El móvil lo avisa con dos puntitos en la casilla. Un botón con gestos espera unas décimas de segundo (280 ms para el doble toque, 500 ms para la pulsación larga) para saber cuál haces; los botones sin gestos siguen actuando al tocarlos.
 - **Pedir confirmación:** el móvil pregunta «¿Ejecutar...?» antes de lanzar el botón (útil para bloquear el PC o cerrar un directo).
 - **Desactivar un botón** sin borrarlo: se ve apagado en el móvil y el servidor rechaza la pulsación aunque llegue.
-- **Abrir una carpeta:** en la biblioteca (Sistema). Solo rutas con letra de unidad (`D:\Proyectos`); se rechazan las rutas de red de tipo `\servidor\recurso` y las que contienen `..`. Una unidad de red mapeada con letra sí se aceptaría.
-- **Atajos por aplicación:** en la biblioteca hay paquetes para Zoom, Teams, Meet, VLC, PowerPoint, DaVinci Resolve, Photoshop, Audacity y el navegador, además de atajos de Windows (captura, escritorios virtuales, Alt+Tab...) y de edición (copiar, pegar, deshacer...). Son atajos de teclado que van a la ventana que tenga el foco, así que **la aplicación tiene que estar a la vista** en el PC; si cambias los atajos en la propia aplicación, edítalos en la casilla. Los atajos son los que cada programa trae por defecto, no los he probado dentro de cada uno.
-- **Cuadrícula a tu medida** (Ajustes > Cuadrícula): elige una de las rápidas (6x2 por defecto, 5x3, 4x3, 3x3, 4x2) o escribe tus columnas y filas, de 2 a 10 columnas y de 2 a 8 filas, con un máximo de 64 casillas (por ejemplo 4 columnas x 8 filas). Al cambiar, cada botón conserva su fila y columna si existen en la nueva cuadrícula; si no, pasa a la primera casilla libre. Los faders ocupan siempre las dos primeras filas de su columna y, si pierden su columna, pasan a las de más a la derecha manteniendo su orden. Si algo no cabe, Studio te dice cuántos elementos se han quedado fuera. Antes de convertir se guarda una copia del perfil junto a `deck_config.json`.
+- **Abrir una carpeta:** en «Elegir acción» (Sistema). Solo rutas con letra de unidad (`D:\Proyectos`); se rechazan las rutas de red de tipo `\servidor\recurso` y las que contienen `..`. Una unidad de red mapeada con letra sí se aceptaría.
+- **Atajos por aplicación:** en «Elegir acción» hay paquetes para Zoom, Teams, Meet, VLC, PowerPoint, DaVinci Resolve, Photoshop, Audacity y el navegador, además de atajos de Windows (captura, escritorios virtuales, Alt+Tab...) y de edición (copiar, pegar, deshacer...). Son atajos de teclado que van a la ventana que tenga el foco, así que **la aplicación tiene que estar a la vista** en el PC; si cambias los atajos en la propia aplicación, edítalos en la casilla. Los atajos son los que cada programa trae por defecto, no los he probado dentro de cada uno.
+- **Cuadrícula a tu medida** (Ajustes > Cuadrícula): elige una de las rápidas (6x2 por defecto, 5x3, 4x3, 3x3, 4x2) o escribe tus columnas y filas, de 2 a 10 columnas y de 2 a 8 filas, con un máximo de 64 casillas (por ejemplo 4 columnas x 8 filas). Al cambiar, cada botón conserva su fila y columna si existen en la nueva cuadrícula; si no, pasa a la primera casilla libre. Los faders ocupan desde la primera fila de su columna tantas filas como tengan de alto (2 por defecto) y, si pierden su columna, pasan a las de más a la derecha manteniendo su orden. Si algo no cabe, Studio te dice cuántos elementos se han quedado fuera. Antes de convertir se guarda una copia del perfil junto a `deck_config.json`.
 - **Quitar y deshacer:** arrastra un botón o un fader de la vista previa y suéltalo fuera del marco para eliminarlo (o usa Supr o la papelera). `Ctrl+Z` recupera el último que quitaste.
-- **Arrastre con su forma:** al arrastrar desde la biblioteca o desde «Añadir», lo que sigue al cursor es un botón o un fader con el icono y el color que tendrá.
+- **Arrastre con su forma:** las fichas de «Añadir» son un botón y un fader con el aspecto que tendrán, y lo que sigue al cursor al arrastrar mide lo mismo que una casilla de tu cuadrícula.
 
 ## 📊 Monitores del sistema
 
