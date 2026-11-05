@@ -220,7 +220,7 @@ async function saveProfileCopy() {
 // How many actions of a profile file act on the PC itself (keys, typed text, folders), looking inside
 // macros and long-press / double-tap actions. A profile from someone else could use them to run things.
 function riskyActionsIn(profile) {
-  const risky = new Set(["hotkey", "text", "folder", "command"]);
+  const risky = new Set(["hotkey", "text", "folder", "command", "webhook"]);
   const count = (action) => {
     if (!action || typeof action !== "object") return 0;
     let total = risky.has(action.action_type) ? 1 : 0;
@@ -244,7 +244,7 @@ async function loadProfileCopy(file) {
     return showToast("Ese archivo no es un perfil de StreamDesk");
   }
   const risky = riskyActionsIn(profile);
-  const warning = risky ? ` ATENCIÓN: contiene ${risky} acciones que pulsan teclas, escriben texto, abren carpetas o ejecutan comandos, y funcionarán en tu PC cuando se pulsen desde el móvil. Cárgalo solo si confías en quien te lo dio.` : "";
+  const warning = risky ? ` ATENCIÓN: contiene ${risky} acciones que pulsan teclas, escriben texto, abren carpetas, llaman a webhooks o ejecutan comandos, y funcionarán en tu PC cuando se pulsen desde el móvil. Cárgalo solo si confías en quien te lo dio.` : "";
   const confirmed = await askConfirm({
     title: "Cargar este perfil",
     message: `Se reemplazarán todas tus páginas y botones por los de "${file.name}". Antes se guarda una copia de los actuales.${warning}`,
@@ -441,6 +441,11 @@ function openSettings() {
         ${commandsSwitchHtml("settings")}
       </section>
       <section class="settings-section">
+        <h3>Webhooks permitidos</h3>
+        <p>Un botón de webhook solo puede llamar a los destinos de esta lista (por ejemplo <code>192.168.1.20:8123</code>). Está vacía por defecto, porque un perfil que te pase otra persona podría llamar a lo que quisiera.</p>
+        <div id="webhook-hosts"><span class="integration-hint">Cargando...</span></div>
+      </section>
+      <section class="settings-section">
         <h3>Móviles emparejados</h3>
         <p>Cada móvil que introdujo tu PIN queda aquí. Quita los que ya no uses.</p>
         <div id="settings-devices"><span class="integration-hint">Cargando...</span></div>
@@ -481,6 +486,7 @@ function openSettings() {
       }));
       wireGridControls(m.el);
       wireCommandsSwitch(m.el);
+      wireWebhookList(m.el);
       m.el.querySelector("#settings-welcome").addEventListener("click", () => { m.close(); openWelcome(); });
       const showVersion = () => {
         m.el.querySelector("#settings-version").textContent = updateStatusText.textContent;

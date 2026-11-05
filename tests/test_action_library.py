@@ -99,6 +99,7 @@ class LibraryTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(actions.os, "startfile", recorder, create=True))
             stack.enter_context(mock.patch.object(actions.os.path, "isdir", return_value=True))
             stack.enter_context(mock.patch.object(actions.shell_actions, "run", return_value={"success": True}))
+            stack.enter_context(mock.patch.object(actions.webhooks, "run", return_value={"success": True}))
             stack.enter_context(mock.patch.object(actions.winsound, "Beep", recorder))
             stack.enter_context(mock.patch.object(actions.winsound, "MessageBeep", recorder))
             stack.enter_context(mock.patch.object(actions.windows, "execute", return_value={"success": True}))
@@ -108,15 +109,15 @@ class LibraryTests(unittest.TestCase):
             for category, item in self.items:
                 with self.subTest(item=f"{category}/{item['id']}"):
                     result = actions.execute_action(item["action_type"], item["target"], item.get("extra"))  # also runs macros
-                    if item["action_type"] == "page":
-                        # a page jump needs the live phone connection: the server answers it before reaching the executor
+                    if item["action_type"] in ("page", "counter", "timer"):
+                        # these need the live phone connection (and the key they belong to): the server answers them before the executor
                         self.assertIs(result["success"], False)
                         continue
                     self.assertIs(result["success"], True, result)
 
     def test_the_same_items_work_as_steps_of_a_macro(self):
         steps = [{"action_type": item["action_type"], "target": item["target"], "extra": item.get("extra") or {}, "delay_ms": 0}
-                 for _, item in self.items if item["action_type"] not in ("multi", "page")]
+                 for _, item in self.items if item["action_type"] not in ("multi", "page", "counter", "timer")]
         for start in range(0, len(steps), 8):
             with self.subTest(first=start):
                 validate_action("multi", "macro", {"actions": steps[start:start + 8]})

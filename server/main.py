@@ -48,7 +48,7 @@ from server.audio_controller import audio_controller
 from server.com_worker import com_worker
 from server.actions import execute_action
 from server.auth import auth_manager
-from server import diagnostics, discord_ui, firewall, layouts, shell_actions, templates, updater
+from server import diagnostics, discord_ui, firewall, layouts, live_buttons, shell_actions, templates, updater, webhooks
 from server.action_catalog import GESTURES, validate_deck_config
 from server.config_manager import CONFIG_FILE, config_manager
 from server.connectors import spotify, windows
@@ -515,6 +515,7 @@ async def set_layout(values: Dict[str, Any] = Body(...), _: None = Depends(requi
         config_manager.backup_profile("antes-de-cambiar-cuadricula")
     if not config_manager.save_config(converted):
         raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo cambiar la cuadrícula")
+    await prune_timers()
     await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
     return {"success": True, "config": config_manager.get_config(), "dropped": dropped}
 
@@ -533,6 +534,22 @@ async def set_command_settings(values: Dict[str, Any] = Body(...), _: None = Dep
     shell_actions.set_enabled(enabled)
     diagnostics.record("info", "Comandos de consola " + ("activados" if enabled else "desactivados") + " desde Studio")
     return {"enabled": shell_actions.enabled()}
+
+
+@app.get("/api/settings/webhooks")
+def get_webhook_settings(_: None = Depends(require_local_request)):
+    return {"hosts": webhooks.allowed_hosts()}
+
+
+@app.post("/api/settings/webhooks")
+async def set_webhook_settings(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    """The hosts a webhook button may call. Empty by default: no webhook runs until a host is listed here."""
+    try:
+        hosts = webhooks.set_allowed_hosts(values.get("hosts"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    diagnostics.record("info", f"Destinos de webhook permitidos: {len(hosts)}, cambiados desde Studio")
+    return {"hosts": hosts}
 
 
 @app.get("/api/templates")
@@ -618,6 +635,7 @@ async def import_profile(profile: Dict[str, Any] = Body(...), _: None = Depends(
         backup = ""
     if not config_manager.save_config(clean):
         raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo importar el perfil")
+    await prune_timers()
     await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
     return {"success": True, "pages": len(clean["pages"]), "backup": bool(backup)}
 
@@ -652,6 +670,7 @@ async def update_configuration(new_config: Dict[str, Any] = Body(...), _: None =
     if success:
         # Send what was validated and saved, never the raw payload the caller posted.
         saved = config_manager.get_config()
+        await prune_timers()
         await ws_manager.broadcast({
             "type": "config_updated",
             "config": saved
@@ -699,6 +718,7 @@ async def delete_deck_page(page_index: int = Body(..., embed=True), _: None = De
         pages.pop(page_index)
         cfg["current_page"] = min(cfg.get("current_page", 0), len(pages) - 1)
         config_manager.save_config(cfg)
+        await prune_timers()
         await ws_manager.broadcast({
             "type": "config_sync",
             "config": config_manager.get_config()
@@ -890,11 +910,90 @@ def update_status(_: None = Depends(require_local_request)):
 
 # --- WebSocket Channel ---
 
+_page_history: list = []  # pages left through a page button, newest last: what "Volver" goes back to
+button_labels: Dict[str, str] = {}  # live text of keys (a counter's value, a timer's countdown)
+_timers: Dict[str, "asyncio.Task"] = {}
+
+
+async def set_button_label(btn_id: str, text: Optional[str]) -> None:
+    """Show `text` under the key on every phone; None gives the key its own subtitle back."""
+    if text is None:
+        button_labels.pop(btn_id, None)
+    else:
+        button_labels[btn_id] = text
+    await ws_manager.broadcast({"type": "button_label", "id": btn_id, "sublabel": text})
+
+
+def current_labels(config: Dict[str, Any]) -> Dict[str, str]:
+    """Counters show their saved value as soon as a phone connects, then any live text on top."""
+    labels = {
+        slot["id"]: str(live_buttons.counter_value(slot["id"]))
+        for slot in config.get("slots", []) if slot.get("type") == "button" and slot.get("action_type") == "counter"
+    }
+    labels.update(button_labels)
+    return labels
+
+
+async def prune_timers() -> None:
+    """Stop the timers of keys that are no longer in the profile (deleted, or lost in a grid change)."""
+    config = config_manager.get_config()
+    timer_keys = {
+        slot["id"] for page in config.get("pages", []) for slot in page.get("slots", [])
+        if slot.get("type") == "button" and "timer" in (slot.get("action_type"), (slot.get("long_press") or {}).get("action_type"),
+                                                       (slot.get("double_tap") or {}).get("action_type"))
+    }
+    for btn_id in [key for key in _timers if key not in timer_keys]:
+        task = _timers.pop(btn_id, None)
+        if task and not task.done():
+            task.cancel()
+
+
+async def run_timer(btn_id: str, seconds: int) -> Dict[str, Any]:
+    """Start a countdown on a key, or stop it if it is running."""
+    running = _timers.pop(btn_id, None)
+    if running and not running.done():
+        running.cancel()
+        await set_button_label(btn_id, None)
+        button_states[btn_id] = False
+        await ws_manager.broadcast({"type": "button_state", "id": btn_id, "active": False})
+        return {"success": True, "action": "timer_stop", "active": False}
+
+    async def countdown() -> None:
+        try:
+            for remaining in range(seconds, 0, -1):
+                await set_button_label(btn_id, live_buttons.format_countdown(remaining))
+                await asyncio.sleep(1)
+            await set_button_label(btn_id, "¡Hecho!")
+            await asyncio.to_thread(execute_action, "sound", "exclamation", {})
+            await asyncio.sleep(3)
+        finally:
+            _timers.pop(btn_id, None)
+            await set_button_label(btn_id, None)
+            button_states[btn_id] = False
+            await ws_manager.broadcast({"type": "button_state", "id": btn_id, "active": False})
+
+    task = asyncio.create_task(countdown())
+    _timers[btn_id] = task
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return {"success": True, "action": "timer_start", "active": True}
+
+
 async def navigate_pages(target: str) -> Dict[str, Any]:
     """A button that moves the phone to another page: next, previous, first, or a specific page id."""
     config = config_manager.get_config()
     pages = config.get("pages", [])
     current = config.get("current_page", 0)
+    if target == "back":
+        while _page_history and not any(p["id"] == _page_history[-1] for p in pages):
+            _page_history.pop()  # that page was deleted
+        if not _page_history:
+            return {"success": False, "error": "No hay una página anterior a la que volver"}
+        wanted = _page_history.pop()
+        index = next(i for i, page in enumerate(pages) if page["id"] == wanted)
+        if index != current and config_manager.set_active_page(index):
+            await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+        return {"success": True, "action": "page"}
     if target == "next":
         index = (current + 1) % len(pages)
     elif target == "prev":
@@ -905,8 +1004,13 @@ async def navigate_pages(target: str) -> Dict[str, Any]:
         index = next((i for i, page in enumerate(pages) if page["id"] == target), None)
     if index is None:
         return {"success": False, "error": "Esa página ya no existe"}
-    if index != current and config_manager.set_active_page(index):
-        await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
+    if index != current:
+        previous = pages[current]["id"] if 0 <= current < len(pages) else None
+        if config_manager.set_active_page(index):
+            if previous:
+                _page_history.append(previous)
+                del _page_history[:-20]
+            await ws_manager.broadcast({"type": "config_sync", "config": config_manager.get_config()})
     return {"success": True, "action": "page"}
 
 
@@ -923,6 +1027,13 @@ async def run_button_action(websocket: WebSocket, slot: Dict[str, Any], gesture:
         try:
             if slot.get("action_type") == "page":
                 result = await navigate_pages(str(slot.get("target", "")))
+            elif slot.get("action_type") == "counter":
+                value = await asyncio.to_thread(
+                    live_buttons.change_counter, btn_id, slot.get("target"), (slot.get("extra") or {}).get("step", 1))
+                await set_button_label(btn_id, str(value))
+                result = {"success": True, "action": "counter", "value": value}
+            elif slot.get("action_type") == "timer":
+                result = await run_timer(btn_id, int((slot.get("extra") or {}).get("seconds", 60)))
             else:
                 result = await asyncio.to_thread(
                     execute_action, slot.get("action_type"), slot.get("target"), slot.get("extra")
@@ -950,6 +1061,10 @@ async def run_button_action(websocket: WebSocket, slot: Dict[str, Any], gesture:
         # Only the tap sets the lit/unlit state: a long press or double tap may run a different action.
         if success and "active" in result and gesture == "tap":
             button_states[btn_id] = bool(result["active"])
+            await ws_manager.broadcast({"type": "button_state", "id": btn_id, "active": button_states[btn_id]})
+        elif success and slot.get("toggle") and gesture == "tap":
+            # A two-state key: every successful tap flips it, whatever the action reports.
+            button_states[btn_id] = not button_states.get(btn_id, False)
             await ws_manager.broadcast({"type": "button_state", "id": btn_id, "active": button_states[btn_id]})
     finally:
         _running_actions.discard(btn_id)
@@ -986,6 +1101,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
             "mic": audio_state["mic"],
             "theme": current_theme(),
             "button_states": button_states,
+            "button_labels": current_labels(config_manager.get_config()),
         }
         await websocket.send_text(json.dumps(init_state))
 

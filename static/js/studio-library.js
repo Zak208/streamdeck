@@ -32,7 +32,17 @@ function builtInLibrary() {
       { id: "page_next", label: "Página siguiente", sub: "Navegación", icon: "/static/icons/chevron_right.svg", color: LIBRARY_ACCENT, action_type: "page", target: "next" },
       { id: "page_prev", label: "Página anterior", sub: "Navegación", icon: "/static/icons/chevron_left.svg", color: LIBRARY_ACCENT, action_type: "page", target: "prev" },
       { id: "page_first", label: "Primera página", sub: "Inicio", icon: "/static/icons/folder.svg", color: LIBRARY_ACCENT, action_type: "page", target: "first" },
+      { id: "page_back", label: "Volver a la página anterior", sub: "Navegación", icon: "/static/icons/prev.svg", color: LIBRARY_ACCENT, action_type: "page", target: "back" },
       { id: "page_goto", label: "Ir a una página", sub: "Elige cuál", icon: "/static/icons/folder.svg", color: LIBRARY_ACCENT, action_type: "page", target: "first", configure: true },
+    ] },
+    { category: "Contadores y tiempo", items: [
+      { id: "counter_inc", label: "Contador +1", sub: "Suma y se ve en la tecla", icon: "/static/icons/plus.svg", color: "#10b981", action_type: "counter", target: "inc", extra: { step: 1 }, configure: true },
+      { id: "counter_dec", label: "Contador -1", sub: "Resta y se ve en la tecla", icon: "/static/icons/chevron_left.svg", color: "#f59e0b", action_type: "counter", target: "dec", extra: { step: 1 }, configure: true },
+      { id: "counter_reset", label: "Poner contador a cero", sub: "Reinicia este botón", icon: "/static/icons/trash.svg", color: "#ef4444", action_type: "counter", target: "reset", extra: { step: 1 }, configure: true },
+      { id: "timer", label: "Temporizador", sub: "Cuenta atrás en la tecla", icon: "/static/icons/play.svg", color: "#38bdf8", action_type: "timer", target: "toggle", extra: { seconds: 60 }, configure: true },
+    ] },
+    { category: "Conexiones web", items: [
+      { id: "webhook", label: "Webhook (llamar a una web)", sub: "Avisa a otro programa", icon: "/static/icons/link.svg", color: "#a855f7", action_type: "webhook", target: "http://192.168.1.20:8123/", extra: { method: "GET", body: "" }, configure: true },
     ] },
     { category: "Multimedia", items: media },
     { category: "Monitores del PC", items: monitors },
@@ -232,12 +242,18 @@ function describeAction(a) {
     case "text": return `Escribe «${t.length > 28 ? t.slice(0, 28) + "…" : t}»${a.extra?.press_enter ? " y Enter" : ""}`;
     case "url": return `Abre ${t.replace(/^https?:\/\//, "")}`;
     case "folder": return `Abre la carpeta ${t}`;
+    case "counter": return t === "reset" ? "Pone el contador a cero" : `${t === "dec" ? "Resta" : "Suma"} ${a.extra?.step || 1} al contador`;
+    case "timer": {
+      const total = Number(a.extra?.seconds) || 60;
+      return `Temporizador de ${total >= 60 ? `${Math.floor(total / 60)} min ` : ""}${total % 60 ? `${total % 60} s` : ""}`.trim();
+    }
+    case "webhook": return `Llama (${a.extra?.method || "GET"}) a ${t.replace(/^https?:\/\//, "")}`;
     case "command": {
       const count = a.extra?.commands?.length || 0;
       return `Ejecuta ${count} comando${count === 1 ? "" : "s"} de ${t === "cmd" ? "cmd" : "PowerShell"}`;
     }
     case "page": {
-      const names = { next: "la página siguiente", prev: "la página anterior", first: "la primera página" };
+      const names = { next: "la página siguiente", prev: "la página anterior", first: "la primera página", back: "la página donde estabas" };
       return `Va a ${names[t] || `«${pages.find(p => p.id === t)?.name || "página borrada"}»`}`;
     }
     case "media": return `Multimedia: ${t.replace("_", " ")}`;
@@ -328,6 +344,9 @@ const ACTION_EDITORS = {
   },
 
   command(el, btn) { renderCommandEditor(el, btn); },
+  counter(el, btn) { renderCounterEditor(el, btn); },
+  timer(el, btn) { renderTimerEditor(el, btn); },
+  webhook(el, btn) { renderWebhookEditor(el, btn); },
 
   folder(el, btn) {
     el.innerHTML = `
@@ -338,7 +357,7 @@ const ACTION_EDITORS = {
   },
 
   page(el, btn) {
-    const options = [["next", "Página siguiente"], ["prev", "Página anterior"], ["first", "Primera página"],
+    const options = [["next", "Página siguiente"], ["prev", "Página anterior"], ["first", "Primera página"], ["back", "Volver a la página donde estabas"],
       ...(config.pages || []).map(p => [p.id, `Ir a «${p.name}»`])];
     el.innerHTML = `
       <label for="pg-select">Dónde lleva este botón</label>
@@ -549,7 +568,9 @@ function renderGestureSection(el, btn) {
     ${gestureRow("double_tap")}
     <label class="check-row"><input type="checkbox" id="g-confirm" ${btn.confirm ? "checked" : ""}> Pedir confirmación antes de ejecutar</label>
     <label class="check-row"><input type="checkbox" id="g-disabled" ${btn.disabled ? "checked" : ""}> Desactivar el botón (no se borra)</label>
-    <p class="integration-hint">Con una pulsación larga o un doble toque, el toque normal espera unas décimas de segundo para saber cuál de los gestos haces. Se avisa con dos puntitos en el botón del móvil.</p>`;
+    <p class="integration-hint">Con una pulsación larga o un doble toque, el toque normal espera unas décimas de segundo para saber cuál de los gestos haces. Se avisa con dos puntitos en el botón del móvil.</p>
+    <div id="toggle-section"></div>`;
+  renderToggleSection(el.querySelector("#toggle-section"), btn);
 
   el.querySelectorAll("[data-toggle]").forEach(box => box.addEventListener("change", () => {
     const gesture = box.dataset.toggle;
@@ -670,3 +691,218 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   // Opening the editor tab needs the pages (for "go to page"): nothing else to prepare.
 });
+
+
+// ---------------------------------------------------------------- counters, timers, webhooks, two-state keys
+
+// Webhooks only call hosts the user lists in Settings. Keep a copy so the editor can say whether this one is allowed.
+let allowedWebhookHosts = null;
+
+async function loadWebhookHosts() {
+  try {
+    allowedWebhookHosts = (await apiJson("/api/settings/webhooks")).hosts || [];
+  } catch (err) {
+    allowedWebhookHosts = [];
+  }
+  return allowedWebhookHosts;
+}
+
+function webhookHostOf(url) {
+  try { return new URL(url).host.toLowerCase(); } catch (err) { return ""; }
+}
+
+async function saveWebhookHosts(hosts) {
+  const result = await postJson("/api/settings/webhooks", { hosts });
+  allowedWebhookHosts = result.hosts || hosts;
+  return allowedWebhookHosts;
+}
+
+function renderCounterEditor(el, btn) {
+  btn.extra = btn.extra || {};
+  if (!btn.extra.step) btn.extra.step = 1;
+  el.innerHTML = `
+    <label for="ct-op">Qué hace al pulsarlo</label>
+    <select id="ct-op">
+      <option value="inc" ${btn.target === "inc" ? "selected" : ""}>Suma</option>
+      <option value="dec" ${btn.target === "dec" ? "selected" : ""}>Resta</option>
+      <option value="reset" ${btn.target === "reset" ? "selected" : ""}>Pone el contador a cero</option>
+    </select>
+    <label for="ct-step">De cuánto en cuánto</label>
+    <input id="ct-step" type="number" min="1" max="1000" step="1" value="${Number(btn.extra.step) || 1}" ${btn.target === "reset" ? "disabled" : ""}>
+    <p class="integration-hint">El valor se guarda y se ve debajo del título en el móvil. Cada botón tiene su propio contador. Para ponerlo a cero, usa otro botón con «Poner a cero» o una pulsación larga con esa acción.</p>`;
+  el.querySelector("#ct-op").addEventListener("change", (event) => {
+    btn.target = event.target.value;
+    el.querySelector("#ct-step").disabled = btn.target === "reset";
+    commitAction(btn);
+  });
+  el.querySelector("#ct-step").addEventListener("input", (event) => {
+    btn.extra.step = Math.max(1, Math.min(1000, Math.round(Number(event.target.value) || 1)));
+    commitAction(btn);
+  });
+}
+
+function renderTimerEditor(el, btn) {
+  btn.extra = btn.extra || {};
+  const total = Math.max(1, Math.min(86400, Number(btn.extra.seconds) || 60));
+  btn.extra.seconds = total;
+  el.innerHTML = `
+    <label>Duración</label>
+    <div class="inline-row">
+      <input id="tm-min" type="number" min="0" max="1440" step="1" value="${Math.floor(total / 60)}" aria-label="Minutos" style="max-width: 90px;"> <span>min</span>
+      <input id="tm-sec" type="number" min="0" max="59" step="1" value="${total % 60}" aria-label="Segundos" style="max-width: 90px;"> <span>s</span>
+    </div>
+    <p class="integration-hint" id="tm-hint">Toca para empezar y toca otra vez para parar. La cuenta atrás se ve en la tecla del móvil y suena un aviso al terminar.</p>`;
+  const update = () => {
+    const minutes = Math.max(0, Math.min(1440, Math.round(Number(el.querySelector("#tm-min").value) || 0)));
+    const seconds = Math.max(0, Math.min(59, Math.round(Number(el.querySelector("#tm-sec").value) || 0)));
+    btn.extra.seconds = Math.max(1, Math.min(86400, minutes * 60 + seconds));
+    commitAction(btn);
+  };
+  el.querySelector("#tm-min").addEventListener("input", update);
+  el.querySelector("#tm-sec").addEventListener("input", update);
+}
+
+function renderWebhookEditor(el, btn) {
+  btn.extra = btn.extra || {};
+  btn.extra.method = btn.extra.method === "POST" ? "POST" : "GET";
+  btn.extra.body = btn.extra.body || "";
+  el.innerHTML = `
+    <label for="wh-url">Dirección a la que llamar</label>
+    <input id="wh-url" type="url" maxlength="300" value="${escapeHtml(btn.target)}" placeholder="http://192.168.1.20:8123/api/webhook/mi-escena">
+    <label for="wh-method">Método</label>
+    <select id="wh-method">
+      <option value="GET" ${btn.extra.method === "GET" ? "selected" : ""}>GET (llamar sin enviar datos)</option>
+      <option value="POST" ${btn.extra.method === "POST" ? "selected" : ""}>POST (enviar un texto o JSON)</option>
+    </select>
+    <div id="wh-body-box" ${btn.extra.method === "POST" ? "" : "hidden"}>
+      <label for="wh-body">Contenido que se envía</label>
+      <textarea id="wh-body" rows="3" maxlength="1000" placeholder='{"escena": "cine"}'>${escapeHtml(btn.extra.body)}</textarea>
+    </div>
+    <div class="inspector-note" id="wh-allow"></div>
+    <p class="integration-hint">Sirve para avisar a otro programa de tu red (domótica, notificaciones...). Solo se llama a destinos que permitas; la lista completa está en Ajustes &gt; Webhooks permitidos.</p>`;
+
+  const renderAllow = () => {
+    const box = el.querySelector("#wh-allow");
+    const host = webhookHostOf(btn.target);
+    if (allowedWebhookHosts === null) { box.textContent = "Comprobando los destinos permitidos..."; return; }
+    if (!host) { box.textContent = "Escribe una dirección que empiece por http:// o https://."; return; }
+    if (allowedWebhookHosts.includes(host)) {
+      box.innerHTML = `Destino permitido: <strong>${escapeHtml(host)}</strong>.`;
+      return;
+    }
+    box.innerHTML = `<strong>${escapeHtml(host)}</strong> no está en tu lista de destinos permitidos, así que este botón no hará nada todavía.
+      <button class="btn-secondary" id="wh-allow-add" type="button">Permitir ${escapeHtml(host)}</button>`;
+    box.querySelector("#wh-allow-add").addEventListener("click", async () => {
+      try {
+        await saveWebhookHosts([...allowedWebhookHosts, host]);
+        showToast(`Destino permitido: ${host}`);
+      } catch (err) {
+        showToast(err.message);
+      }
+      renderAllow();
+    });
+  };
+  loadWebhookHosts().then(renderAllow);
+  renderAllow();
+
+  el.querySelector("#wh-url").addEventListener("input", (event) => { btn.target = event.target.value.trim(); commitAction(btn); renderAllow(); });
+  el.querySelector("#wh-method").addEventListener("change", (event) => {
+    btn.extra.method = event.target.value;
+    el.querySelector("#wh-body-box").hidden = btn.extra.method !== "POST";
+    commitAction(btn);
+  });
+  el.querySelector("#wh-body").addEventListener("input", (event) => { btn.extra.body = event.target.value; commitAction(btn); });
+}
+
+// Settings: the full list of hosts a webhook may call.
+async function wireWebhookList(root) {
+  const box = root.querySelector("#webhook-hosts");
+  if (!box) return;
+  const draw = (hosts) => {
+    box.innerHTML = `
+      <ul class="host-list">${hosts.length ? hosts.map((h, i) => `
+        <li><code>${escapeHtml(h)}</code> <button class="btn-secondary" data-remove="${i}" type="button" aria-label="Quitar ${escapeHtml(h)}">Quitar</button></li>`).join("")
+        : `<li class="integration-hint">Ninguno: ningún webhook se ejecuta.</li>`}</ul>
+      <div class="inline-row">
+        <input id="webhook-new" type="text" maxlength="260" placeholder="192.168.1.20:8123" aria-label="Destino nuevo">
+        <button class="btn-secondary" id="webhook-add" type="button">Permitir</button>
+      </div>`;
+    box.querySelectorAll("[data-remove]").forEach(button => button.addEventListener("click", async () => {
+      try { draw(await saveWebhookHosts(hosts.filter((_, i) => i !== Number(button.dataset.remove)))); } catch (err) { showToast(err.message); }
+    }));
+    const add = async () => {
+      const value = box.querySelector("#webhook-new").value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+      if (!value) return;
+      try { draw(await saveWebhookHosts([...hosts, value])); } catch (err) { showToast(err.message); }
+    };
+    box.querySelector("#webhook-add").addEventListener("click", add);
+    box.querySelector("#webhook-new").addEventListener("keydown", (event) => { if (event.key === "Enter") add(); });
+  };
+  draw(await loadWebhookHosts());
+}
+
+// A key that changes look every time it is pressed (on / off): the alternative title, subtitle, icon and colour.
+function renderToggleSection(el, btn) {
+  const alt = btn.alt || {};
+  const on = Boolean(btn.toggle);
+  const look = (label, sub, image, colour) => `
+    <div class="toggle-look"><span class="toggle-look-name">${label}</span>
+      <div class="slot-keycap" style="border-top: 3px solid ${escapeHtml(colour)};"><img src="${escapeHtml(image || "/static/icons/power.svg")}" alt="">
+        <div class="slot-keycap-title">${escapeHtml(sub.title)}</div><div class="slot-keycap-sub">${escapeHtml(sub.sub)}</div></div></div>`;
+  const preview = () => `
+    <div class="toggle-previews">
+      ${look("Apagado", { title: btn.label || "Botón", sub: btn.sublabel || "" }, btn.image, btn.color || "#f8c700")}
+      ${look("Encendido", { title: alt.label || btn.label || "Botón", sub: alt.sublabel ?? (btn.sublabel || "") }, alt.image || btn.image, alt.color || btn.color || "#f8c700")}
+    </div>`;
+  el.innerHTML = `
+    <span class="section-label" style="margin: 16px 0 6px;">Botón de dos estados</span>
+    <label class="check-row"><input type="checkbox" id="tg-on" ${on ? "checked" : ""}> Cambia de aspecto cada vez que lo pulsas</label>
+    <div id="tg-body" ${on ? "" : "hidden"}>
+      <p class="integration-hint">Después de cada pulsación correcta el botón alterna entre su aspecto normal y este. Sirve, por ejemplo, para «Micro activo» y «Micro silenciado». Lo que dejes vacío se queda como el aspecto normal.</p>
+      <div id="tg-preview">${on ? preview() : ""}</div>
+      <label for="tg-label">Título cuando está encendido</label>
+      <input id="tg-label" type="text" maxlength="32" value="${escapeHtml(alt.label || "")}" placeholder="${escapeHtml(btn.label || "Título")}">
+      <label for="tg-sub">Subtítulo cuando está encendido</label>
+      <input id="tg-sub" type="text" maxlength="36" value="${escapeHtml(alt.sublabel || "")}" placeholder="${escapeHtml(btn.sublabel || "")}">
+      <label>Color cuando está encendido</label>
+      <div class="color-swatches-grid" id="tg-colors">${colorSwatchesHtml(alt.color || "")}</div>
+      <label>Icono cuando está encendido</label>
+      <div class="icon-picker-grid" id="tg-icons">${SVG_ICONS.map(ic => `
+        <button class="icon-choice-btn ${alt.image === `/static/icons/${ic}.svg` ? "active" : ""}" data-icon="/static/icons/${ic}.svg" title="${ic}" type="button"><img src="/static/icons/${ic}.svg" alt="${ic}"></button>`).join("")}</div>
+    </div>`;
+
+  const refresh = () => { const box = el.querySelector("#tg-preview"); if (box) box.innerHTML = btn.toggle ? preview() : ""; };
+  const saveAlt = () => {
+    const a = btn.alt || (btn.alt = {});
+    a.label = el.querySelector("#tg-label").value.trim() || btn.label || "Botón";
+    a.sublabel = el.querySelector("#tg-sub").value.trim();
+    a.color = a.color || btn.color || "#f8c700";
+    a.image = a.image || btn.image || "";
+    renderPhoneScreen();
+    saveConfigToServer();
+    refresh();
+  };
+  el.querySelector("#tg-on").addEventListener("change", (event) => {
+    if (event.target.checked) {
+      btn.toggle = true;
+      btn.alt = btn.alt || { label: btn.label || "Botón", sublabel: btn.sublabel || "", image: btn.image || "", color: btn.color || "#f8c700" };
+    } else {
+      delete btn.toggle;
+      delete btn.alt;
+    }
+    commitAction(btn);
+    renderToggleSection(el, btn);
+  });
+  el.querySelector("#tg-label")?.addEventListener("input", () => { alt.label = undefined; saveAlt(); });
+  el.querySelector("#tg-sub")?.addEventListener("input", saveAlt);
+  el.querySelectorAll("#tg-colors .color-swatch-btn").forEach(swatch => swatch.addEventListener("click", () => {
+    (btn.alt || (btn.alt = {})).color = swatch.dataset.color;
+    saveAlt();
+    el.querySelectorAll("#tg-colors .color-swatch-btn").forEach(s => s.classList.toggle("active", s === swatch));
+  }));
+  el.querySelectorAll("#tg-icons .icon-choice-btn").forEach(choice => choice.addEventListener("click", () => {
+    (btn.alt || (btn.alt = {})).image = choice.dataset.icon;
+    saveAlt();
+    el.querySelectorAll("#tg-icons .icon-choice-btn").forEach(c => c.classList.toggle("active", c === choice));
+  }));
+}

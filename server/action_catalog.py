@@ -12,16 +12,20 @@ from typing import Any, Dict, List
 from urllib.parse import urlparse
 
 from server.shell_actions import SHELLS, validate_commands
+from server.webhooks import validate_extra as validate_webhook_extra, validate_target
 from server.layouts import LAYOUTS, layout_dict, layout_name, size_of
 
 
 ACTION_TYPES = frozenset({
     "preset_app", "launch", "media", "url", "obs_action", "hardware_monitor",
-    "sound", "multi", "spotify_uri", "discord_hotkey", "discord_sound", "windows", "hotkey", "text", "page", "folder", "command",
+    "sound", "multi", "spotify_uri", "discord_hotkey", "discord_sound", "windows", "hotkey", "text", "page", "folder", "command", "counter", "timer", "webhook",
 })
+# These need the button they belong to (its own value or timer), so a macro step cannot be one.
+SLOT_ONLY_TYPES = frozenset({"counter", "timer"})
+COUNTER_TARGETS = frozenset({"inc", "dec", "reset"})
 GESTURES = ("long_press", "double_tap")  # extra actions a button can run on a long press or a double tap
 WINDOWS_TARGETS = frozenset({"mic_mute", "app_mute", "output_device", "lock_pc"})
-PAGE_KEYWORDS = frozenset({"next", "prev", "first"})
+PAGE_KEYWORDS = frozenset({"next", "prev", "first", "back"})
 MAX_TEXT_LENGTH = 300
 HOTKEY_MODIFIERS = frozenset({"CTRL", "ALT", "SHIFT", "WIN"})
 HOTKEY_KEYS = frozenset(
@@ -137,7 +141,7 @@ def _image_path(value: Any) -> str:
 def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_multi: bool = True) -> Dict[str, Any]:
     action_type = _text(action_type, "tipo de acción", 40, allow_empty=False).lower()
     # A macro step cannot be another macro or a page jump (that one needs the live phone connection).
-    if action_type not in ACTION_TYPES or (action_type in {"multi", "page"} and not allow_multi):
+    if action_type not in ACTION_TYPES or (action_type in ({"multi", "page"} | SLOT_ONLY_TYPES) and not allow_multi):
         raise ValueError("Tipo de acción no permitido")
 
     action_extra = extra if isinstance(extra, dict) else {}
@@ -170,6 +174,23 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
             raise ValueError("La carpeta debe ser una ruta local de un disco, por ejemplo D:\\Proyectos")
         target_text = folder
         clean_extra = {}
+    elif action_type == "counter":
+        target_text = target_text.lower()
+        if target_text not in COUNTER_TARGETS:
+            raise ValueError("El contador solo admite sumar, restar o poner a cero")
+        step = action_extra.get("step", 1)
+        if not isinstance(step, int) or isinstance(step, bool) or not 1 <= step <= 1000:
+            raise ValueError("El paso del contador debe estar entre 1 y 1000")
+        clean_extra = {"step": step}
+    elif action_type == "timer":
+        target_text = "toggle"
+        seconds = action_extra.get("seconds", 60)
+        if not isinstance(seconds, int) or isinstance(seconds, bool) or not 1 <= seconds <= 86400:
+            raise ValueError("El temporizador debe durar entre 1 segundo y 24 horas")
+        clean_extra = {"seconds": seconds}
+    elif action_type == "webhook":
+        target_text = validate_target(target_text)
+        clean_extra = validate_webhook_extra(action_extra)
     elif action_type == "command":
         # Runs only when the user has switched console commands on (see shell_actions); the lines are validated here.
         if target_text.lower() not in SHELLS:
@@ -345,7 +366,21 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
                         raise ValueError("La acción de toque largo o doble toque no es válida")
                     clean_slot[gesture] = validate_action(
                         raw_gesture.get("action_type"), raw_gesture.get("target"), raw_gesture.get("extra"))
-                for flag in ("confirm", "disabled"):
+                alt = slot.get("alt")
+                if alt:
+                    # The look the key takes while it is "on" (a toggle): same limits as the key itself.
+                    if not isinstance(alt, dict):
+                        raise ValueError("La apariencia alternativa no es válida")
+                    alt_color = _text(alt.get("color", clean_slot["color"]), "color alternativo", 7, allow_empty=False)
+                    if not SAFE_COLOR.fullmatch(alt_color):
+                        raise ValueError("El color alternativo debe tener formato #RRGGBB")
+                    clean_slot["alt"] = {
+                        "label": _text(alt.get("label", clean_slot["label"]), "título alternativo", 32, allow_empty=False),
+                        "sublabel": _text(alt.get("sublabel", ""), "subtítulo alternativo", 36),
+                        "image": _image_path(alt.get("image", clean_slot["image"])),
+                        "color": alt_color,
+                    }
+                for flag in ("confirm", "disabled", "toggle"):
                     value = slot.get(flag)
                     if value not in (None, True, False, 0, 1) or isinstance(value, str):
                         raise ValueError("«confirmar» y «desactivado» deben ser verdadero o falso")

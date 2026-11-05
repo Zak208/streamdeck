@@ -9,6 +9,7 @@ let isDraggingMap = {}; // sliderId -> boolean
 let masterSliderIds = new Set(); // every master fader on the current page (ids differ per page)
 let lastMaster = null; // last master volume received, to paint faders that are created later
 let lastMic = null;
+let buttonLabels = {}; // button id -> live text under the key (a counter's value, a timer's countdown)
 let buttonStates = {}; // button id -> last known on/off state (OBS recording / streaming)
 let deferredInstallPrompt = null;
 
@@ -294,6 +295,7 @@ function handleServerMessage(data) {
       currentConfig = data.config;
       currentSessions = data.audio_sessions || data.sessions || [];
       buttonStates = data.button_states || {};
+      buttonLabels = data.button_labels || {};
       applyTheme(data.theme);
       renderDeck(currentConfig);
       renderPageNav(currentConfig);
@@ -320,6 +322,12 @@ function handleServerMessage(data) {
 
     case "button_state":
       buttonStates[data.id] = Boolean(data.active);
+      applyButtonState(data.id);
+      break;
+
+    case "button_label":
+      if (data.sublabel === null || data.sublabel === undefined) delete buttonLabels[data.id];
+      else buttonLabels[data.id] = String(data.sublabel);
       applyButtonState(data.id);
       break;
 
@@ -475,13 +483,21 @@ const STATE_LABELS = {
 // Keys with two looks: the microphone shows its muted icon while it is muted.
 const STATE_ICONS = { "windows:mic_mute": ["/static/icons/mic.svg", "/static/icons/mic_off.svg"] };
 
+// A two-state key shows its "alt" look while it is lit.
+function lookOf(slot) {
+  return slot.toggle && slot.alt && buttonStates[slot.id] ? slot.alt : slot;
+}
+
 function iconFor(slot) {
-  const base = slot.image || slot.icon || "/static/icons/power.svg";
+  const look = lookOf(slot);
+  const base = look.image || look.icon || slot.image || slot.icon || "/static/icons/power.svg";
   const pair = STATE_ICONS[`${slot.action_type}:${slot.target}`];
   return pair && base === pair[0] && buttonStates[slot.id] ? pair[1] : base;
 }
 
 function subLabelFor(slot) {
+  if (buttonLabels[slot.id] !== undefined) return buttonLabels[slot.id];
+  if (slot.toggle && slot.alt && buttonStates[slot.id]) return slot.alt.sublabel || "";
   if (buttonStates[slot.id]) return STATE_LABELS[`${slot.action_type}:${slot.target}`] || slot.sublabel || "";
   return slot.sublabel || "";
 }
@@ -495,6 +511,17 @@ function applyButtonState(id) {
   if (slot && sub) sub.textContent = subLabelFor(slot);
   const img = el.querySelector(".deck-btn-img");
   if (slot && img) img.src = iconFor(slot);
+  if (slot) {
+    const look = lookOf(slot);
+    const title = el.querySelector(".deck-btn-title");
+    if (title) title.textContent = look.label || slot.label || "Botón";
+    const accent = el.querySelector(".deck-btn-accent");
+    const colour = look.color || slot.color;
+    if (accent && colour) {
+      accent.style.background = colour;
+      accent.style.boxShadow = `0 0 8px ${colour}`;
+    }
+  }
 }
 
 // System gauges are drawn by monitors.js (shared with Studio). The phone only keeps the last reading,
@@ -583,7 +610,7 @@ function createButtonElement(btn) {
   const inner = document.createElement("div");
   inner.className = "deck-btn-inner";
 
-  const btnColor = btn.color || "var(--accent-blue)";
+  const btnColor = lookOf(btn).color || btn.color || "var(--accent-blue)";
   const accent = document.createElement("div");
   accent.className = "deck-btn-accent";
   accent.style.background = btnColor;
@@ -606,7 +633,7 @@ function createButtonElement(btn) {
 
   const title = document.createElement("div");
   title.className = "deck-btn-title";
-  title.textContent = btn.label || "Botón";
+  title.textContent = lookOf(btn).label || btn.label || "Botón";
   textWrap.appendChild(title);
 
   const sub = document.createElement("div");

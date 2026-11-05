@@ -1349,7 +1349,7 @@ function openActionPicker(btn, index, startTab = "apps") {
     if (tab === "apps") renderTabApps(host, btn, index);
     else if (tab === "programs") renderTabConnectors(host, btn, index);
     else if (tab === "shortcuts") libraryGroups(["Sistema", "Reuniones", "Vídeo", "Creación", "Navegador", "Atajos de Windows", "Edición", "Música"], host);
-    else libraryGroups(["Windows", "Páginas", "Multimedia", "Monitores"], host);
+    else libraryGroups(["Windows", "Páginas", "Multimedia", "Monitores", "Contadores", "Conexiones web"], host);
   };
   modal.el.querySelectorAll(".picker-tab").forEach(b => b.addEventListener("click", () => show(b.dataset.pickerTab)));
   show(startTab);
