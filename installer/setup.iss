@@ -25,6 +25,10 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 SetupIconFile=..\static\icons\icon.ico
+WizardImageFile=wizard_large_1x.bmp,wizard_large_2x.bmp
+WizardSmallImageFile=wizard_small_1x.bmp,wizard_small_2x.bmp
+; Tells Explorer to refresh its icons when the install ends, so the shortcuts and the taskbar show the new one.
+ChangesAssociations=yes
 PrivilegesRequired=lowest
 
 [Languages]

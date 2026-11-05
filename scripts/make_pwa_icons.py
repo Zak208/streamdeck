@@ -52,6 +52,26 @@ def save(name: str, image: Image.Image) -> None:
     print(f"{name}: {image.size[0]}x{image.size[1]}")
 
 
+def wizard_images() -> None:
+    """The images of the installer wizard (otherwise Inno Setup shows its own): the same icon on black.
+
+    Two sizes of each so the wizard stays sharp on high-DPI screens."""
+    installer = os.path.join(os.path.dirname(ICONS_DIR), "..", "installer")
+    installer = os.path.normpath(installer)
+    for scale in (1, 2):
+        large = Image.new("RGB", (164 * scale, 314 * scale), BLACK[:3])
+        icon = draw_icon(120 * scale, rounded=True, symbol_share=0.62)
+        large.paste(icon, ((164 * scale - icon.width) // 2, 60 * scale), icon)
+        bar = ImageDraw.Draw(large)
+        bar.rectangle((0, 300 * scale, 164 * scale, 314 * scale), fill=YELLOW[:3])  # the corporate yellow along the bottom
+        large.save(os.path.join(installer, f"wizard_large_{scale}x.bmp"))
+        small = Image.new("RGB", (55 * scale, 55 * scale), BLACK[:3])
+        mark = draw_icon(47 * scale, rounded=True, symbol_share=0.62)
+        small.paste(mark, (4 * scale, 4 * scale), mark)
+        small.save(os.path.join(installer, f"wizard_small_{scale}x.bmp"))
+    print("installer wizard images")
+
+
 def main() -> None:
     for size in (192, 512):
         save(f"icon-{size}.png", draw_icon(size, rounded=True, symbol_share=0.62))
@@ -63,6 +83,7 @@ def main() -> None:
     draw_icon(256, rounded=True, symbol_share=0.62).save(
         os.path.join(ICONS_DIR, "icon.ico"), sizes=[(s, s) for s in (16, 24, 32, 48, 64, 128, 256)])
     print("icon.ico: 16-256 px")
+    wizard_images()
 
 
 if __name__ == "__main__":

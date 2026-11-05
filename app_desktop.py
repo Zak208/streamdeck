@@ -45,6 +45,22 @@ def start_server():
     except Exception as e:
         print(f"Server error: {e}")
 
+def refresh_icons_once():
+    """After an update Windows may keep showing the old icon (it caches them by path): ask Explorer to reload them,
+    once per version."""
+    try:
+        from server.paths import CONFIG_DIR, VERSION
+        marker = os.path.join(CONFIG_DIR, f"icons-refreshed-{VERSION}")
+        if os.path.exists(marker):
+            return
+        import ctypes
+        ctypes.windll.shell32.SHChangeNotify(0x08000000, 0, None, None)  # SHCNE_ASSOCCHANGED
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        open(marker, "w").close()
+    except Exception:
+        pass
+
+
 def main():
     # 1. Start FastAPI server in background thread
     server_thread = threading.Thread(target=start_server, daemon=True)
@@ -59,6 +75,8 @@ def main():
         icon_path = None
 
     print(f"[*] StreamDesk Pro Desktop iniciando en {studio_url}")
+
+    refresh_icons_once()
 
     # Own taskbar identity: without it, running from source groups the window under Python's icon.
     try:
