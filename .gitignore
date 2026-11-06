@@ -11,4 +11,5 @@ StreamDesk.spec
 # Build output and per-user data (never versioned)
 dist/
 instalador_streamdeck.exe
+instalador_streamdeck.exe.sha256
 config/
