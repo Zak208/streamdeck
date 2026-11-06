@@ -158,7 +158,7 @@ class ConfigManager:
             folder = os.path.join(CONFIG_DIR, "backups")
             os.makedirs(folder, exist_ok=True)
             copies = sorted(f for f in os.listdir(folder) if f.startswith("deck_config-"))
-            if copies and time.time() - os.path.getmtime(os.path.join(folder, copies[-1])) < self.AUTO_BACKUP_EVERY:
+            if copies and self.AUTO_BACKUP_EVERY > 0 and time.time() - os.path.getmtime(os.path.join(folder, copies[-1])) < self.AUTO_BACKUP_EVERY:
                 return
             shutil.copyfile(CONFIG_FILE, os.path.join(folder, f"deck_config-{time.strftime('%Y%m%d-%H%M%S')}.json"))
             for old in copies[: max(0, len(copies) + 1 - self.AUTO_BACKUPS_KEPT)]:

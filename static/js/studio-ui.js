@@ -490,9 +490,12 @@ function openSettings() {
         </div>
       </section>
       <section class="settings-section">
-        <h3>Primeros pasos</h3>
-        <p>¿Quieres volver a ver la guía de bienvenida?</p>
-        <button class="btn-secondary" id="settings-welcome">Ver la guía</button>
+        <h3>Primeros pasos y Novedades</h3>
+        <p>¿Quieres volver a ver la guía de bienvenida o las novedades de esta versión?</p>
+        <div class="inline-row">
+          <button class="btn-secondary" id="settings-welcome">Guía de bienvenida</button>
+          <button class="btn-secondary" id="settings-tour">Novedades de la versión</button>
+        </div>
       </section>`,
     actions: [{ label: "Cerrar", kind: "primary" }],
     onMount: (m) => {
@@ -505,7 +508,16 @@ function openSettings() {
       wireCommandsSwitch(m.el);
       wirePowerSwitch(m.el);
       wireWebhookList(m.el);
-      m.el.querySelector("#settings-welcome").addEventListener("click", () => { m.close(); openWelcome(); });
+      m.el.querySelector("#settings-welcome")?.addEventListener("click", () => { m.close(); openWelcome(); });
+      m.el.querySelector("#settings-tour")?.addEventListener("click", async () => {
+        m.close();
+        try {
+          const data = await apiJson("/api/system/onboarding");
+          openUpdateTour(data.tour);
+        } catch (e) {
+          showToast("No se pudieron cargar las novedades");
+        }
+      });
       const showVersion = () => {
         m.el.querySelector("#settings-version").textContent = updateStatusText.textContent;
         const ready = updateCylinder.classList.contains("update-ready");
@@ -582,9 +594,17 @@ async function renderSettingsDiagnostics(container) {
   }
 }
 
-// ---------- Welcome ----------
+// ---------- Welcome & Update Tour ----------
 
 function openWelcome() {
+  const markWelcomeCompleted = () => {
+    try {
+      localStorage.setItem("streamdesk_first_run_completed", "1");
+      localStorage.setItem("streamdesk_welcome", "1");
+    } catch (e) {}
+    postJson("/api/system/onboarding/complete", { action: "welcome" }).catch(() => {});
+  };
+
   const modal = openModal({
     title: "Bienvenido a StreamDesk",
     description: "Convierte tu móvil en un panel de control de tu PC en tres pasos.",
@@ -595,18 +615,177 @@ function openWelcome() {
         <li><strong>Ajusta lo que quieras.</strong> Pulsa una casilla para cambiar su acción, conectar OBS, Spotify o Discord, o cambiar su aspecto.</li>
       </ol>`,
     actions: [
-      { label: "Empezar sin plantilla", kind: "secondary" },
-      { label: "Abrir la biblioteca", kind: "primary", onClick: () => { location.href = "/library"; } },
+      {
+        label: "Empezar sin plantilla",
+        kind: "secondary",
+        onClick: (m) => {
+          markWelcomeCompleted();
+          m.close();
+        }
+      },
+      {
+        label: "Abrir la biblioteca",
+        kind: "primary",
+        onClick: (m) => {
+          markWelcomeCompleted();
+          m.close();
+          location.href = "/library";
+        }
+      },
     ],
   });
-  modal.onClose = () => { try { localStorage.setItem("streamdesk_welcome", "1"); } catch (e) {} };
+  modal.onClose = () => {
+    markWelcomeCompleted();
+  };
   return modal;
 }
 
-function maybeShowWelcome() {
-  let seen = false;
-  try { seen = localStorage.getItem("streamdesk_welcome") === "1"; } catch (e) {}
-  if (!seen) openWelcome();
+function openUpdateTour(tourData) {
+  const steps = tourData?.steps || [];
+  if (!steps.length) return null;
+
+  let currentStep = 0;
+
+  const markCompleted = () => {
+    try {
+      localStorage.setItem("streamdesk_first_run_completed", "1");
+      localStorage.setItem("streamdesk_last_seen_version", tourData.version || "");
+    } catch (e) {}
+    postJson("/api/system/onboarding/complete", { action: "update_tour", version: tourData.version }).catch(() => {});
+  };
+
+  const renderStep = (modalEl, index) => {
+    const step = steps[index];
+    const total = steps.length;
+    
+    const tagEl = modalEl.querySelector(".tour-tag");
+    const indicatorEl = modalEl.querySelector(".tour-indicator-text");
+    const titleEl = modalEl.querySelector(".tour-step-title");
+    const descEl = modalEl.querySelector(".tour-step-desc");
+    const dotsEl = modalEl.querySelector(".tour-dots");
+    const btnPrev = modalEl.querySelector("#tour-btn-prev");
+    const btnNext = modalEl.querySelector("#tour-btn-next");
+
+    if (tagEl) tagEl.textContent = step.tag || `Paso ${index + 1}`;
+    if (indicatorEl) indicatorEl.textContent = `${index + 1} de ${total}`;
+    if (titleEl) titleEl.textContent = step.title;
+    if (descEl) descEl.textContent = step.description;
+
+    if (dotsEl) {
+      dotsEl.innerHTML = steps.map((_, i) => 
+        `<span class="tour-dot ${i === index ? 'active' : ''}" data-step="${i}" title="${escapeHtml(steps[i].title)}"></span>`
+      ).join("");
+      dotsEl.querySelectorAll(".tour-dot").forEach(dot => {
+        dot.addEventListener("click", () => {
+          currentStep = parseInt(dot.dataset.step, 10);
+          renderStep(modalEl, currentStep);
+        });
+      });
+    }
+
+    if (btnPrev) {
+      btnPrev.disabled = index === 0;
+      btnPrev.style.visibility = index === 0 ? "hidden" : "visible";
+    }
+
+    if (btnNext) {
+      btnNext.textContent = (index === total - 1) ? "¡Entendido, empezar!" : "Siguiente";
+    }
+  };
+
+  const modal = openModal({
+    title: tourData.title || `Novedades de StreamDesk v${tourData.version}`,
+    description: "Estas son las mejoras y novedades destacadas de esta actualización:",
+    body: `
+      <div class="tour-card-body">
+        <div class="tour-header-meta">
+          <span class="tour-tag"></span>
+          <span class="tour-indicator-text"></span>
+        </div>
+        <h3 class="tour-step-title"></h3>
+        <p class="tour-step-desc"></p>
+        <div class="tour-dots-wrapper">
+          <div class="tour-dots"></div>
+        </div>
+      </div>
+    `,
+    actions: [
+      {
+        label: "Saltar tour",
+        kind: "secondary",
+        onClick: (m) => {
+          markCompleted();
+          m.close();
+        }
+      },
+      {
+        label: "Anterior",
+        kind: "secondary",
+        onClick: (m) => {
+          if (currentStep > 0) {
+            currentStep--;
+            renderStep(m.el, currentStep);
+          }
+        }
+      },
+      {
+        label: "Siguiente",
+        kind: "primary",
+        onClick: (m) => {
+          if (currentStep < steps.length - 1) {
+            currentStep++;
+            renderStep(m.el, currentStep);
+          } else {
+            markCompleted();
+            m.close();
+          }
+        }
+      }
+    ],
+    onMount: (m) => {
+      const buttons = m.el.querySelectorAll(".modal-actions button");
+      if (buttons[0]) buttons[0].id = "tour-btn-skip";
+      if (buttons[1]) buttons[1].id = "tour-btn-prev";
+      if (buttons[2]) buttons[2].id = "tour-btn-next";
+
+      renderStep(m.el, currentStep);
+    }
+  });
+
+  modal.onClose = () => {
+    markCompleted();
+  };
+
+  return modal;
+}
+
+async function maybeCheckOnboarding() {
+  try {
+    const data = await apiJson("/api/system/onboarding");
+    let localSeenVersion = "";
+    let localFirstRun = false;
+    try {
+      localSeenVersion = localStorage.getItem("streamdesk_last_seen_version") || "";
+      localFirstRun = localStorage.getItem("streamdesk_first_run_completed") === "1" || localStorage.getItem("streamdesk_welcome") === "1";
+    } catch (e) {}
+
+    // 1. First time ever opening app
+    if (data.show_welcome && !localFirstRun) {
+      openWelcome();
+      return;
+    }
+
+    // 2. Right after an update
+    if ((data.show_update_tour || localFirstRun) && localSeenVersion !== data.version) {
+      openUpdateTour(data.tour);
+      return;
+    }
+  } catch (e) {
+    try {
+      const seen = localStorage.getItem("streamdesk_welcome") === "1";
+      if (!seen) openWelcome();
+    } catch (err) {}
+  }
 }
 
 // ---------- Windows firewall: let the phone in ----------
@@ -660,7 +839,7 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-allow-firewall")?.addEventListener("click", allowPhoneThroughFirewall);
   refreshFirewall().then(collapsePairingWhenDone);
   setInterval(refreshFirewall, 20000);
-  setTimeout(maybeShowWelcome, 700);
+  setTimeout(maybeCheckOnboarding, 700);
 });
 
 // ---------- Right panel width: drag its edge, or use the expand button; the choice is remembered ----------

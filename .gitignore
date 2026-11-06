@@ -13,3 +13,4 @@ dist/
 instalador_streamdeck.exe
 instalador_streamdeck.exe.sha256
 config/
+webview_data/

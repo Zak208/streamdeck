@@ -37,6 +37,7 @@ else:
 # Import server
 import uvicorn
 from server.main import app, PORT, auth_manager
+from server.paths import DATA_DIR, CONFIG_DIR, VERSION
 from server.ssl_helper import ensure_ssl_certificates
 import webview
 
@@ -108,7 +109,18 @@ def main():
         background_color="#070a10"
     )
 
-    webview.start(icon=icon_path, debug=False)
+    webview_data_dir = os.path.join(DATA_DIR, "webview_data")
+    try:
+        os.makedirs(webview_data_dir, exist_ok=True)
+    except Exception:
+        pass
+
+    webview.start(
+        icon=icon_path,
+        debug=False,
+        private_mode=False,
+        storage_path=webview_data_dir,
+    )
     sys.exit(0)
 
 if __name__ == "__main__":

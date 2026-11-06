@@ -717,3 +717,71 @@ a.template-card { text-decoration: none; color: inherit; }
 .prog-head .prog-back { margin-bottom: 0; }
 .picker-body { height: min(56vh, 520px); max-height: none; overflow-y: auto; }
 .picker-tab { white-space: nowrap; }
+
+
+/* ---------- Tour de novedades y actualizacion ---------- */
+.tour-card-body {
+  padding: 4px 0 12px;
+}
+.tour-header-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.tour-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  color: var(--accent);
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.tour-indicator-text {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 500;
+}
+.tour-step-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-1, #f1f5f9);
+  margin: 0 0 10px 0;
+  line-height: 1.4;
+}
+.tour-step-desc {
+  font-size: 13px;
+  color: var(--text-2, #94a3b8);
+  line-height: 1.65;
+  margin: 0 0 18px 0;
+  min-height: 72px;
+}
+.tour-dots-wrapper {
+  display: flex;
+  justify-content: center;
+  padding-top: 6px;
+}
+.tour-dots {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.tour-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line-strong, #334155);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.tour-dot.active {
+  width: 24px;
+  border-radius: 4px;
+  background: var(--accent, #6366f1);
+}

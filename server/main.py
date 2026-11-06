@@ -1013,6 +1013,63 @@ def update_status(_: None = Depends(require_local_request)):
     return updater.updater.status()
 
 
+# --- Onboarding & Guided Tour ---
+
+def get_version_changelog(version: str) -> Dict[str, Any]:
+    return {
+        "version": version,
+        "title": f"Novedades de StreamDesk v{version}",
+        "steps": [
+            {
+                "title": "Conexión Móvil Instantánea y PWA",
+                "tag": "Móvil & PWA",
+                "icon": "phone",
+                "description": "Tu móvil ahora conecta de forma directa e inmediata por HTTP en el puerto 48291. Sin advertencias de certificados SSL ni bloqueos de protocolo. Además, puedes añadirlo a la pantalla de inicio desde Chrome o Safari para usarlo a pantalla completa como una app nativa.",
+            },
+            {
+                "title": "14 Nuevos Programas y Packs Integrados",
+                "tag": "Apps & Biblioteca",
+                "icon": "grid",
+                "description": "Detección y control automático para 14 programas esenciales: OBS Studio, Discord, Voicemeeter, Twitch, Steam, CapCut PC, GIMP, Obsidian, Windows Terminal, GitHub Desktop, Brave Browser, Opera GX, Telegram y WhatsApp.",
+            },
+            {
+                "title": "Máxima Estabilidad, Seguridad y Rendimiento",
+                "tag": "Rendimiento & Seguridad",
+                "icon": "shield",
+                "description": "Telemetría GPU blindada contra cuelgues en controladores NVIDIA, rotación inteligente de registros de error para cuidar tu disco, protección anti-SSRF y guardado atómico de configuraciones.",
+            },
+        ],
+    }
+
+
+@app.get("/api/system/onboarding")
+def get_onboarding_status(_: None = Depends(require_local_request)):
+    app_settings = settings.get("app")
+    last_seen = str(app_settings.get("last_seen_version") or "")
+    first_run_completed = bool(app_settings.get("first_run_completed", False))
+
+    show_welcome = not first_run_completed
+    show_update_tour = first_run_completed and (last_seen != VERSION)
+
+    return {
+        "version": VERSION,
+        "first_run_completed": first_run_completed,
+        "last_seen_version": last_seen,
+        "show_welcome": show_welcome,
+        "show_update_tour": show_update_tour,
+        "tour": get_version_changelog(VERSION),
+    }
+
+
+@app.post("/api/system/onboarding/complete")
+def complete_onboarding(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    settings.update("app", {
+        "first_run_completed": True,
+        "last_seen_version": VERSION,
+    })
+    return {"success": True, "version": VERSION}
+
+
 # --- WebSocket Channel ---
 
 _page_history: list = []  # pages left through a page button, newest last: what "Volver" goes back to
