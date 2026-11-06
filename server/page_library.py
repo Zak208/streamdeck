@@ -10,7 +10,7 @@ the helpers below. Shortcuts of a program go to the window that has the focus: t
 page is the one showing, which is exactly what `app` arranges.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 ACCENT = "#f8c700"
 ICON = "/static/icons/"
@@ -46,13 +46,17 @@ def fader(label: str, sub: str, icon: str, color: str, slider_type: str = "app_d
 
 MASTER = fader("Master", "PC", "volume_up", ACCENT, "master")
 
-CATEGORIES = ["Para empezar", "Música", "Directo y voz", "Reuniones", "Vídeo, fotos y audio", "Navegador", "Windows"]
+CATEGORIES = ["Para empezar", "Diseños", "Música", "Directo y voz", "Comunicación", "Vídeo y audio", "Foto y diseño",
+              "Navegador y Google", "Oficina", "Desarrollo", "Windows y sistema"]
 
 
 def page(id: str, name: str, category: str, icon: str, description: str, buttons: List[KeySpec], faders: List[Dict[str, Any]],
-         app_exe: Optional[str] = None) -> Dict[str, Any]:
+         app_exe: Optional[str] = None, grid: Optional[Tuple[int, int]] = None, fader_span: Optional[int] = None) -> Dict[str, Any]:
+    """`grid` is (rows, columns) for a page that has its own size: the faders take the last columns, `fader_span`
+    rows tall (all the rows by default), and the keys fill the rest, row by row. Without it, the page is the
+    original 6x2 deck (keys on cells 0-3 and 6-9, faders on columns 5 and 6)."""
     return {"id": id, "name": name, "category": category, "icon": f"{ICON}{icon}.svg", "description": description,
-            "buttons": buttons, "faders": faders, "app": app_exe}
+            "buttons": buttons, "faders": faders, "app": app_exe, "grid": grid, "fader_span": fader_span}
 
 
 LIBRARY: List[Dict[str, Any]] = [
@@ -218,6 +222,72 @@ LIBRARY: List[Dict[str, Any]] = [
           app("Tareas", "Administrador", "sliders", ACCENT, "taskmgr")],
          [MASTER]),
 ]
+
+
+# ---- the categories of the program packs, for the curated pages above
+_RECATEGORIZE = {
+    "zoom": "Comunicación", "teams": "Comunicación", "meet": "Navegador y Google", "vlc": "Vídeo y audio", "resolve": "Vídeo y audio",
+    "audacity": "Vídeo y audio", "powerpoint": "Oficina", "photoshop": "Foto y diseño", "chrome": "Navegador y Google",
+    "edge": "Navegador y Google", "windows": "Windows y sistema", "editing": "Windows y sistema", "monitors": "Windows y sistema",
+}
+for _entry in LIBRARY:
+    _entry["category"] = _RECATEGORIZE.get(_entry["id"], _entry["category"])
+
+# ---- layouts that only make sense at another size (each page can have its own)
+LIBRARY += [
+    page("mixer", "Mesa de mezclas", "Diseños", "sliders",
+         "Cuatro faders altos (volumen del PC, Discord, Spotify y Chrome) y seis teclas de control. Para cuadrícula de 6x3.",
+         ["windows:mic_mute", media("Silenciar PC", "mute", "mute"), media("Play/Pausa", "play_pause", "play_pause"),
+          media("Anterior", "prev", "prev"), media("Siguiente", "next", "next"), "discord:mute"],
+         [MASTER, fader("Discord", "Voz", "discord", "#5865f2", target_app="Discord.exe"),
+          fader("Spotify", "App", "spotify", "#1db954", target_app="Spotify.exe"), fader("Chrome", "Web", "chrome", "#ea4335", target_app="chrome.exe")],
+         grid=(3, 6)),
+    page("streamer_xl", "Streamer 4x3", "Diseños", "broadcast",
+         "Doce teclas sin faders: OBS (grabar, directo, pausa, cámara virtual, escenas, repetición), micrófono, Discord y captura.",
+         ["obs:record", "obs:stream", "obs:pause", "obs:virtualcam", "obs:prev_scene", "obs:next_scene", "obs:replay_save",
+          "windows:mic_mute", "discord:mute", "discord:deafen", "windows:screenshot", media("Play/Pausa", "play_pause", "play_pause")],
+         [], grid=(3, 4)),
+    page("remote", "Mando multimedia", "Diseños", "play_pause",
+         "Ocho teclas para el reproductor y el volumen de Windows, en una cuadrícula compacta de 4x2.",
+         [media("Play/Pausa", "play_pause", "play_pause"), media("Anterior", "prev", "prev"), media("Siguiente", "next", "next"),
+          media("Parar", "stop", "pause"), "windows:vol_down", "windows:vol_up", media("Silenciar", "mute", "mute"),
+          app("Spotify", "Abrir", "spotify", "#1db954", "spotify")],
+         [], grid=(2, 4)),
+    page("big_keys", "Teclas grandes", "Diseños", "gamepad",
+         "Solo seis teclas grandes, fáciles de acertar sin mirar: micrófono, Discord, grabar, música, captura y bloquear.",
+         ["windows:mic_mute", "discord:mute", "obs:record", media("Play/Pausa", "play_pause", "play_pause"),
+          "windows:screenshot", "windows:lock_pc"],
+         [], grid=(2, 3)),
+    page("faders_only", "Solo volumen", "Diseños", "fader",
+         "Cuatro faders a toda altura para ajustar el sonido del PC, Discord, música y el navegador, y nada más.",
+         [], [MASTER, fader("Discord", "Voz", "discord", "#5865f2", target_app="Discord.exe"),
+              fader("Spotify", "App", "spotify", "#1db954", target_app="Spotify.exe"), fader("Chrome", "Web", "chrome", "#ea4335", target_app="chrome.exe")],
+         grid=(2, 4)),
+]
+
+# ---- one page per program of the packs (those that do not have a curated page): its most used shortcuts
+def _pages_from_packs() -> List[Dict[str, Any]]:
+    from server import program_packs
+    taken = {entry["id"] for entry in LIBRARY}
+    audio_categories = {"Navegador y Google", "Vídeo y audio", "Comunicación"}
+    pages = []
+    for pack in program_packs.PACKS:
+        if pack["id"] in taken or len(pack["actions"]) < 8:
+            continue
+        wide = len(pack["actions"]) >= 12  # 4 columns of keys and a tall fader on 3 rows, or on 2 rows with fewer keys
+        keys = pack["actions"][:12 if wide else 8]
+        faders = [MASTER]
+        if pack["exe"] and pack["category"] in audio_categories:
+            faders = [fader(pack["name"], "App", pack["icon"], pack["color"], target_app=pack["exe"]), MASTER]
+        description = f"Los atajos más usados de {pack['name']}." + (f" Se abre sola cuando {pack['name']} está a la vista." if pack["exe"] else "")
+        pages.append(page(
+            pack["id"], pack["name"], pack["category"], pack["icon"], description,
+            [hotkey(a["label"], a["sub"], a["keys"], a["icon"], pack["color"]) for a in keys], faders,
+            pack["exe"] or None, grid=(3 if wide else 2, 5 if len(faders) == 1 else 6), fader_span=3 if wide else 2))
+    return pages
+
+
+LIBRARY += _pages_from_packs()
 
 
 def by_id() -> Dict[str, Dict[str, Any]]:

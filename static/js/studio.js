@@ -2,9 +2,11 @@
 let config = null;
 
 // Size of the deck, from the profile (older profiles have no layout: 2 rows of 6).
-function gridCols() { return config?.layout?.columns || 6; }
-function gridRows() { return config?.layout?.rows || 2; }
-function gridTotal() { return config?.layout?.total_slots || gridCols() * gridRows(); }
+// Each page has its own size (older profiles: the profile's). These read the page being edited.
+function pageLayout(index = activePageIndex) { return config?.pages?.[index]?.layout || config?.layout; }
+function gridCols() { return pageLayout()?.columns || 6; }
+function gridRows() { return pageLayout()?.rows || 2; }
+function gridTotal() { return pageLayout()?.total_slots || gridCols() * gridRows(); }
 // A fader starts on the first row of its column and is `row_span` rows tall (2 unless set). True when this cell is part of one.
 function faderSpan(slot) {
   const span = Number(slot?.row_span);
@@ -652,10 +654,11 @@ function setDragGhost(event, kind, data, size) {
 
 // The tiles of "Añadir" show a key and a fader exactly as they will look once dropped.
 function renderPalettePreviews() {
+  // Each control inside the same stage, at its own proportions: both tiles end up the same size.
   const key = document.querySelector(".palette-preview-key");
-  if (key) key.innerHTML = keycapHtml(NEW_BUTTON);
+  if (key) key.innerHTML = `<span class="palette-box palette-box-key">${keycapHtml(NEW_BUTTON)}</span>`;
   const fader = document.querySelector(".palette-preview-fader");
-  if (fader) fader.innerHTML = faderHtml(newMasterFader(0), 60);
+  if (fader) fader.innerHTML = `<span class="palette-box palette-box-fader">${faderHtml(newMasterFader(0), 60)}</span>`;
 }
 renderPalettePreviews();
 
@@ -1361,7 +1364,7 @@ function openActionPicker(btn, index, startTab = "apps", session = null) {
   pickerSession = session;
   // Choosing for a gesture must not be narrowed to the app this key opens, nor place sounds on the key itself.
   const scopeBtn = session ? { action_type: "none" } : btn;
-  const tabs = [["apps", "Abrir una app"], ["programs", "Acciones de un programa"], ["shortcuts", "Atajos y texto"], ["system", "Sistema"]];
+  const tabs = [["apps", "Abrir una app"], ["programs", "Programas"], ["shortcuts", "Atajos y texto"], ["system", "Sistema"]];
   let current = startTab;
   const modal = openModal({
     title: session?.title || "Elegir qué hace este botón",
@@ -1385,7 +1388,7 @@ function openActionPicker(btn, index, startTab = "apps", session = null) {
 
   const hints = {
     apps: "Solo abre el programa que elijas.",
-    programs: "Acciones dentro de un programa (silenciar, cambiar de escena, poner un sonido...). Si este botón abre una app, solo ves las de esa app.",
+    programs: "Acciones dentro de un programa: OBS, Discord, Spotify y Windows (conectados), y los atajos de más de 30 programas (VLC, DaVinci, Excel, Chrome...). Los atajos van a la ventana que esté a la vista: el programa tiene que estar delante.",
     shortcuts: "Pulsa teclas, escribe un texto, abre una web o una carpeta, o encadena varias acciones.",
     system: "Volumen, bloqueo del PC, comandos de consola, monitores del PC y navegación entre páginas.",
   };
@@ -1427,13 +1430,122 @@ function openActionPicker(btn, index, startTab = "apps", session = null) {
     const host = document.createElement("div");
     body.appendChild(host);
     if (tab === "apps") renderTabApps(host, scopeBtn, index);
-    else if (tab === "programs") renderTabConnectors(host, scopeBtn, index, Boolean(session));
+    else if (tab === "programs") renderTabPrograms(host, scopeBtn, index, Boolean(session));
     else if (tab === "shortcuts") libraryGroups(["Sistema", "Reuniones", "Vídeo", "Creación", "Navegador", "Atajos de Windows", "Edición", "Música"], host);
     else libraryGroups(["Windows", "Páginas", "Multimedia", "Monitores", "Contadores", "Conexiones web"], host);
   };
   modal.el.querySelectorAll(".picker-tab").forEach(b => b.addEventListener("click", () => show(b.dataset.pickerTab)));
   show(startTab);
   return modal;
+}
+
+// The programs tab: the connected programs (OBS, Discord, Spotify, Windows) and the shortcuts of many more,
+// by program. A program opens to its actions; "Programas" goes back to the list.
+let programCatalog = null;
+const CONNECTOR_CARDS = [
+  { id: "obs", name: "OBS Studio", sub: "Escenas, grabar, directo, filtros, volumen...", icon: "/static/icons/obs.svg", actionType: "obs_action" },
+  { id: "discord", name: "Discord", sub: "Silenciar, ensordecer y soundboard", icon: "/static/icons/discord.svg", actionType: "discord_hotkey" },
+  { id: "spotify", name: "Spotify", sub: "Playlists y canciones", icon: "/static/icons/spotify.svg", actionType: "spotify_uri" },
+  { id: "windows", name: "Windows", sub: "Micrófono, energía, pantallas, volumen, captura", icon: "/static/icons/volume_up.svg", actionType: "windows" },
+];
+
+function renderTabPrograms(host, btn, index, pick) {
+  host.innerHTML = `
+    <input type="search" id="prog-search" placeholder="Buscar un programa: VLC, Excel, DaVinci, Chrome..." aria-label="Buscar un programa">
+    <div id="prog-body"><div class="empty-note">Cargando programas...</div></div>`;
+  const body = host.querySelector("#prog-body");
+  const search = host.querySelector("#prog-search");
+  let packs = [];
+
+  const showConnector = (card) => {
+    search.hidden = true;
+    body.innerHTML = `<button type="button" class="btn-secondary prog-back" data-back>← Programas</button><div id="prog-connector"></div>`;
+    body.querySelector("[data-back]").addEventListener("click", showList);
+    // The connectors panel, narrowed to this connector by the type of action it would run.
+    openConnectorId = card.id;
+    renderTabConnectors(body.querySelector("#prog-connector"), { action_type: card.actionType }, index, pick);
+  };
+
+  const showPack = (pack) => {
+    search.hidden = false;
+    search.value = "";
+    const draw = (term) => {
+      const t = term.trim().toLowerCase();
+      const actions = pack.actions.filter(a => !t || `${a.label} ${a.sub}`.toLowerCase().includes(t));
+      body.querySelector("#prog-actions").innerHTML = actions.length ? actions.map(a => `
+        <button type="button" class="picker-item" data-action="${escapeHtml(a.id)}">
+          <img src="/static/icons/${escapeHtml(a.icon)}.svg" alt=""><div><strong>${escapeHtml(a.label)}</strong><span>${escapeHtml(a.sub)}</span></div>
+        </button>`).join("") : `<div class="empty-note">Ninguna acción coincide.</div>`;
+    };
+    body.innerHTML = `
+      <div class="prog-head">
+        <button type="button" class="btn-secondary prog-back" data-back>← Programas</button>
+        <strong>${escapeHtml(pack.name)}</strong>
+      </div>
+      <p class="integration-hint">Atajos de teclado de ${escapeHtml(pack.name)}: van a la ventana que esté en primer plano, así que ${escapeHtml(pack.name)} tiene que estar a la vista. Son los atajos que trae por defecto; si los cambiaste en el programa, edítalos en la casilla.</p>
+      <div class="picker-items" id="prog-actions"></div>`;
+    body.querySelector("[data-back]").addEventListener("click", showList);
+    body.querySelector("#prog-actions").addEventListener("click", (event) => {
+      const chosen = pack.actions.find(a => a.id === event.target.closest("[data-action]")?.dataset.action);
+      if (!chosen) return;
+      assignFromTemplate(btn, index, {
+        label: chosen.label, sublabel: chosen.sub, icon: `/static/icons/${chosen.icon}.svg`, color: pack.color,
+        action_type: "hotkey", target: chosen.keys, extra: {},
+      });
+    });
+    draw("");
+    search.oninput = (event) => draw(event.target.value);
+  };
+
+  const showList = () => {
+    search.hidden = false;
+    const draw = (term) => {
+      const t = term.trim().toLowerCase();
+      const connectors = CONNECTOR_CARDS.filter(c => !t || `${c.name} ${c.sub}`.toLowerCase().includes(t));
+      const groups = (programCatalog?.categories || []).map(category => ({
+        category, items: packs.filter(p => p.category === category && (!t || `${p.name} ${p.id}`.toLowerCase().includes(t))),
+      })).filter(g => g.items.length);
+      body.innerHTML = [
+        connectors.length ? `<div class="picker-category">Conectados a StreamDesk</div><div class="apps-cards-grid">${connectors.map(c => `
+          <div class="app-card-item" role="button" tabindex="0" data-connector="${c.id}">
+            <div class="app-card-left"><img src="${c.icon}" class="app-card-icon" alt=""><div><div class="app-card-name">${escapeHtml(c.name)}</div><div class="app-card-cat">${escapeHtml(c.sub)}</div></div></div>
+            <span class="app-card-badge">Conectar</span></div>`).join("")}</div>` : "",
+        ...groups.map(g => `<div class="picker-category">${escapeHtml(g.category)}</div><div class="apps-cards-grid">${g.items.map(p => `
+          <div class="app-card-item" role="button" tabindex="0" data-pack="${escapeHtml(p.id)}">
+            <div class="app-card-left"><img src="/static/icons/${escapeHtml(p.icon)}.svg" class="app-card-icon" alt="" style="background: ${escapeHtml(p.color)}33"><div><div class="app-card-name">${escapeHtml(p.name)}</div><div class="app-card-cat">${p.actions.length} atajos</div></div></div>
+            <span class="app-card-badge">Ver</span></div>`).join("")}</div>`),
+      ].join("") || `<div class="empty-note">Ningún programa coincide.</div>`;
+    };
+    draw(search.value || "");
+    search.oninput = (event) => draw(event.target.value);
+  };
+
+  body.addEventListener("click", (event) => {
+    const card = event.target.closest("[data-connector], [data-pack]");
+    if (!card) return;
+    if (card.dataset.connector) showConnector(CONNECTOR_CARDS.find(c => c.id === card.dataset.connector));
+    else showPack(packs.find(p => p.id === card.dataset.pack));
+  });
+  body.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      const card = event.target.closest("[data-connector], [data-pack]");
+      if (card) { event.preventDefault(); card.click(); }
+    }
+  });
+
+  (async () => {
+    try {
+      programCatalog ??= await apiJson("/api/programs");
+    } catch (err) {
+      body.innerHTML = `<div class="empty-note">No se pudo cargar la lista de programas (${escapeHtml(err.message)}).</div>`;
+      return;
+    }
+    packs = programCatalog.programs;
+    // A key that opens one of these programs goes straight to its actions.
+    const own = !pick && ["preset_app", "launch"].includes(btn.action_type) ? packs.find(p => p.id === String(btn.target || "").toLowerCase()) : null;
+    const ownConnector = !pick && CONNECTOR_CARDS.find(c => c.id === String(btn.target || "").toLowerCase() && ["preset_app", "launch"].includes(btn.action_type));
+    if (own) showPack(own); else if (ownConnector) showConnector(ownConnector); else showList();
+  })();
 }
 
 // Apps installed on this PC, found by the scanner. One click links the button.
@@ -1736,69 +1848,58 @@ let discordSounds = null;
 
 function renderDiscordSounds(area, ctx) {
   const sections = [...new Set(discordSounds.map(s => s.section))];
-  const current = discordSounds.find(s => s.current)?.section || sections[0];
+  const currentSection = discordSounds.find(s => s.current)?.section || "";
   const cached = discordSounds.find(s => s.cached);
+  const picked = new Map(sections.map(name => [name, new Set()]));
+  const actionOf = (sound) => ({ action_type: "discord_sound", target: sound.label, extra: { section: sound.section } });
+  const soundsOf = (server) => discordSounds.filter(s => s.section === server);
+  const pickedSounds = (server) => soundsOf(server).filter(s => picked.get(server).has(s.label));
+
   area.innerHTML = `
     ${cached ? `<div class="inspector-note dc-cache-note"><strong>Sonidos guardados${cached.scanned_at ? ` el ${escapeHtml(cached.scanned_at)}` : ""}.</strong>
       ${cached.reason ? escapeHtml(cached.reason) : "Discord no se ha leído ahora."} Puedes elegirlos y asignarlos igualmente; se reproducen cuando estés en un canal de voz. Entra en uno y pulsa «Actualizar mis sonidos» para refrescar la lista.</div>` : ""}
-    <label for="dc-guild">Sonidos de este servidor</label>
-    <select id="dc-guild">${sections.map(name => `<option value="${escapeHtml(name)}" ${name === current ? "selected" : ""}>${escapeHtml(name)}${name === current ? " (donde estás)" : ""}</option>`).join("")}</select>
-    <div class="option-list" id="dc-sounds"></div>
-    <div class="dc-multi" id="dc-multi">
-      <button class="btn-primary" id="dc-make-page" disabled></button>
-      <button class="btn-secondary" id="dc-fill-cells" hidden></button>
-      <button class="btn-secondary" id="dc-one-button" hidden></button>
-    </div>
-    <p class="integration-hint">Marca los sonidos que quieras de este servidor (hasta ${gridTotal()}). Con varios marcados puedes crear una página que se abre sola cuando entras a un canal de voz de ese servidor, repartirlos en casillas libres desde la que has elegido, o juntarlos en un solo botón que los reproduce en orden.</p>`;
-  const select = area.querySelector("#dc-guild");
-  const list = area.querySelector("#dc-sounds");
-  const makePage = area.querySelector("#dc-make-page");
-  const fillCells = area.querySelector("#dc-fill-cells");
-  const oneButton = area.querySelector("#dc-one-button");
-  const picked = new Map(sections.map(name => [name, new Set()]));
-  let shown = [];
+    <input type="search" id="dc-filter" placeholder="Buscar un sonido en todos tus servidores" aria-label="Buscar un sonido">
+    <div class="dc-servers" id="dc-servers"></div>
+    <p class="integration-hint">Pulsa un sonido para marcarlo (hasta ${gridTotal()} por servidor), o ▶ para oírlo y + para asignarlo a este botón. Con varios marcados puedes crear una página que se abre sola cuando entras a un canal de voz de ese servidor, repartirlos en casillas libres o juntarlos en un solo botón.</p>`;
+  const host = area.querySelector("#dc-servers");
+  const filter = area.querySelector("#dc-filter");
+  const openState = new Map(sections.map(name => [name, name === currentSection || sections.length === 1]));
 
-  const updateMakePage = () => {
-    const count = picked.get(select.value).size;
-    makePage.disabled = count === 0;
-    makePage.textContent = count === 0 ? "Marca sonidos para crear la página"
-      : count === 1 ? `Crear página de «${select.value}» con 1 sonido`
-      : `Crear página con estos sonidos (${count})`;
-    // Placing them elsewhere only makes sense with more than one: with a single sound use its «Asignar».
-    fillCells.hidden = oneButton.hidden = count < 2;
-    if (ctx.pick) { makePage.hidden = true; fillCells.hidden = true; }
-    fillCells.textContent = "Poner en casillas libres desde la elegida";
-    oneButton.textContent = "Un solo botón con todos en orden";
+  const draw = () => {
+    const term = filter.value.trim().toLowerCase();
+    host.innerHTML = sections.map(server => {
+      const all = soundsOf(server);
+      const shown = term ? all.filter(s => `${s.name} ${s.label}`.toLowerCase().includes(term)) : all;
+      if (!shown.length) return "";
+      const count = picked.get(server).size;
+      const open = term ? true : openState.get(server);
+      return `
+        <details class="dc-server" data-server="${escapeHtml(server)}" ${open ? "open" : ""}>
+          <summary><span class="dc-server-name">${escapeHtml(server)}</span>
+            ${server === currentSection ? `<span class="dc-here">donde estás</span>` : ""}
+            <span class="dc-count">${term ? `${shown.length} de ${all.length}` : all.length}${count ? ` · ${count} marcados` : ""}</span></summary>
+          <div class="dc-grid">${shown.map(sound => `
+            <div class="dc-tile ${picked.get(server).has(sound.label) ? "picked" : ""}" data-label="${escapeHtml(sound.label)}">
+              <button type="button" class="dc-tile-main" data-pick aria-pressed="${picked.get(server).has(sound.label)}" title="${escapeHtml(sound.label)}">
+                <span class="dc-emoji">${escapeHtml(sound.emoji || "🔊")}</span>
+                <span class="dc-name">${escapeHtml(sound.name)}</span>
+              </button>
+              <span class="dc-tile-tools">
+                <button type="button" data-test title="Probar este sonido" aria-label="Probar ${escapeHtml(sound.name)}">▶</button>
+                <button type="button" data-assign title="Asignarlo a este botón" aria-label="Asignar ${escapeHtml(sound.name)} a este botón">+</button>
+              </span>
+            </div>`).join("")}</div>
+          ${count ? `<div class="dc-bar">
+            <button type="button" class="btn-primary" data-make-page>${count === 1 ? `Crear página de «${escapeHtml(server)}» con 1 sonido` : `Crear página con estos sonidos (${count})`}</button>
+            ${count > 1 && !ctx.pick ? `<button type="button" class="btn-secondary" data-fill>Poner en casillas libres desde la elegida</button>
+            <button type="button" class="btn-secondary" data-one>Un solo botón con todos en orden</button>` : ""}
+          </div>` : ""}
+        </details>`;
+    }).join("") || `<div class="empty-note">Ningún sonido coincide.</div>`;
+    if (ctx.pick) host.querySelectorAll("[data-make-page]").forEach(b => { b.hidden = true; });
   };
-  const showSection = () => {
-    shown = discordSounds.filter(s => s.section === select.value);
-    list.innerHTML = shown.map((sound, i) => `
-      <div class="option-row">
-        <label class="inline-row" style="flex:1;min-width:0;align-items:center;gap:8px;margin:0">
-          <input type="checkbox" data-pick="${i}" ${picked.get(select.value).has(sound.label) ? "checked" : ""}>
-          <span>${escapeHtml(sound.label)}</span>
-        </label>
-        <span class="inline-row">
-          <button class="btn-secondary" data-test="${i}">Probar</button>
-          <button class="btn-primary" data-assign="${i}">Asignar</button>
-        </span>
-      </div>`).join("");
-    updateMakePage();
-  };
-  list.addEventListener("change", (event) => {
-    const box = event.target.closest("[data-pick]");
-    if (!box) return;
-    const set = picked.get(select.value);
-    const label = shown[Number(box.dataset.pick)].label;
-    if (box.checked && set.size >= gridTotal()) {
-      box.checked = false;
-      return showToast(`Una página tiene ${gridTotal()} casillas: quita algún sonido antes de añadir otro`);
-    }
-    if (box.checked) set.add(label); else set.delete(label);
-    updateMakePage();
-  });
-  const createPage = async (replace) => {
-    const server = select.value;
+
+  const createPage = async (server, replace) => {
     try {
       await flushSave();
       const result = await postJson("/api/discord/server-page", { server, sounds: [...picked.get(server)], replace });
@@ -1808,22 +1909,16 @@ function renderDiscordSounds(area, ctx) {
     } catch (err) {
       if (!replace && err.message.startsWith("Ya hay una página")) {
         const ok = await askConfirm({ title: "Reemplazar la página", message: `Ya tienes una página para «${server}». Se cambiarán sus botones por estos sonidos.`, confirmLabel: "Reemplazar" });
-        if (ok) await createPage(true);
+        if (ok) await createPage(server, true);
       } else {
         showToast(err.message);
       }
     }
   };
-  makePage.addEventListener("click", () => createPage(false));
-  const actionOf = (sound) => ({ action_type: "discord_sound", target: sound.label, extra: { section: sound.section } });
-  const pickedSounds = () => {
-    const labels = picked.get(select.value);
-    return discordSounds.filter(s => s.section === select.value && labels.has(s.label));
-  };
 
   // Each ticked sound becomes its own button, in order, from the chosen cell on. Filled cells and cells under a fader are skipped.
-  fillCells.addEventListener("click", () => {
-    const sounds = pickedSounds();
+  const fillCells = (server) => {
+    const sounds = pickedSounds(server);
     const slots = config.pages[activePageIndex].slots;
     let placed = 0;
     for (let i = ctx.index; i < gridTotal() && placed < sounds.length; i++) {
@@ -1843,14 +1938,14 @@ function renderDiscordSounds(area, ctx) {
     selectSlot(ctx.index);
     saveConfigToServer();
     showToast(left ? `${placed} sonidos puestos. ${left} no cabían en las casillas libres que quedan` : `${placed} sonidos puestos en casillas libres`);
-  });
+  };
 
   // One button that plays them one after another (a multi-action of at most 8 steps).
-  oneButton.addEventListener("click", () => {
-    const sounds = pickedSounds();
+  const oneButton = (server) => {
+    const sounds = pickedSounds(server);
     const steps = sounds.slice(0, 8);
     assignFromTemplate(ctx.btn, ctx.index, {
-      label: `${steps.length} sonidos`, sublabel: select.value, icon: "/static/icons/soundboard.svg", color: "#5865f2",
+      label: `${steps.length} sonidos`, sublabel: server, icon: "/static/icons/soundboard.svg", color: "#5865f2",
       action_type: "multi", target: "macro",
       extra: { actions: steps.map(sound => ({ ...actionOf(sound), delay_ms: 1500 })) },
     });
@@ -1858,47 +1953,82 @@ function renderDiscordSounds(area, ctx) {
     showToast(sounds.length > 8
       ? `Una multiacción admite 8 pasos: se usan los 8 primeros de los ${sounds.length} que marcaste`
       : `Botón con ${steps.length} sonidos en orden, 1,5 s entre uno y otro`);
-  });
-  list.addEventListener("click", (event) => {
-    const button = event.target.closest("button");
-    if (!button) return;
-    if (button.dataset.assign !== undefined) {
-      const sound = shown[Number(button.dataset.assign)];
+  };
+
+  host.addEventListener("toggle", (event) => {
+    const details = event.target.closest?.(".dc-server");
+    if (details && !filter.value.trim()) openState.set(details.dataset.server, details.open);
+  }, true);
+  filter.addEventListener("input", draw);
+  host.addEventListener("click", (event) => {
+    const details = event.target.closest(".dc-server");
+    if (!details) return;
+    const server = details.dataset.server;
+    const tile = event.target.closest(".dc-tile");
+    const sound = tile && soundsOf(server).find(s => s.label === tile.dataset.label);
+    if (event.target.closest("[data-pick]") && sound) {
+      const set = picked.get(server);
+      if (set.has(sound.label)) set.delete(sound.label);
+      else if (set.size >= gridTotal()) return showToast(`Una página tiene ${gridTotal()} casillas: quita algún sonido antes de añadir otro`);
+      else set.add(sound.label);
+      draw();
+    } else if (event.target.closest("[data-assign]") && sound) {
       assignFromTemplate(ctx.btn, ctx.index, {
         label: sound.name, sublabel: sound.section, icon: "/static/icons/soundboard.svg", color: "#5865f2", ...actionOf(sound),
       });
-    } else if (button.dataset.test !== undefined) {
+    } else if (event.target.closest("[data-test]") && sound) {
       withToast(async () => {
-        const result = await postJson("/api/actions/test", actionOf(shown[Number(button.dataset.test)]));
+        const result = await postJson("/api/actions/test", actionOf(sound));
         if (!result.success) throw new Error(result.error || "No se pudo reproducir");
       }, "Sonido enviado a tu canal de voz");
+    } else if (event.target.closest("[data-make-page]")) {
+      createPage(server, false);
+    } else if (event.target.closest("[data-fill]")) {
+      fillCells(server);
+    } else if (event.target.closest("[data-one]")) {
+      oneButton(server);
     }
   });
-  select.addEventListener("change", showSection);
-  showSection();
+  draw();
 }
 
 function connectorBodyDiscord(c, body, ctx) {
   const s = c.settings || {};
+  const method = s.method === "hotkey" ? "hotkey" : "button";
   body.innerHTML = `
     ${statusLine(c)}
+    <span class="section-label">Silenciar y ensordecer</span>
+    <label class="check-row"><input type="radio" name="dc-method" value="button" ${method === "button" ? "checked" : ""}> Pulsando el botón de Discord (recomendado)</label>
+    <label class="check-row"><input type="radio" name="dc-method" value="hotkey" ${method === "hotkey" ? "checked" : ""}> Con un atajo global que creas en Discord</label>
+    <p class="integration-hint" id="dc-method-hint">${method === "button"
+      ? "No hay que configurar nada, y la tecla se ilumina cuando estás silenciado. Discord tiene que estar abierto y a la vista (puede quedar detrás de otras ventanas, pero no minimizado)."
+      : "Funciona con Discord minimizado, pero tienes que crear en Discord un atajo para cada acción (pasos abajo)."}</p>
+    ${actionTilesHtml(c.actions)}
+    <div id="dc-hotkeys" ${method === "hotkey" ? "" : "hidden"}>
+      <label for="dc-mute">Atajo para silenciar</label>
+      <input id="dc-mute" type="text" maxlength="40" value="${escapeHtml(s.mute_hotkey)}">
+      <label for="dc-deafen">Atajo para ensordecer</label>
+      <input id="dc-deafen" type="text" maxlength="40" value="${escapeHtml(s.deafen_hotkey)}">
+      <button class="btn-primary" id="dc-save">Guardar atajos</button>
+      <ol class="setup-steps">
+        <li>En Discord abre Ajustes de usuario &gt; Atajos de teclado y pulsa Añadir un atajo.</li>
+        <li>Elige la acción "Alternar silenciar" (o "Alternar ensordecer") y pulsa la misma combinación que guardaste arriba.</li>
+      </ol>
+    </div>
     <span class="section-label">Soundboard de tus servidores</span>
-    <p class="integration-hint">StreamDesk lee el panel de sonidos de tu Discord y pulsa el sonido que elijas, igual que harías tú con el ratón. No usa tu cuenta ni bots. La primera lectura y cada reproducción necesitan Discord abierto (puede quedar detrás de otras ventanas, pero no minimizado) y tú dentro de un canal de voz, porque Discord solo ofrece ese panel en una llamada. Después de leerlos una vez, los sonidos quedan guardados y los puedes elegir sin estar en voz.</p>
+    <p class="integration-hint">StreamDesk lee el panel de sonidos de tu Discord y pulsa el sonido que elijas, como harías tú con el ratón. Por eso Discord debe estar abierto, sin minimizar, y tú dentro de un canal de voz: Discord solo ofrece ese panel en una llamada, y no permite reproducir sonidos desde fuera. Después de leerlos una vez, los sonidos quedan guardados y los puedes elegir sin estar en voz.</p>
+    <p class="integration-hint"><strong>Sin abrir el panel:</strong> si en Discord (Ajustes &gt; Atajos de teclado) puedes asignar un atajo a un sonido, pégalo en el botón del sonido («Atajo de este sonido»): se reproducirá pulsando solo esa tecla, con Discord en segundo plano.</p>
     <p class="integration-hint" id="dc-voice">Mirando en qué canal de voz estás...</p>
     <button class="btn-primary" id="dc-scan">${discordSounds && !discordSounds.some(x => x.cached) ? "Actualizar mis sonidos" : "Leer mis sonidos desde Discord"}</button>
-    <div id="dc-sounds-area"></div>
-    <span class="section-label">Silenciar y ensordecer</span>
-    <label for="dc-mute">Atajo para silenciar</label>
-    <input id="dc-mute" type="text" maxlength="40" value="${escapeHtml(s.mute_hotkey)}">
-    <label for="dc-deafen">Atajo para ensordecer</label>
-    <input id="dc-deafen" type="text" maxlength="40" value="${escapeHtml(s.deafen_hotkey)}">
-    <button class="btn-primary" id="dc-save">Guardar atajos</button>
-    ${actionTilesHtml(c.actions)}
-    <ol class="setup-steps">
-      <li>En Discord abre Ajustes de usuario &gt; Atajos de teclado y pulsa Añadir un atajo.</li>
-      <li>Elige la acción "Alternar silenciar" (o "Alternar ensordecer") y pulsa la misma combinación que guardaste arriba.</li>
-    </ol>`;
+    <div id="dc-sounds-area"></div>`;
   wireTiles(body, c.actions, ctx);
+  body.querySelectorAll('input[name="dc-method"]').forEach(radio => radio.addEventListener("change", () => withToast(async () => {
+    await connectorApi("/discord/configure", { method: radio.value });
+    body.querySelector("#dc-hotkeys").hidden = radio.value !== "hotkey";
+    body.querySelector("#dc-method-hint").textContent = radio.value === "button"
+      ? "No hay que configurar nada, y la tecla se ilumina cuando estás silenciado. Discord tiene que estar abierto y a la vista (puede quedar detrás de otras ventanas, pero no minimizado)."
+      : "Funciona con Discord minimizado, pero tienes que crear en Discord un atajo para cada acción (pasos abajo).";
+  }, radio.value === "button" ? "Silenciar y ensordecer pulsan el botón de Discord" : "Silenciar y ensordecer usan atajos")));
   body.querySelector("#dc-save").addEventListener("click", () => withToast(async () => {
     await connectorApi("/discord/configure", {
       mute_hotkey: body.querySelector("#dc-mute").value, deafen_hotkey: body.querySelector("#dc-deafen").value,

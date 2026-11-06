@@ -26,6 +26,15 @@ INFO = {
 DEFAULT_HOTKEYS = {"mute_hotkey": "CTRL+ALT+F9", "deafen_hotkey": "CTRL+ALT+F10"}
 
 
+METHODS = ("button", "hotkey")
+
+
+def method() -> str:
+    """How mute and deafen are done: pressing Discord's own buttons (nothing to set up), or its global shortcuts."""
+    saved = settings.get("discord").get("method")
+    return saved if saved in METHODS else "button"
+
+
 def hotkeys() -> Dict[str, str]:
     saved = settings.get("discord")
     return {key: saved.get(key) or default for key, default in DEFAULT_HOTKEYS.items()}
@@ -37,6 +46,10 @@ def _discord_running() -> bool:
 
 def configure(values: Dict[str, Any]) -> Dict[str, Any]:
     clean = {}
+    if "method" in values:
+        if values["method"] not in METHODS:
+            raise ValueError("Elige pulsar el botón de Discord o usar un atajo")
+        clean["method"] = values["method"]
     for key in DEFAULT_HOTKEYS:
         if key in values:
             clean[key] = validate_hotkey(values[key])
@@ -48,7 +61,7 @@ def configure(values: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def public_settings() -> Dict[str, Any]:
-    return hotkeys()
+    return {**hotkeys(), "method": method()}
 
 
 def status() -> Dict[str, Any]:

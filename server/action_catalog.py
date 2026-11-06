@@ -223,6 +223,9 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
         # target is the sound as the soundboard panel names it (emoji included); section is the server's tab.
         target_text = _text(target_text, "sonido de Discord", 80, allow_empty=False)
         clean_extra = {"section": _text(action_extra.get("section"), "servidor de Discord", 80, allow_empty=False)}
+        if action_extra.get("hotkey"):
+            # A shortcut the user gave to this sound in Discord: pressing it plays the sound without opening the panel.
+            clean_extra["hotkey"] = validate_hotkey(action_extra["hotkey"], require_modifier=False)
     elif action_type == "hotkey":
         target_text = validate_hotkey(target_text, require_modifier=False)
         clean_extra = {}
@@ -328,8 +331,9 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
     if not isinstance(raw_config, dict):
         raise ValueError("La configuración debe ser un objeto")
 
-    rows, columns = size_of(raw_config.get("layout"))
-    total_slots = rows * columns
+    # The size a page has when it does not say: the profile's default ("default_layout"; older profiles only have
+    # "layout", which then is the size of every page). A page can have its own size ("layout").
+    default_rows, default_columns = size_of(raw_config.get("default_layout") or raw_config.get("layout"))
 
     pages = raw_config.get("pages")
     if not isinstance(pages, list) or not 1 <= len(pages) <= 20:
@@ -351,6 +355,8 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
         auto_discord = ""
         if page.get("auto_discord"):
             auto_discord = _text(page["auto_discord"], "servidor de Discord de la página", 80, allow_empty=False)
+        rows, columns = size_of(page["layout"]) if page.get("layout") else (default_rows, default_columns)
+        total_slots = rows * columns
         slots = page.get("slots")
         if not isinstance(slots, list) or len(slots) != total_slots:
             raise ValueError(f"Cada página debe tener exactamente {total_slots} casillas")
@@ -466,7 +472,7 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
                     raise ValueError("Cada fader debe ocupar todas las casillas de su alto")
                 if not covered and cell["type"] == "occupied_by_slider":
                     raise ValueError("Una casilla ocupada necesita un fader encima")
-        clean_page: Dict[str, Any] = {"id": page_id, "name": page_name, "slots": clean_slots}
+        clean_page: Dict[str, Any] = {"id": page_id, "name": page_name, "layout": layout_dict(layout_name(rows, columns)), "slots": clean_slots}
         if auto_app:
             clean_page["auto_app"] = auto_app  # switch to this page when this program is in the foreground
         if auto_discord:
@@ -480,7 +486,9 @@ def validate_deck_config(raw_config: Any) -> Dict[str, Any]:
     return {
         "schema_version": 2,
         "deck_name": _text(raw_config.get("deck_name", "StreamDesk"), "nombre del deck", 48, allow_empty=False),
-        "layout": layout_dict(layout_name(rows, columns)),
+        # "layout" is the size of the page being shown: what the phone reads. Each page keeps its own.
+        "layout": copy.deepcopy(clean_pages[current_page]["layout"]),
+        "default_layout": layout_dict(layout_name(default_rows, default_columns)),
         "current_page": current_page,
         "pages": clean_pages,
         "slots": copy.deepcopy(clean_pages[current_page]["slots"]),

@@ -15,7 +15,7 @@ from server.action_catalog import (
     validate_hotkey,
 )
 from server import discord_ui, shell_actions, webhooks
-from server.connectors import spotify, windows
+from server.connectors import discord as discord_connector, spotify, windows
 from server.system_scanner import system_scanner
 
 
@@ -61,12 +61,14 @@ def send_hotkey(hotkey: str, require_modifier: bool = True) -> bool:
     try:
         user32 = ctypes.windll.user32
         presses = [(HOTKEY_VK[key], KEYEVENTF_EXTENDEDKEY if key in EXTENDED_KEYS else 0) for key in keys]
+        # With the scan code of each key (MapVirtualKey): a program that reads scan codes ignores a key that has none.
+        scans = {virtual_key: user32.MapVirtualKeyW(virtual_key, 0) for virtual_key, _ in presses}
         for virtual_key, flags in presses:
-            user32.keybd_event(virtual_key, 0, flags, 0)
+            user32.keybd_event(virtual_key, scans[virtual_key], flags, 0)
         # Hold the combination briefly: global shortcuts can miss a press that is released at once.
-        time.sleep(0.06)
+        time.sleep(0.08)
         for virtual_key, flags in reversed(presses):
-            user32.keybd_event(virtual_key, 0, flags | KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(virtual_key, scans[virtual_key], flags | KEYEVENTF_KEYUP, 0)
         return True
     except Exception as exc:
         print(f"Error sending hotkey {hotkey}: {exc}")
@@ -207,9 +209,22 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
         if action_type == "discord_hotkey":
             if target not in DISCORD_TARGETS:
                 return {"success": False, "error": "Acción de Discord no válida"}
+            if target in ("mute", "deafen") and discord_connector.method() == "button":
+                # Pressing Discord's own button needs no shortcut set up, and tells whether it is now on (the key lights up).
+                try:
+                    state = discord_ui.toggle_voice(target)
+                except discord_ui.DiscordUiError as exc:
+                    return {"success": False, "error": str(exc)}
+                result = {"success": True, "action": action_type, "target": target}
+                if state is not None:
+                    result["active"] = state
+                return result
             return {"success": send_hotkey(extra["hotkey"]), "action": action_type, "target": target}
 
         if action_type == "discord_sound":
+            if extra.get("hotkey"):
+                # The sound has its own shortcut in Discord: no window is touched, so it plays in the background.
+                return {"success": send_hotkey(extra["hotkey"], require_modifier=False), "action": action_type, "target": target}
             try:
                 discord_ui.play(extra["section"], target)
             except discord_ui.DiscordUiError as exc:

@@ -155,19 +155,41 @@ def convert_slots(slots: List[Dict[str, Any]], old: Tuple[int, int], new: Tuple[
     return [cell if cell is not None else {"index": i, "type": "empty"} for i, cell in enumerate(placed)], dropped
 
 
-def convert_config(config: Dict[str, Any], spec: Any) -> Tuple[Dict[str, Any], int]:
-    """A copy of the whole profile in another grid size, and the number of items that did not fit.
+def default_size(config: Dict[str, Any]) -> Tuple[int, int]:
+    """(rows, columns) a page has when it does not carry its own."""
+    return size_of(config.get("default_layout") or config.get("layout"))
 
-    `spec` is a quick-pick name or "<columns>x<rows>" or {"columns": n, "rows": n}."""
+
+def page_size(config: Dict[str, Any], page: Dict[str, Any]) -> Tuple[int, int]:
+    return size_of(page["layout"]) if page.get("layout") else default_size(config)
+
+
+def convert_config(config: Dict[str, Any], spec: Any, page_index: Any = None) -> Tuple[Dict[str, Any], int]:
+    """A copy of the profile in another grid size, and the number of items that did not fit.
+
+    `spec` is a quick-pick name or "<columns>x<rows>" or {"columns": n, "rows": n}. With `page_index` only that page
+    changes size; without it every page does, and the new size becomes the one new pages start with."""
     new_layout = layout_dict(spec)
-    old = size_of(config.get("layout"))
     new = (new_layout["rows"], new_layout["columns"])
     converted = copy.deepcopy(config)
+    pages = converted["pages"]
+    if page_index is not None and not (isinstance(page_index, int) and not isinstance(page_index, bool) and 0 <= page_index < len(pages)):
+        raise ValueError("Esa página no existe")
+    old_sizes = [page_size(config, page) for page in pages]
     dropped = 0
-    if old != new:
-        for page in converted["pages"]:
-            page["slots"], lost = convert_slots(page["slots"], old, new)
+    for index, page in enumerate(pages):
+        if page_index is not None and index != page_index:
+            page["layout"] = layout_dict({"rows": old_sizes[index][0], "columns": old_sizes[index][1]})  # keeps its own
+            continue
+        if old_sizes[index] != new:
+            page["slots"], lost = convert_slots(page["slots"], old_sizes[index], new)
             dropped += lost
-    converted["layout"] = new_layout
-    converted["slots"] = copy.deepcopy(converted["pages"][converted.get("current_page", 0)]["slots"])
+        page["layout"] = copy.deepcopy(new_layout)
+    if page_index is None:
+        converted["default_layout"] = copy.deepcopy(new_layout)
+    else:
+        converted["default_layout"] = layout_dict({"rows": default_size(config)[0], "columns": default_size(config)[1]})
+    current = pages[converted.get("current_page", 0)]
+    converted["layout"] = copy.deepcopy(current["layout"])
+    converted["slots"] = copy.deepcopy(current["slots"])
     return converted, dropped

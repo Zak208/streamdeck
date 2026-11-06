@@ -687,3 +687,75 @@ console.log(JSON.stringify(out));
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MuteAndDeafenTests(unittest.TestCase):
+    """Silenciar y ensordecer: pulsando los botones de Discord (sin atajos) o con el atajo global."""
+
+    def setUp(self):
+        from server.settings_store import settings
+        settings.clear("discord")
+        self.addCleanup(settings.clear, "discord")
+
+    def panel(self, extra=()):
+        class Window:
+            def _all(self_inner, control_type):
+                rows = [("Avatar", (-1140, 1338, -1090, 1370)), ("Silenciar", (-1080, 1338, -1048, 1370)),
+                        ("Ensordecer", (-1023, 1338, -991, 1370)), (discord_ui.USER_SETTINGS, (-966, 1338, -934, 1370)),
+                        ("Silenciar", (-673, 1330, -632, 1370))]  # the one in the call bar, far from the panel
+                return [(name, name, rect) for name, rect in rows + list(extra)]
+        return Window()
+
+    def test_the_buttons_are_found_by_position_next_to_the_settings_button(self):
+        mute, deafen = discord_ui._voice_buttons(self.panel())
+        self.assertEqual((mute[2][0], deafen[2][0]), (-1080, -1023))
+
+    def test_a_changed_name_does_not_matter(self):
+        window = self.panel()
+        rows = window._all(0)
+        renamed = [(e, "Quitar silencio" if r[0] == -1080 else n, r) for e, n, r in rows]
+        window._all = lambda control_type: renamed
+        mute, _ = discord_ui._voice_buttons(window)
+        self.assertEqual(mute[2][0], -1080)
+
+    def test_without_the_user_panel_the_reason_is_clear(self):
+        window = self.panel()
+        window._all = lambda control_type: [("x", "Otro botón", (0, 0, 10, 10))]
+        with self.assertRaises(DiscordUiError):
+            discord_ui._voice_buttons(window)
+
+    def test_the_default_is_to_press_discords_button_and_the_key_lights_with_its_state(self):
+        self.assertEqual(discord.method(), "button")
+        with mock.patch.object(discord_ui, "toggle_voice", return_value=True) as press, mock.patch.object(actions, "send_hotkey") as keys:
+            result = actions.execute_action("discord_hotkey", "mute", {"hotkey": "CTRL+ALT+F9"})
+        press.assert_called_once_with("mute")
+        keys.assert_not_called()
+        self.assertEqual((result["success"], result["active"]), (True, True))
+
+    def test_the_shortcut_method_still_sends_the_key(self):
+        discord.configure({"method": "hotkey"})
+        with mock.patch.object(discord_ui, "toggle_voice") as press, mock.patch.object(actions, "send_hotkey", return_value=True) as keys:
+            result = actions.execute_action("discord_hotkey", "deafen", {"hotkey": "CTRL+ALT+F10"})
+        press.assert_not_called()
+        keys.assert_called_once_with("CTRL+ALT+F10")
+        self.assertTrue(result["success"])
+
+    def test_a_discord_that_cannot_be_read_says_why(self):
+        with mock.patch.object(discord_ui, "toggle_voice", side_effect=DiscordUiError("Discord está minimizado.")):
+            result = actions.execute_action("discord_hotkey", "mute", {"hotkey": "CTRL+ALT+F9"})
+        self.assertEqual((result["success"], result["error"]), (False, "Discord está minimizado."))
+
+    def test_the_method_is_validated(self):
+        with self.assertRaises(ValueError):
+            discord.configure({"method": "telepatia"})
+
+    def test_a_sound_with_its_own_shortcut_plays_without_touching_the_window(self):
+        action = action_catalog.validate_action("discord_sound", "🚪 Tocar Puerta", {"section": "Casa", "hotkey": "ctrl+alt+1"})
+        self.assertEqual(action["extra"], {"section": "Casa", "hotkey": "CTRL+ALT+1"})
+        with mock.patch.object(discord_ui, "play") as panel, mock.patch.object(actions, "send_hotkey", return_value=True) as keys:
+            result = actions.execute_action("discord_sound", "🚪 Tocar Puerta", action["extra"])
+        panel.assert_not_called()
+        keys.assert_called_once_with("CTRL+ALT+1", require_modifier=False)
+        self.assertTrue(result["success"])
+        with self.assertRaises(ValueError):
+            action_catalog.validate_action("discord_sound", "x", {"section": "Casa", "hotkey": "NOPE+Ñ"})

@@ -107,13 +107,19 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(converted["slots"], converted["pages"][converted["current_page"]]["slots"])
 
 
+OWN_SIZE = {entry["id"] for entry in __import__("server.page_library", fromlist=["x"]).LIBRARY if entry["grid"]}
+
+
 class TemplateTests(unittest.TestCase):
     def test_templates_fit_every_layout(self):
         for name, size in layouts.LAYOUTS.items():
             for meta in templates.TEMPLATES:
                 with self.subTest(layout=name, template=meta["id"]):
                     page = templates.build_page(meta["id"], layout=size)
-                    check_page_shape(self, page["slots"], *size)
+                    # A page with a size of its own keeps it; the others adapt to the size they are added to.
+                    wanted = (meta["layout"]["rows"], meta["layout"]["columns"]) if meta["id"] in OWN_SIZE else size
+                    check_page_shape(self, page["slots"], *wanted)
+                    self.assertEqual(page["layout"], {"rows": wanted[0], "columns": wanted[1]})
 
     def test_a_discord_page_cannot_hold_more_sounds_than_cells(self):
         with self.assertRaises(ValueError):
@@ -278,3 +284,58 @@ class TallFaderTests(unittest.TestCase):
         self.assertEqual(validate_action("none", "", {}), {"action_type": "none", "target": "", "extra": {}})
         with self.assertRaises(ValueError):
             validate_action("multi", "m", {"actions": [{"action_type": "none", "target": "", "extra": {}}]})
+
+
+class PerPageSizeTests(unittest.TestCase):
+    def profile(self):
+        return default_profile()
+
+    def test_every_page_keeps_its_own_size_and_the_phone_reads_the_shown_one(self):
+        config = self.profile()
+        converted, dropped = layouts.convert_config(config, "4x3", 1)  # only the second page
+        self.assertEqual(converted["pages"][0]["layout"], {"rows": 2, "columns": 6, "total_slots": 12})
+        self.assertEqual(converted["pages"][1]["layout"], {"rows": 3, "columns": 4, "total_slots": 12})
+        self.assertEqual(len(converted["pages"][1]["slots"]), 12)
+        self.assertEqual(converted["default_layout"]["columns"], 6)  # new pages still start with the old size
+        self.assertEqual(converted["layout"]["columns"], 6)  # page 0 is the one shown
+        again = validate_deck_config(converted)
+        self.assertEqual([p["layout"]["columns"] for p in again["pages"]], [6, 4, 6][:len(again["pages"])])
+
+    def test_the_whole_profile_conversion_still_sets_the_default(self):
+        converted, _ = layouts.convert_config(self.profile(), "5x3")
+        self.assertTrue(all(p["layout"]["columns"] == 5 for p in converted["pages"]))
+        self.assertEqual(converted["default_layout"]["columns"], 5)
+        validate_deck_config(converted)
+
+    def test_a_page_with_a_size_must_have_that_many_slots(self):
+        config = self.profile()
+        config["pages"][0]["slots"] = [{"index": i, "type": "empty"} for i in range(12)]
+        config["pages"][0]["layout"] = {"rows": 3, "columns": 4}  # 12 slots: fits
+        validate_deck_config(config)
+        config["pages"][0]["layout"] = {"rows": 4, "columns": 4}  # 16: does not
+        with self.assertRaises(ValueError):
+            validate_deck_config(config)
+
+    def test_an_unknown_page_is_refused(self):
+        with self.assertRaises(ValueError):
+            layouts.convert_config(self.profile(), "4x3", 99)
+
+    def test_changing_the_shown_page_changes_what_the_phone_reads(self):
+        from server.config_manager import ConfigManager
+        manager = ConfigManager.__new__(ConfigManager)
+        config, _ = layouts.convert_config(self.profile(), "4x3", 1)
+        manager.config = validate_deck_config(config)
+        manager.last_error = ""
+        manager.save_config = lambda c: True
+        manager.set_active_page(1)
+        self.assertEqual(manager.config["layout"]["columns"], 4)
+        manager.set_active_page(0)
+        self.assertEqual(manager.config["layout"]["columns"], 6)
+
+    def test_an_older_profile_without_page_sizes_gets_them(self):
+        config = self.profile()
+        for page in config["pages"]:
+            page.pop("layout", None)
+        config.pop("default_layout", None)
+        checked = validate_deck_config(config)
+        self.assertTrue(all(page["layout"] == checked["layout"] for page in checked["pages"]))

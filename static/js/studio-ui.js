@@ -82,75 +82,35 @@ const postJson = (path, body) => apiJson(path, {
 // ---------- New page (blank or from a template) ----------
 
 async function openNewPageDialog() {
-  let data;
-  try {
-    data = await apiJson("/api/templates");
-  } catch (err) {
-    showToast(err.message);
-    return;
-  }
-  const { templates, categories } = data;
-  let category = "Todas";
-  let term = "";
-
-  // A thumbnail: the keys and faders of the page, drawn with their icon and colour.
-  const thumb = (t) => `
-    <span class="template-thumb" aria-hidden="true">${(t.preview || []).map(item => `
-      <span class="template-thumb-cell ${item.kind === "slider" ? "is-fader" : ""}"
-            style="--tc: ${escapeHtml(item.color || "#f8c700")}; grid-column: ${(item.index % 6) + 1}; grid-row: ${item.kind === "slider" ? "1 / span 2" : Math.floor(item.index / 6) + 1}">
-        <img src="${escapeHtml(item.image)}" alt="">
-      </span>`).join("")}</span>`;
-
   openModal({
     title: "Nueva página",
-    description: "Elige una página ya montada o empieza en blanco. Las de un programa se abren solas cuando ese programa está a la vista. Podrás cambiar cualquier botón después.",
+    description: "Ponle un nombre y empieza en blanco, o abre la biblioteca, que tiene decenas de páginas ya montadas.",
     body: `
-      <div class="dialog-field" style="margin-bottom: 12px;">
-        <label for="new-page-name" class="section-label" style="margin: 0;">Nombre</label>
-        <input type="text" id="new-page-name" maxlength="40" placeholder="Si lo dejas vacío usará el nombre de la página">
+      <div class="dialog-field" style="margin-bottom: 16px;">
+        <label for="new-page-name" class="section-label" style="margin: 0;">Nombre (opcional)</label>
+        <input type="text" id="new-page-name" maxlength="40" placeholder="Por ejemplo: Directo">
       </div>
-      <input type="search" id="template-search" placeholder="Buscar: Spotify, OBS, Zoom, atajos..." aria-label="Buscar una página">
-      <div class="template-filters" role="tablist" id="template-filters">
-        ${["Todas", ...categories].map(c => `<button type="button" class="template-filter ${c === category ? "active" : ""}" role="tab" data-category="${escapeHtml(c)}">${escapeHtml(c)}</button>`).join("")}
-      </div>
-      <div class="template-list" id="template-list"></div>`,
+      <div class="new-page-choices">
+        <button type="button" class="template-card" id="new-page-blank">
+          <span class="template-card-head"><img src="/static/icons/plus.svg" alt=""><strong>En blanco</strong></span>
+          <span class="template-desc">Una página vacía con el volumen de Windows, para montarla a tu manera.</span>
+        </button>
+        <a class="template-card" id="new-page-library" href="/library">
+          <span class="template-card-head"><img src="/static/icons/folder.svg" alt=""><strong>Abrir la biblioteca</strong></span>
+          <span class="template-desc">Spotify, OBS, Discord, Excel, Premiere, atajos de Windows y muchas más, cada una con su propio tamaño.</span>
+        </a>
+      </div>`,
     actions: [{ label: "Cancelar", kind: "secondary" }],
     onMount: (modal) => {
-      const list = modal.el.querySelector("#template-list");
-      const draw = () => {
-        const t = term.trim().toLowerCase();
-        const shown = templates.filter(x => (category === "Todas" || x.category === category)
-          && (!t || `${x.name} ${x.description} ${x.app || ""} ${x.category}`.toLowerCase().includes(t)));
-        list.innerHTML = shown.length ? shown.map(x => `
-          <button type="button" class="template-card" data-template="${escapeHtml(x.id)}">
-            <span class="template-card-head"><img src="${escapeHtml(x.icon)}" alt=""><strong>${escapeHtml(x.name)}</strong>
-              ${x.app ? `<small class="template-badge" title="Se abre sola cuando ${escapeHtml(x.app)} está a la vista">se abre sola</small>` : ""}</span>
-            ${thumb(x)}
-            <span class="template-desc">${escapeHtml(x.description)}</span>
-          </button>`).join("") : `<div class="empty-note">Ninguna página coincide.</div>`;
-      };
-      draw();
-      modal.el.querySelector("#template-search").addEventListener("input", (event) => { term = event.target.value; draw(); });
-      modal.el.querySelectorAll("[data-category]").forEach(button => button.addEventListener("click", () => {
-        category = button.dataset.category;
-        modal.el.querySelectorAll("[data-category]").forEach(b => b.classList.toggle("active", b === button));
-        draw();
-      }));
-      list.addEventListener("click", async (event) => {
-        const card = event.target.closest("[data-template]");
-        if (!card) return;
-        const template = templates.find(x => x.id === card.dataset.template);
-        const name = modal.el.querySelector("#new-page-name").value.trim() || template.name;
+      modal.el.querySelector("#new-page-blank").addEventListener("click", async () => {
+        const name = modal.el.querySelector("#new-page-name").value.trim() || "Página nueva";
         try {
           await flushSave();
-          const result = await postJson("/api/templates/apply", { template_id: template.id, name });
+          const result = await postJson("/api/templates/apply", { template_id: "blank", name });
           modal.close();
           await loadConfig();
           await switchPage(result.index);
-          const notes = [];
-          if (result.dropped) notes.push(`En esta cuadrícula no caben ${result.dropped} elementos de la plantilla`);
-          if (template.app && !result.auto_app) notes.push(`Ya había una página que se abre con ${template.app}: esta no se abre sola`);
-          showToast([`Página "${name}" creada`, ...notes].join(". "));
+          showToast(`Página "${name}" creada`);
         } catch (err) {
           showToast(err.message);
         }
@@ -329,22 +289,32 @@ function gridPresetLabel(p) {
 // Limits of a custom size; the server sends the real ones with GET /api/layouts.
 let gridLimits = { min_columns: 2, max_columns: 10, min_rows: 2, max_rows: 8, max_total: 64 };
 
+// The size controls work on one page (`pageIndex`) or, with null, on every page and on the size new pages start with.
+function sizeNow(pageIndex) {
+  if (pageIndex === null || pageIndex === undefined) return config?.default_layout || config?.layout || { columns: 6, rows: 2 };
+  return pageLayout(pageIndex) || { columns: 6, rows: 2 };
+}
+
 // `spec` is a preset name ("6x2") or { columns, rows }. `restore` puts the controls back if nothing changes.
-async function changeGridLayout(spec, restore) {
-  const current = `${gridCols()}x${gridRows()}`;
+async function changeGridLayout(spec, restore, pageIndex = null) {
+  const now = sizeNow(pageIndex);
+  const current = `${now.columns}x${now.rows}`;
   const body = typeof spec === "string" ? { layout: spec } : { columns: spec.columns, rows: spec.rows };
+  if (pageIndex !== null) body.page = pageIndex;
   const wanted = typeof spec === "string" ? spec : `${spec.columns}x${spec.rows}`;
   if (wanted === current) return restore?.();
   const confirmed = await askConfirm({
-    title: "Cambiar la cuadrícula",
-    message: "Cada botón conserva su fila y columna si existen en la nueva cuadrícula; si no, pasa a la primera casilla libre. Los faders ocupan siempre las dos primeras filas de su columna y, si pierden su columna, pasan a las de más a la derecha. Se guarda una copia del perfil anterior.",
+    title: pageIndex === null ? "Cambiar la cuadrícula de todas las páginas" : "Cambiar el tamaño de esta página",
+    message: "Cada botón conserva su fila y columna si existen en la nueva cuadrícula; si no, pasa a la primera casilla libre. Los faders conservan su alto, y si pierden su columna pasan a las de más a la derecha. Se guarda una copia del perfil anterior.",
     confirmLabel: "Cambiar",
   });
   if (!confirmed) return restore?.();
   try {
+    await flushSave();
     const result = await postJson("/api/layout", body);
+    const keepPage = activePageIndex;
     config = result.config;
-    activePageIndex = Math.min(config.current_page || 0, (config.pages || []).length - 1);
+    activePageIndex = pageIndex === null ? Math.min(config.current_page || 0, (config.pages || []).length - 1) : Math.min(keepPage, (config.pages || []).length - 1);
     selectedSlotIndex = null;
     renderPageTabs();
     renderPhoneScreen();
@@ -360,7 +330,7 @@ async function changeGridLayout(spec, restore) {
 }
 
 // The size controls of Ajustes: the presets, plus any columns x rows within the limits.
-function wireGridControls(root) {
+function wireGridControls(root, pageIndex = null) {
   const select = root.querySelector("#settings-grid");
   const columns = root.querySelector("#grid-cols");
   const rows = root.querySelector("#grid-rows");
@@ -369,9 +339,10 @@ function wireGridControls(root) {
   const customOption = `<option value="custom">Personalizada</option>`;
 
   const sync = () => {
-    const current = `${gridCols()}x${gridRows()}`;
-    columns.value = gridCols();
-    rows.value = gridRows();
+    const now = sizeNow(pageIndex);
+    const current = `${now.columns}x${now.rows}`;
+    columns.value = now.columns;
+    rows.value = now.rows;
     select.value = [...select.options].some(o => o.value === current) ? current : "custom";
     check();
   };
@@ -384,15 +355,16 @@ function wireGridControls(root) {
     else if (c * r > L.max_total) problem = `Como mucho ${L.max_total} casillas en total.`;
     hint.textContent = problem || `${c} columnas x ${r} filas = ${c * r} casillas`;
     hint.classList.toggle("command-warning", Boolean(problem));
-    apply.disabled = Boolean(problem) || `${c}x${r}` === `${gridCols()}x${gridRows()}`;
+    const now = sizeNow(pageIndex);
+    apply.disabled = Boolean(problem) || `${c}x${r}` === `${now.columns}x${now.rows}`;
   };
   columns.addEventListener("input", check);
   rows.addEventListener("input", check);
   select.addEventListener("change", () => {
     if (select.value === "custom") return columns.focus();
-    changeGridLayout(select.value, sync);
+    changeGridLayout(select.value, sync, pageIndex);
   });
-  apply.addEventListener("click", () => changeGridLayout({ columns: Number(columns.value), rows: Number(rows.value) }, sync));
+  apply.addEventListener("click", () => changeGridLayout({ columns: Number(columns.value), rows: Number(rows.value) }, sync, pageIndex));
 
   // Presets and limits come from the server; the built-in list is the fallback when it does not answer.
   apiJson("/api/layouts").then(data => {
@@ -412,11 +384,14 @@ function updateGridChip() {
   if (chip) chip.textContent = `${gridCols()}x${gridRows()} · ${gridTotal()} casillas`;
 }
 
-function gridControlsMarkup() {
+function gridControlsMarkup(pageIndex = null) {
+  const now = sizeNow(pageIndex);
   return `
-    <p class="modal-desc">Cuántos botones caben en cada página, en el móvil y aquí. Al cambiarla se convierten todas tus páginas.</p>
+    <p class="modal-desc">${pageIndex === null
+      ? "Cuántos botones caben en cada página, en el móvil y aquí. Al cambiarla se convierten todas tus páginas y las páginas nuevas empiezan con este tamaño."
+      : "Cuántos botones caben en esta página, en el móvil y aquí. Las demás páginas no cambian."}</p>
     <select id="settings-grid" aria-label="Tamaño de la cuadrícula">
-      ${GRID_PRESETS.map(p => `<option value="${p.id}" ${p.id === `${gridCols()}x${gridRows()}` ? "selected" : ""}>${gridPresetLabel(p)}</option>`).join("")}
+      ${GRID_PRESETS.map(p => `<option value="${p.id}" ${p.id === `${now.columns}x${now.rows}` ? "selected" : ""}>${gridPresetLabel(p)}</option>`).join("")}
       <option value="custom">Personalizada</option>
     </select>
     <div class="grid-custom">
@@ -428,11 +403,12 @@ function gridControlsMarkup() {
 }
 
 function openGridDialog() {
+  const pageIndex = activePageIndex; // the button above the preview resizes the page you are looking at
   const modal = openModal({
-    title: "Tamaño de la pantalla",
-    body: gridControlsMarkup(),
+    title: `Tamaño de «${config.pages[pageIndex]?.name || "esta página"}»`,
+    body: gridControlsMarkup(pageIndex),
     actions: [{ label: "Cerrar", kind: "primary" }],
-    onMount: (m) => wireGridControls(m.el),
+    onMount: (m) => wireGridControls(m.el, pageIndex),
   });
   return modal;
 }
@@ -458,7 +434,7 @@ function openSettings() {
         </div>
       </section>
       <section class="settings-section">
-        <h3>Cuadrícula</h3>
+        <h3>Cuadrícula de todas las páginas</h3>
         <p>Cuántos botones caben en cada página, en el móvil y aquí. Al cambiarla se convierten todas tus páginas: los botones que caben se quedan donde están y los faders conservan su alto desde la primera fila de su columna.</p>
         <select id="settings-grid" aria-label="Tamaño de la cuadrícula">
           ${GRID_PRESETS.map(p => `<option value="${p.id}" ${p.id === `${gridCols()}x${gridRows()}` ? "selected" : ""}>${gridPresetLabel(p)}</option>`).join("")}
@@ -615,12 +591,12 @@ function openWelcome() {
     body: `
       <ol class="steps-list">
         <li><strong>Enlaza tu móvil.</strong> Escanea el código QR del panel lateral con la cámara y escribe el PIN.</li>
-        <li><strong>Elige un punto de partida.</strong> Una plantilla (Streamer, Gamer, Trabajo) te da una página lista para usar.</li>
+        <li><strong>Elige un punto de partida.</strong> La biblioteca tiene decenas de páginas ya montadas (Streamer, Spotify, OBS, Excel...) para añadir con un clic.</li>
         <li><strong>Ajusta lo que quieras.</strong> Pulsa una casilla para cambiar su acción, conectar OBS, Spotify o Discord, o cambiar su aspecto.</li>
       </ol>`,
     actions: [
       { label: "Empezar sin plantilla", kind: "secondary" },
-      { label: "Elegir una plantilla", kind: "primary", onClick: (m) => { m.close(); openNewPageDialog(); } },
+      { label: "Abrir la biblioteca", kind: "primary", onClick: () => { location.href = "/library"; } },
     ],
   });
   modal.onClose = () => { try { localStorage.setItem("streamdesk_welcome", "1"); } catch (e) {} };

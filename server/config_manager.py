@@ -182,6 +182,8 @@ class ConfigManager:
         if 0 <= page_index < len(pages):
             self.config["current_page"] = page_index
             self.config["slots"] = pages[page_index]["slots"]
+            if pages[page_index].get("layout"):
+                self.config["layout"] = pages[page_index]["layout"]  # each page has its own size
             self.save_config(self.config)
             return True
         return False

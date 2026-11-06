@@ -40,7 +40,8 @@ class TemplateTests(unittest.TestCase):
                 profile = copy.deepcopy(DEFAULT_CONFIG)
                 profile["pages"] += [first, second]
                 checked = validate_deck_config(profile)  # raises on any unsafe or malformed slot
-                self.assertEqual(len(checked["pages"][-1]["slots"]), 12)
+                layout = checked["pages"][-1]["layout"]
+                self.assertEqual(len(checked["pages"][-1]["slots"]), layout["rows"] * layout["columns"])  # each page has its own size
 
     def test_blank_page_has_no_keys_only_the_windows_volume(self):
         page = templates.build_page("blank", "  Mi página ")
@@ -190,6 +191,36 @@ class StudioApiTests(unittest.TestCase):
         before = set(os.listdir(folder))
         manager._auto_backup()  # a copy was just made: no new one yet
         self.assertEqual(before, set(os.listdir(folder)))
+
+    def test_the_library_page_and_the_program_catalog_are_served(self):
+        request = urllib.request.Request(self.live.base_url + "/library")
+        with urllib.request.urlopen(request, timeout=10) as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn("Biblioteca de páginas", response.read().decode())
+        programs = self.call("/api/programs")[1]
+        self.assertGreaterEqual(len(programs["programs"]), 22)
+        self.assertTrue(all(p["actions"] for p in programs["programs"]))
+        listed = self.call("/api/templates")[1]["templates"]
+        self.assertGreaterEqual(len(listed), 40)
+        self.assertTrue(all({"rows", "columns"} <= set(t["layout"]) for t in listed))
+        self.assertTrue(any(t["layout"] != {"rows": 2, "columns": 6} for t in listed))  # pages with a size of their own
+
+    def test_a_library_page_with_its_own_size_keeps_it_when_added(self):
+        status, body = self.call("/api/templates/apply", {"template_id": "mixer", "name": "Mezclas"})
+        self.assertEqual(status, 200)
+        page = self.call("/api/config")[1]["pages"][body["index"]]
+        self.assertEqual((page["layout"]["rows"], page["layout"]["columns"]), (3, 6))
+        self.assertEqual([s["row_span"] for s in page["slots"] if s["type"] == "slider"], [3, 3, 3, 3])
+
+    def test_the_size_of_one_page_changes_without_touching_the_others(self):
+        before = self.call("/api/config")[1]
+        index = len(before["pages"]) - 1
+        status, body = self.call("/api/layout", {"layout": "4x3", "page": index})
+        self.assertEqual(status, 200)
+        pages = body["config"]["pages"]
+        self.assertEqual(pages[index]["layout"]["columns"], 4)
+        self.assertEqual(pages[0]["layout"], before["pages"][0]["layout"])
+        self.assertEqual(self.call("/api/layout", {"layout": "4x3", "page": 999})[0], 422)
 
     def test_a_refused_page_does_not_stay_in_the_live_profile(self):
         before = len(self.call("/api/config")[1]["pages"])

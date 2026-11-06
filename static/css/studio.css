@@ -190,10 +190,13 @@ aside {
 .palette-item:hover { border-color: var(--accent); }
 .palette-item:active { cursor: grabbing; }
 /* The tile is the control as it will look on the deck: same keycap and fader as the preview and the drag image. */
-.palette-preview { display: block; flex: none; container-type: size; pointer-events: none; }
-.palette-preview-key { width: 84px; height: 84px; }
-.palette-preview-fader { width: 56px; height: 132px; }
-.palette-preview .slot-keycap, .palette-preview .slot-fader { height: 100%; }
+.palette-preview { display: grid; place-items: center; width: 100%; height: 132px; pointer-events: none; }
+.palette-box { display: block; container-type: size; }
+.palette-box-key { width: 88px; height: 88px; }
+.palette-box-fader { width: 54px; height: 128px; }
+.palette-box .slot-keycap, .palette-box .slot-fader { height: 100%; }
+.palette-item { min-width: 0; }
+.palette-item > div { min-width: 0; }
 .palette-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .palette-svg-icon { width: 18px; height: 18px; }
 .palette-item-title { font-size: 13px; font-weight: 700; }
@@ -676,3 +679,41 @@ code.copyable { display: block; margin: 4px 0; padding: 7px 9px; background: var
 .slot-badges { position: absolute; top: 5px; right: 7px; z-index: 1; font-size: 10px; font-weight: 700; color: var(--text-3); letter-spacing: 0.04em; }
 .slot-keycap.is-disabled { opacity: 0.4; filter: grayscale(1); }
 .slot-keycap.is-unset .slot-keycap-inner { border-style: dashed; }
+
+/* Discord sounds: one folding block per server, sounds as tiles */
+.dc-servers { display: grid; gap: 8px; margin: 10px 0; max-height: clamp(280px, 56vh, 620px); overflow-y: auto; padding: 2px; }
+.dc-server { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.dc-server > summary { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; list-style: none; font-weight: 700; font-size: 13px; }
+.dc-server > summary::-webkit-details-marker { display: none; }
+.dc-server > summary::before { content: "›"; width: 12px; color: var(--text-3); transition: transform 0.12s; }
+.dc-server[open] > summary::before { transform: rotate(90deg); }
+.dc-server-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-here { padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 700; }
+.dc-count { color: var(--text-3); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.dc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; padding: 0 10px 10px; }
+.dc-tile { position: relative; display: grid; border-radius: var(--radius-sm); }
+.dc-tile-main { display: grid; place-items: center; align-content: center; gap: 4px; min-height: 84px; padding: 8px 6px 22px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); color: inherit; font: inherit; cursor: pointer; }
+.dc-tile-main:hover, .dc-tile-main:focus-visible { border-color: var(--accent); outline: none; }
+.dc-tile.picked .dc-tile-main { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.dc-emoji { font-size: 24px; line-height: 1; }
+.dc-name { display: -webkit-box; max-width: 100%; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 11px; font-weight: 600; line-height: 1.2; text-align: center; overflow-wrap: anywhere; }
+.dc-tile-tools { position: absolute; left: 4px; right: 4px; bottom: 4px; display: flex; justify-content: space-between; opacity: 0.55; transition: opacity 0.12s; }
+.dc-tile:hover .dc-tile-tools, .dc-tile:focus-within .dc-tile-tools { opacity: 1; }
+.dc-tile-tools button { width: 26px; height: 22px; padding: 0; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface-2); color: var(--text); font-size: 11px; line-height: 1; cursor: pointer; }
+.dc-tile-tools button:hover, .dc-tile-tools button:focus-visible { border-color: var(--accent); color: var(--accent); }
+.dc-bar { display: grid; gap: 8px; padding: 0 10px 10px; }
+
+/* The "Biblioteca" and "+ Página" buttons of the top bar, and the choices of the new page dialog */
+a.btn-page-add { display: inline-flex; align-items: center; text-decoration: none; }
+.btn-library { border-color: var(--accent); color: var(--accent); }
+.new-page-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+a.template-card { text-decoration: none; color: inherit; }
+@media (max-width: 700px) { .new-page-choices { grid-template-columns: 1fr; } }
+
+/* The programs tab of "Elegir acción" */
+.prog-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.prog-head strong { font-size: 15px; }
+.prog-back { width: auto; margin-bottom: 8px; }
+.prog-head .prog-back { margin-bottom: 0; }
+.picker-body { height: min(56vh, 520px); max-height: none; overflow-y: auto; }
+.picker-tab { white-space: nowrap; }

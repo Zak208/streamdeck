@@ -48,7 +48,7 @@ from server.audio_controller import audio_controller
 from server.com_worker import com_worker
 from server.actions import execute_action
 from server.auth import auth_manager
-from server import diagnostics, discord_ui, firewall, layouts, live_buttons, page_library, shell_actions, steam, templates, updater, webhooks
+from server import diagnostics, discord_ui, firewall, layouts, live_buttons, page_library, program_packs, shell_actions, steam, templates, updater, webhooks
 from server.action_catalog import GESTURES, validate_deck_config
 from server.config_manager import CONFIG_FILE, config_manager
 from server.connectors import discord as discord_connector, spotify, windows
@@ -294,7 +294,7 @@ async def revalidate_app_files(request: Request, call_next):
     """
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"  # an uploaded file is never "sniffed" into a page
-    if request.url.path.startswith(("/static/", "/studio")) or request.url.path == "/":
+    if request.url.path.startswith(("/static/", "/studio", "/library")) or request.url.path == "/":
         response.headers["Cache-Control"] = "no-cache"
     return response
 
@@ -494,17 +494,21 @@ async def revoke_paired_device(values: Dict[str, Any] = Body(...), _: None = Dep
 
 
 def _grid() -> tuple:
-    """(rows, columns) of the profile in use."""
-    return layouts.size_of(config_manager.get_config().get("layout"))
+    """(rows, columns) a new page starts with."""
+    return layouts.default_size(config_manager.get_config())
 
 
 @app.get("/api/layouts")
 def list_layouts(_: None = Depends(require_local_request)):
-    current = config_manager.get_config().get("layout") or layouts.layout_dict(layouts.DEFAULT_LAYOUT)
+    config = config_manager.get_config()
+    current = config.get("layout") or layouts.layout_dict(layouts.DEFAULT_LAYOUT)  # the page being shown
+    default = config.get("default_layout") or current
     presets = [{"id": name, **layouts.layout_dict(name)} for name in layouts.LAYOUTS]
     return {
         "current": layouts.layout_name(current["rows"], current["columns"]),
         "layout": current,
+        "default": default,
+        "pages": [{"name": page["name"], "layout": page.get("layout") or default} for page in config.get("pages", [])],
         "presets": presets,
         "layouts": presets,
         "limits": layouts.LIMITS,
@@ -515,13 +519,20 @@ def list_layouts(_: None = Depends(require_local_request)):
 async def set_layout(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
     """Change the grid size (a quick pick, "<columns>x<rows>" or columns and rows).
 
-    Every page is converted; the old profile is kept as a backup first."""
+    Every page is converted (and the size becomes the one new pages start with), or only one when "page" says which;
+    the old profile is kept as a backup first."""
     spec = values.get("layout") if "layout" in values else values
+    if not isinstance(spec, (str, dict)):
+        raise HTTPException(status_code=422, detail="La cuadrícula no es válida")
+    if isinstance(spec, dict):
+        spec = {key: spec[key] for key in ("rows", "columns") if key in spec}
+    page_index = values.get("page") if isinstance(values, dict) else None
+    before = config_manager.get_config()
     try:
-        converted, dropped = layouts.convert_config(config_manager.get_config(), spec)
+        converted, dropped = layouts.convert_config(before, spec, page_index)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    if converted["layout"] != config_manager.get_config().get("layout"):
+    if [layouts.page_size(converted, p) for p in converted["pages"]] != [layouts.page_size(before, p) for p in before["pages"]]:
         config_manager.backup_profile("antes-de-cambiar-cuadricula")
     if not config_manager.save_config(converted):
         raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo cambiar la cuadrícula")
@@ -576,6 +587,12 @@ async def set_webhook_settings(values: Dict[str, Any] = Body(...), _: None = Dep
         raise HTTPException(status_code=422, detail=str(exc))
     diagnostics.record("info", f"Destinos de webhook permitidos: {len(hosts)}, cambiados desde Studio")
     return {"hosts": hosts}
+
+
+@app.get("/api/programs")
+def list_programs(_: None = Depends(require_local_request)):
+    """The actions of each program (shortcuts that work while the program is in front), to choose from in Studio."""
+    return {"programs": program_packs.catalog(), "categories": program_packs.ALL_CATEGORIES}
 
 
 @app.get("/api/templates")
@@ -1301,6 +1318,14 @@ async def serve_studio(_: None = Depends(require_local_request)):
     if os.path.exists(studio_path):
         return FileResponse(studio_path)
     return "<h1>Studio not found</h1>"
+
+@app.get("/library", response_class=HTMLResponse)
+async def serve_library(_: None = Depends(require_local_request)):
+    """The library of pages: its own page, opened from Studio."""
+    library_path = os.path.join(STATIC_DIR, "library.html")
+    if os.path.exists(library_path):
+        return FileResponse(library_path)
+    return "<h1>Library not found</h1>"
 
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

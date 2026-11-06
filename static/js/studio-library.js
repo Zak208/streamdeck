@@ -183,8 +183,8 @@ function describeAction(a) {
     case "media": return `Multimedia: ${t.replace("_", " ")}`;
     case "preset_app": case "launch": return `Abre ${t}`;
     case "obs_action": return `OBS: ${t.replace("_", " ")}`;
-    case "discord_hotkey": return t === "sound" ? `Sonido de Discord (${a.extra?.sound_name || "sin nombre"})` : `Discord: ${t}`;
-    case "discord_sound": return `Reproduce «${a.extra?.sound_name || "un sonido"}» en tu canal de voz`;
+    case "discord_hotkey": return t === "sound" ? `Sonido de Discord (${a.extra?.sound_name || "sin nombre"})` : t === "mute" ? "Silencia o activa tu micrófono en Discord" : t === "deafen" ? "Ensordece o activa el sonido en Discord" : `Discord: ${t}`;
+    case "discord_sound": return `Reproduce «${a.target || a.extra?.sound_name || "un sonido"}» en tu canal de voz${a.extra?.hotkey ? ` (atajo ${a.extra.hotkey})` : ""}`;
     case "windows": {
       const names = { power: { sleep: "Suspende el PC", hibernate: "Hiberna el PC", restart: "Reinicia el PC", shutdown: "Apaga el PC",
           logoff: "Cierra la sesión", cancel: "Cancela el apagado" }[a.extra?.mode],
@@ -301,6 +301,19 @@ const ACTION_EDITORS = {
   },
 
   multi(el, btn) { renderMacroEditor(el, btn); },
+
+  discord_sound(el, btn) {
+    btn.extra = btn.extra || {};
+    el.innerHTML = `
+      <label for="ds-hotkey">Atajo de este sonido en Discord (opcional)</label>
+      <input id="ds-hotkey" type="text" maxlength="40" value="${escapeHtml(btn.extra.hotkey || "")}" placeholder="Por ejemplo CTRL+ALT+1">
+      <p class="integration-hint">Sin atajo, StreamDesk abre el panel de sonidos de Discord y pulsa el sonido (Discord tiene que estar abierto y a la vista). Si en Discord (Ajustes &gt; Atajos de teclado) asignas un atajo a este sonido y lo escribes aquí, se reproduce pulsando solo esa tecla, con Discord en segundo plano. En los dos casos tienes que estar en un canal de voz.</p>`;
+    el.querySelector("#ds-hotkey").addEventListener("input", (event) => {
+      const value = event.target.value.trim().toUpperCase();
+      if (value) btn.extra.hotkey = value; else delete btn.extra.hotkey;
+      commitAction(btn);
+    });
+  },
 
   steam(el, btn) {
     el.innerHTML = `

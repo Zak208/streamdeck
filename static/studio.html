@@ -8,8 +8,8 @@
     // Apply the saved theme before first paint so the window does not flash the wrong colours.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.14.1">
-  <link rel="stylesheet" href="/static/css/studio.css?v=2.14.1">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.15.0">
+  <link rel="stylesheet" href="/static/css/studio.css?v=2.15.0">
 </head>
 <body>
 
@@ -23,6 +23,7 @@
 
     <div class="page-tabs-container">
       <div class="page-tabs" id="page-tabs"></div>
+      <a class="btn-page-add btn-library" id="btn-library" href="/library" title="Abrir la biblioteca: decenas de páginas ya montadas">Biblioteca</a>
       <button class="btn-page-add" id="btn-add-page" title="Crear una página nueva">+ Página</button>
       <button class="btn-page-del" id="btn-page-settings" title="Ajustes de la página: nombre, programa asociado, duplicar">
         <img src="/static/icons/gear.svg" alt="Ajustes de la página">
@@ -157,9 +158,9 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/monitors.js?v=2.14.1"></script>
-  <script src="/static/js/studio.js?v=2.14.1"></script>
-  <script src="/static/js/studio-library.js?v=2.14.1"></script>
-  <script src="/static/js/studio-ui.js?v=2.14.1"></script>
+  <script src="/static/js/monitors.js?v=2.15.0"></script>
+  <script src="/static/js/studio.js?v=2.15.0"></script>
+  <script src="/static/js/studio-library.js?v=2.15.0"></script>
+  <script src="/static/js/studio-ui.js?v=2.15.0"></script>
 </body>
 </html>

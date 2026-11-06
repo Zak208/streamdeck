@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Biblioteca de páginas · StreamDesk</title>
+  <link rel="icon" type="image/png" href="/static/icons/icon-192.png">
+  <script>
+    // The same theme as Studio (saved by it), before the page is drawn.
+    try { const t = localStorage.getItem("streamdesk_theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.15.0">
+  <link rel="stylesheet" href="/static/css/library.css?v=2.15.0">
+</head>
+<body>
+  <header class="lib-top">
+    <a class="lib-back" href="/studio" id="lib-back">← Volver a Studio</a>
+    <h1>Biblioteca de páginas</h1>
+    <span class="lib-count" id="lib-count"></span>
+  </header>
+
+  <main class="lib-main">
+    <p class="lib-intro">Páginas ya montadas para añadir a tu perfil con un clic. Las de un programa se abren solas en el móvil cuando ese programa está a la vista, y cada una trae su propio tamaño de cuadrícula. Después puedes cambiar cualquier botón en Studio.</p>
+    <div class="lib-tools">
+      <input type="search" id="lib-search" placeholder="Buscar: Spotify, OBS, Excel, atajos, volumen..." aria-label="Buscar una página">
+      <div class="lib-filters" id="lib-filters" role="tablist" aria-label="Categorías"></div>
+    </div>
+    <div class="lib-grid" id="lib-grid" aria-live="polite"></div>
+  </main>
+
+  <div class="lib-toast" id="lib-toast" role="status" aria-live="polite"></div>
+  <script src="/static/js/library.js?v=2.15.0"></script>
+</body>
+</html>

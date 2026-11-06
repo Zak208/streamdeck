@@ -1,0 +1,52 @@
+/* The library of pages. Colours and radii come from tokens.css, so every theme applies. */
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body { background: var(--bg); color: var(--text); font-family: var(--font, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif); line-height: 1.45; }
+
+.lib-top { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 16px; padding: 12px 24px; background: var(--bg-raised, var(--surface)); border-bottom: 1px solid var(--line); }
+.lib-top h1 { margin: 0; font-size: 18px; font-weight: 700; flex: 1; }
+.lib-back { padding: 8px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--text); text-decoration: none; font-size: 13px; font-weight: 600; }
+.lib-back:hover, .lib-back:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.lib-count { color: var(--text-3); font-size: 12px; }
+
+.lib-main { max-width: 1280px; margin: 0 auto; padding: 24px; }
+.lib-intro { max-width: 760px; margin: 0 0 18px; color: var(--text-2); font-size: 13px; }
+.lib-tools { display: grid; gap: 12px; margin-bottom: 20px; }
+#lib-search { width: 100%; max-width: 520px; min-height: 40px; padding: 0 14px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--text); font: inherit; font-size: 13px; }
+#lib-search:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lib-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.lib-filter { min-height: 32px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 999px; background: transparent; color: var(--text-2); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.lib-filter:hover { border-color: var(--accent); }
+.lib-filter.active { background: var(--accent); border-color: var(--accent); color: #0a0a0a; }
+.lib-filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.lib-empty { grid-column: 1 / -1; padding: 40px; text-align: center; color: var(--text-3); }
+.lib-card { display: grid; gap: 12px; align-content: start; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.lib-card:hover { border-color: var(--line-strong); }
+.lib-card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.lib-card-head img { width: 22px; height: 22px; flex: none; }
+.lib-card-head h2 { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 700; }
+.lib-size { padding: 1px 8px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text-3); font: 600 11px var(--mono, ui-monospace, Consolas, monospace); }
+
+/* The page as the phone will show it */
+.lib-deck { display: grid; grid-template-columns: repeat(var(--cols), 1fr); grid-template-rows: repeat(var(--rows), 1fr); gap: 5px; width: 100%; max-height: 190px; padding: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.lib-cell { display: grid; place-items: center; min-width: 0; min-height: 0; border-radius: 7px; background: var(--surface-2); border-top: 2px solid var(--tc, var(--accent)); }
+.lib-cell.is-fader { border-radius: 12px; }
+.lib-cell.is-blank { background: transparent; border: 1px dashed var(--line); }
+.lib-cell img { width: 52%; height: 52%; max-width: 28px; max-height: 28px; object-fit: contain; }
+
+.lib-desc { margin: 0; color: var(--text-2); font-size: 12.5px; line-height: 1.45; min-height: 54px; }
+.lib-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lib-badge { padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.lib-badge.is-plain { background: transparent; border: 1px solid var(--line-strong); color: var(--text-3); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.lib-add { min-height: 36px; padding: 0 14px; border: 0; border-radius: var(--radius-sm); background: var(--accent); color: #0a0a0a; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.lib-add:hover:not(:disabled), .lib-add:focus-visible { filter: brightness(1.1); outline: none; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+.lib-add:disabled { opacity: 0.5; cursor: default; }
+.lib-add.is-done { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
+
+.lib-toast { position: fixed; left: 50%; bottom: 24px; z-index: 50; max-width: min(90vw, 520px); padding: 10px 18px; background: var(--surface-3, var(--surface)); border: 1px solid var(--line-strong); border-radius: 10px; font-size: 13px; opacity: 0; pointer-events: none; transform: translate(-50%, 16px); transition: opacity 0.18s, transform 0.18s; }
+.lib-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+@media (max-width: 700px) { .lib-main { padding: 16px; } .lib-top { padding: 10px 16px; } }
+@media (prefers-reduced-motion: reduce) { .lib-toast { transition: none; } }

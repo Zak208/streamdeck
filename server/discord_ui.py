@@ -36,7 +36,10 @@ VOICE_STATUS = "Detalles de voz Voz conectada"
 VOICE_TIMER = re.compile(r"\s+\d{1,2}(:\d{2}){1,2}$")
 
 UIA_BUTTON, UIA_HYPERLINK, UIA_IMAGE, UIA_LISTITEM, UIA_TEXT = 50000, 50005, 50006, 50007, 50020
-INVOKE_PATTERN, SCROLL_PATTERN = 10000, 10004
+INVOKE_PATTERN, SCROLL_PATTERN, TOGGLE_PATTERN = 10000, 10004, 10015
+# The user panel (bottom left): [microphone] [headphones] [Ajustes de usuario]. The two buttons just left of the
+# settings one are mute and deafen; found by position, because their names change when they are on.
+USER_SETTINGS = "Ajustes de usuario"
 
 # Its own thread: reading the panel takes a few seconds and must not stall the volume faders.
 ui_worker = ComWorker()
@@ -407,6 +410,62 @@ def list_sounds() -> List[Dict[str, Any]]:
     except OSError:
         pass  # the list is still returned: only the saved copy is missing
     return found
+
+
+def _voice_buttons(window: "_Window"):
+    """(mute, deafen) of the user panel, each as (element, name, rect)."""
+    buttons = window._all(UIA_BUTTON)
+    anchor = next((b for b in buttons if b[1] == USER_SETTINGS), None)
+    if anchor is None:
+        raise DiscordUiError("No veo el panel de usuario de Discord (abajo a la izquierda). Déjalo abierto y a la vista.")
+    row = sorted((b for b in buttons if abs(b[2][1] - anchor[2][1]) <= 6 and b[2][2] <= anchor[2][0] + 4 and anchor[2][0] - b[2][0] <= 150),
+                 key=lambda b: b[2][0])
+    # Between them there can be other buttons (the arrows "Opciones de entrada / salida"): mute and deafen are the
+    # ones that are switches, so those are the two that count.
+    switches = [b for b in row if _toggle_state(window, b[0]) is not None]
+    row = switches if len(switches) >= 2 else row
+    if len(row) < 2:
+        raise DiscordUiError("No encuentro los botones de silenciar y ensordecer de Discord.")
+    return row[-2], row[-1]
+
+
+def _toggle_state(window: "_Window", element) -> Optional[bool]:
+    try:
+        pattern = element.GetCurrentPattern(TOGGLE_PATTERN)
+        if pattern:
+            return bool(pattern.QueryInterface(window.UIA.IUIAutomationTogglePattern).CurrentToggleState == 1)
+    except Exception:
+        pass
+    return None
+
+
+def _press_voice_button(kind: str) -> Optional[bool]:
+    """Presses «mute» or «deafen» in Discord's window, as a click would, and returns whether it is now on."""
+    window = _Window(guard=True)  # the window cannot take the focus while we press
+    try:
+        window._wait_for_tree()
+        mute, deafen = _voice_buttons(window)
+        element = (mute if kind == "mute" else deafen)[0]
+        toggle = None
+        try:
+            toggle = element.GetCurrentPattern(TOGGLE_PATTERN)
+        except Exception:
+            pass
+        if toggle:
+            toggle.QueryInterface(window.UIA.IUIAutomationTogglePattern).Toggle()
+        else:
+            window._invoke(element)
+        time.sleep(0.35)  # Discord redraws the button a moment after the press
+        return _toggle_state(window, element)
+    finally:
+        window.close()
+
+
+def toggle_voice(kind: str) -> Optional[bool]:
+    """Mute or deafen in Discord without any shortcut set up. True or False is the new state (None when it cannot be read)."""
+    if kind not in ("mute", "deafen"):
+        raise DiscordUiError("Acción de Discord no válida")
+    return ui_worker.call(_press_voice_button, kind, timeout=15)
 
 
 _voice_pending = None
