@@ -37,11 +37,16 @@ else:
 # Import server
 import uvicorn
 from server.main import app, PORT, auth_manager
+from server.ssl_helper import ensure_ssl_certificates
 import webview
 
 def start_server():
     try:
-        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
+        ip = auth_manager.get_local_ip()
+        cert_file, key_file = ensure_ssl_certificates(ip)
+        use_ssl = bool(cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file))
+        ssl_kwargs = {"ssl_certfile": cert_file, "ssl_keyfile": key_file} if use_ssl else {}
+        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning", **ssl_kwargs)
     except Exception as e:
         print(f"Server error: {e}")
 
@@ -69,7 +74,12 @@ def main():
     # Give server a brief moment to bind port
     time.sleep(0.6)
 
-    studio_url = f"http://localhost:{PORT}/studio"
+    ip = auth_manager.get_local_ip()
+    cert_file, key_file = ensure_ssl_certificates(ip)
+    use_ssl = bool(cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file))
+    scheme = "https" if use_ssl else "http"
+    studio_url = f"{scheme}://localhost:{PORT}/studio"
+    webview.settings["IGNORE_SSL_ERRORS"] = True
     icon_path = os.path.join(BASE_DIR, "static", "icons", "icon.ico")
     if not os.path.exists(icon_path):
         icon_path = None

@@ -1,4 +1,5 @@
 import os
+import shutil
 import glob
 import winreg
 from typing import List, Dict, Any
@@ -163,7 +164,139 @@ class SystemScanner:
             "category": "Sistema",
             "exe_names": ["taskmgr.exe"],
             "paths": ["taskmgr.exe"]
-        }
+        },
+        {
+            "id": "voicemeeter",
+            "name": "Voicemeeter",
+            "icon": "/static/icons/sliders.svg",
+            "color": "#E67E22",
+            "category": "Audio",
+            "exe_names": ["voicemeeter8x64.exe", "voicemeeter8.exe", "voicemeeterpro.exe", "Voicemeeter.exe"],
+            "paths": [
+                r"C:\Program Files (x86)\VB\Voicemeeter\voicemeeter8x64.exe",
+                r"C:\Program Files (x86)\VB\Voicemeeter\voicemeeterpro.exe",
+                r"C:\Program Files (x86)\VB\Voicemeeter\Voicemeeter.exe"
+            ]
+        },
+        {
+            "id": "capcut",
+            "name": "CapCut PC",
+            "icon": "/static/icons/video.svg",
+            "color": "#00E5FF",
+            "category": "Multimedia",
+            "exe_names": ["CapCut.exe"],
+            "paths": [
+                os.path.expandvars(r"%LOCALAPPDATA%\CapCut\Apps\*\CapCut.exe"),
+                os.path.expandvars(r"%LOCALAPPDATA%\CapCut\CapCut.exe")
+            ]
+        },
+        {
+            "id": "gimp",
+            "name": "GIMP",
+            "icon": "/static/icons/sliders.svg",
+            "color": "#5C5543",
+            "category": "Diseño",
+            "exe_names": ["gimp-2.10.exe", "gimp-3.0.exe", "gimp.exe"],
+            "paths": [
+                r"C:\Program Files\GIMP 2\bin\gimp-2.10.exe",
+                r"C:\Program Files\GIMP 3\bin\gimp-3.0.exe"
+            ]
+        },
+        {
+            "id": "brave",
+            "name": "Brave Browser",
+            "icon": "/static/icons/chrome.svg",
+            "color": "#FB542B",
+            "category": "Navegadores",
+            "exe_names": ["brave.exe"],
+            "paths": [
+                r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+                os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe")
+            ]
+        },
+        {
+            "id": "operagx",
+            "name": "Opera GX",
+            "icon": "/static/icons/chrome.svg",
+            "color": "#FA1E4E",
+            "category": "Navegadores",
+            "exe_names": ["opera.exe"],
+            "paths": [
+                os.path.expandvars(r"%LOCALAPPDATA%\Programs\Opera GX\opera.exe"),
+                r"C:\Program Files\Opera GX\opera.exe"
+            ]
+        },
+        {
+            "id": "telegram",
+            "name": "Telegram Desktop",
+            "icon": "/static/icons/notes.svg",
+            "color": "#24A1DE",
+            "category": "Comunicaciones",
+            "exe_names": ["Telegram.exe"],
+            "paths": [
+                os.path.expandvars(r"%APPDATA%\Telegram Desktop\Telegram.exe"),
+                os.path.expandvars(r"%LOCALAPPDATA%\Programs\Telegram Desktop\Telegram.exe")
+            ]
+        },
+        {
+            "id": "whatsapp",
+            "name": "WhatsApp",
+            "icon": "/static/icons/notes.svg",
+            "color": "#25D366",
+            "category": "Comunicaciones",
+            "exe_names": ["WhatsApp.exe"],
+            "paths": [
+                os.path.expandvars(r"%LOCALAPPDATA%\WhatsApp\WhatsApp.exe"),
+                os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\WhatsApp.exe")
+            ]
+        },
+        {
+            "id": "github_desktop",
+            "name": "GitHub Desktop",
+            "icon": "/static/icons/link.svg",
+            "color": "#9B51E0",
+            "category": "Desarrollo",
+            "exe_names": ["GitHubDesktop.exe"],
+            "paths": [
+                os.path.expandvars(r"%LOCALAPPDATA%\GitHubDesktop\app-*\GitHubDesktop.exe"),
+                os.path.expandvars(r"%LOCALAPPDATA%\GitHubDesktop\GitHubDesktop.exe")
+            ]
+        },
+        {
+            "id": "terminal",
+            "name": "Windows Terminal",
+            "icon": "/static/icons/keyboard.svg",
+            "color": "#4CC2FF",
+            "category": "Desarrollo",
+            "exe_names": ["wt.exe"],
+            "paths": [
+                "wt.exe",
+                os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe")
+            ]
+        },
+        {
+            "id": "audacity",
+            "name": "Audacity",
+            "icon": "/static/icons/mic.svg",
+            "color": "#0066CC",
+            "category": "Multimedia",
+            "exe_names": ["audacity.exe"],
+            "paths": [
+                r"C:\Program Files\Audacity\audacity.exe",
+                r"C:\Program Files (x86)\Audacity\audacity.exe"
+            ]
+        },
+        {
+            "id": "blender",
+            "name": "Blender",
+            "icon": "/static/icons/gpu.svg",
+            "color": "#EA7600",
+            "category": "Diseño",
+            "exe_names": ["blender.exe"],
+            "paths": [
+                r"C:\Program Files\Blender Foundation\Blender *\blender.exe"
+            ]
+        },
     ]
 
     _cache = []
@@ -183,7 +316,7 @@ class SystemScanner:
         for app in cls.POPULAR_APPS:
             found_path = None
             for p in app["paths"]:
-                if p in ("calc.exe", "notepad.exe", "taskmgr.exe"):
+                if p in ("calc.exe", "notepad.exe", "taskmgr.exe", "wt.exe") or shutil.which(p):
                     found_path = p
                     break
                 raw_path = p.split(" --")[0] if " --" in p else p

@@ -143,10 +143,11 @@ function installSectionHtml() {
       <p class="sheet-note">Si la dirección de tu PC cambia, repite el paso 3 con la nueva. Mientras tanto, menú ⋮ → «Añadir a la pantalla de inicio» crea un acceso directo, y con «Pantalla completa» se ve sin barras.</p>${checkButton}`;
   }
 
+  const caHelper = `<p class="sheet-note">Si tu móvil muestra advertencia de certificado: <a href="/ca.crt" download="streamdesk-ca.crt" style="color:var(--accent);text-decoration:underline;">Descargar Certificado CA</a> (Instálalo en Ajustes de Android → Seguridad → Certificados de CA para que Chrome active la PWA).</p>`;
   return `<ol class="sheet-steps">
     <li>Abre el menú del navegador (⋮ o los tres puntos).</li>
     <li>Elige <strong>Instalar app</strong> o <strong>Añadir a la pantalla de inicio</strong>.</li>
-  </ol>${checkButton}`;
+  </ol>${caHelper}${checkButton}`;
 }
 
 function renderInstall() {

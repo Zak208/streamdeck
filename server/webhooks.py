@@ -5,6 +5,7 @@ profile, and a profile can come from someone else, so no host is called unless t
 not followed (they could lead to a host that is not on the list).
 """
 
+import ipaddress
 import re
 import urllib.error
 import urllib.parse
@@ -73,12 +74,25 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _is_streamdesk_api(hostname: str | None, port: int | None) -> bool:
+    if port != PORT:
+        return False
+    h = (hostname or "").lower().strip("[]")
+    if h in ("localhost", "127.0.0.1", "::1"):
+        return True
+    try:
+        ip = ipaddress.ip_address(h)
+        return ip.is_loopback or ip.is_unspecified
+    except ValueError:
+        return False
+
+
 def run(url: str, extra: Dict[str, Any]) -> Dict[str, Any]:
     parsed = urllib.parse.urlparse(url)
     host = parsed.netloc.lower()
     if host not in allowed_hosts():
         return {"success": False, "error": NOT_ALLOWED}
-    if (parsed.hostname or "") in ("localhost", "127.0.0.1", "::1") and parsed.port == PORT:
+    if _is_streamdesk_api(parsed.hostname, parsed.port):
         # A button must not call StreamDesk's own admin API: that request would come from this PC.
         return {"success": False, "error": "Un webhook no puede llamar al propio StreamDesk"}
     data = extra.get("body", "").encode("utf-8") if extra.get("method") in WITH_BODY else None

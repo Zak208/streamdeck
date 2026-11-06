@@ -66,6 +66,11 @@ class AuthManager:
     def _rate_limit_allows_attempt(self, client_ip: str) -> bool:
         now = time.monotonic()
         key = client_ip or "unknown"
+        # Prune expired IP records to prevent unbounded dictionary growth
+        stale_keys = [k for k, atts in self.pin_attempts.items() if not atts or now - atts[-1] >= PIN_ATTEMPT_WINDOW_SECONDS]
+        for k in stale_keys:
+            self.pin_attempts.pop(k, None)
+
         attempts = [attempt for attempt in self.pin_attempts.get(key, []) if now - attempt < PIN_ATTEMPT_WINDOW_SECONDS]
         if len(attempts) >= MAX_PIN_ATTEMPTS:
             self.pin_attempts[key] = attempts
@@ -87,15 +92,17 @@ class AuthManager:
             print(f"[Auth] Error loading persisted auth tokens: {e}")
 
     def _save_tokens(self):
-        """Saves authorized tokens to persistent disk storage so mobile stays paired across restarts."""
+        """Saves authorized tokens to persistent disk storage atomically so mobile stays paired across restarts."""
         try:
             os.makedirs(CONFIG_DIR, exist_ok=True)
             data = {
                 "authorized_tokens": list(self.authorized_tokens),
                 "paired_devices": self.paired_devices
             }
-            with open(TOKENS_FILE, "w", encoding="utf-8") as f:
+            temporary = TOKENS_FILE + ".tmp"
+            with open(temporary, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
+            os.replace(temporary, TOKENS_FILE)
         except Exception as e:
             print(f"[Auth] Error saving auth tokens: {e}")
 
@@ -183,10 +190,10 @@ class AuthManager:
     def token_for_device(self, device_id: str) -> str:
         return next((t for t in self.authorized_tokens if self.device_id(t) == device_id), "")
 
-    def generate_qr_base64(self, port: int) -> str:
+    def generate_qr_base64(self, port: int, protocol: str = "https") -> str:
         """Generates a QR code image as Base64 Data URL for instant mobile pairing."""
         ip = self.get_local_ip()
-        url = f"http://{ip}:{port}/?pin={self.get_current_pin()}"
+        url = f"{protocol}://{ip}:{port}/?pin={self.get_current_pin()}"
 
         qr = qrcode.QRCode(
             version=1,

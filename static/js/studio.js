@@ -113,7 +113,8 @@ function showPairingInfo(data) {
     qrEl.src = data.qr_code;
     qrEl.dataset.pin = data.pin;
   }
-  document.getElementById("server-url").textContent = `http://${data.ip}:${data.port}`;
+  const proto = data.protocol || (location.protocol === "https:" ? "https" : "http");
+  document.getElementById("server-url").textContent = `${proto}://${data.ip}:${data.port}`;
   pinExpiresAt = Date.now() + (data.expires_in || 0) * 1000;
   renderPinCountdown();
 }
@@ -575,7 +576,8 @@ function handleStudioMessage(message) {
 
 function connectStudioSocket() {
   // Studio runs on this PC, so the server accepts it without a pairing token.
-  const socket = new WebSocket(`ws://${location.host}/ws`);
+  const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+  const socket = new WebSocket(`${wsProto}//${location.host}/ws`);
   studioSocket = socket;
   socket.onmessage = (event) => {
     try { handleStudioMessage(JSON.parse(event.data)); } catch (e) { console.error("Studio feed", e); }

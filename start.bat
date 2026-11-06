@@ -18,7 +18,7 @@ if exist "dist\StreamDesk\StreamDesk.exe" (
 )
 
 if exist ".venv\Scripts\python.exe" (
-    start "" "http://localhost:48291/studio"
+    start "" "https://localhost:48291/studio"
     ".venv\Scripts\python.exe" -m server.main
     exit /b
 )
@@ -27,6 +27,6 @@ echo [*] Configurando entorno virtual...
 python -m venv .venv
 call .venv\Scripts\activate.bat
 pip install -r requirements.txt
-start "" "http://localhost:48291/studio"
+start "" "https://localhost:48291/studio"
 python -m server.main
 pause

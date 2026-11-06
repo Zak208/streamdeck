@@ -46,7 +46,7 @@ def fader(label: str, sub: str, icon: str, color: str, slider_type: str = "app_d
 
 MASTER = fader("Master", "PC", "volume_up", ACCENT, "master")
 
-CATEGORIES = ["Para empezar", "Diseños", "Música", "Directo y voz", "Comunicación", "Vídeo y audio", "Foto y diseño",
+CATEGORIES = ["Para empezar", "Diseños", "Música", "Directo y voz", "Juegos y streaming", "Comunicación", "Vídeo y audio", "Foto y diseño",
               "Navegador y Google", "Oficina", "Desarrollo", "Windows y sistema"]
 
 

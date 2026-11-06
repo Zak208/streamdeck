@@ -9,6 +9,7 @@ psutil's byte counters between two samples.
 import ctypes
 import os
 import socket
+import threading
 import time
 from typing import Any, Callable, Dict, Optional
 
@@ -32,6 +33,7 @@ class Nvml:
         self._lib = None
         self._handle = None
         self._tried = False
+        self._lock = threading.Lock()
 
     def _load(self) -> None:
         self._tried = True
@@ -40,27 +42,43 @@ class Nvml:
                 lib = ctypes.CDLL(path)
             except OSError:
                 continue
-            handle = ctypes.c_void_p()
-            if lib.nvmlInit_v2() == 0 and lib.nvmlDeviceGetHandleByIndex_v2(0, ctypes.byref(handle)) == 0:
-                self._lib, self._handle = lib, handle
-                return
+            try:
+                lib.nvmlInit_v2.restype = ctypes.c_int
+                lib.nvmlInit_v2.argtypes = []
+                lib.nvmlDeviceGetHandleByIndex_v2.restype = ctypes.c_int
+                lib.nvmlDeviceGetHandleByIndex_v2.argtypes = [ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p)]
+                lib.nvmlDeviceGetUtilizationRates.restype = ctypes.c_int
+                lib.nvmlDeviceGetUtilizationRates.argtypes = [ctypes.c_void_p, ctypes.POINTER(_Utilization)]
+                lib.nvmlDeviceGetMemoryInfo.restype = ctypes.c_int
+                lib.nvmlDeviceGetMemoryInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(_Memory)]
+
+                handle = ctypes.c_void_p()
+                if lib.nvmlInit_v2() == 0 and lib.nvmlDeviceGetHandleByIndex_v2(0, ctypes.byref(handle)) == 0:
+                    self._lib, self._handle = lib, handle
+                    return
+            except Exception:
+                continue
 
     def read(self) -> Optional[Dict[str, Any]]:
-        if not self._tried:
-            self._load()
-        if self._lib is None:
-            return None
-        usage, memory = _Utilization(), _Memory()
-        if self._lib.nvmlDeviceGetUtilizationRates(self._handle, ctypes.byref(usage)) != 0:
-            return None
-        if self._lib.nvmlDeviceGetMemoryInfo(self._handle, ctypes.byref(memory)) != 0:
-            return None
-        return {
-            "gpu": int(usage.gpu),
-            "vram": round(memory.used * 100 / memory.total) if memory.total else 0,
-            "vram_used": int(memory.used),
-            "vram_total": int(memory.total),
-        }
+        with self._lock:
+            if not self._tried:
+                self._load()
+            if self._lib is None or self._handle is None:
+                return None
+            try:
+                usage, memory = _Utilization(), _Memory()
+                if self._lib.nvmlDeviceGetUtilizationRates(self._handle, ctypes.byref(usage)) != 0:
+                    return None
+                if self._lib.nvmlDeviceGetMemoryInfo(self._handle, ctypes.byref(memory)) != 0:
+                    return None
+                return {
+                    "gpu": int(usage.gpu),
+                    "vram": round(memory.used * 100 / memory.total) if memory.total else 0,
+                    "vram_used": int(memory.used),
+                    "vram_total": int(memory.total),
+                }
+            except Exception:
+                return None
 
 
 class Telemetry:

@@ -57,6 +57,7 @@ from server.system_scanner import system_scanner
 from server.telemetry import Telemetry
 
 from server.paths import BASE_DIR, CONFIG_DIR, FROZEN, PORT, STATIC_DIR, UPLOADS_DIR, VERSION
+from server.ssl_helper import ensure_ssl_certificates, get_ca_certificate_path
 
 MAX_ICON_UPLOAD_BYTES = 2 * 1024 * 1024
 PNG_SIGNATURE = bytes.fromhex("89504e470d0a1a0a")
@@ -70,11 +71,26 @@ ICON_CONTENT_TYPES = {
 mimetypes.add_type("image/webp", ".webp")  # Windows has no mapping, so uploaded WEBP icons were served as octet-stream
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
+def _rotate_crash_log_if_needed(crash_path: Optional[str] = None) -> bool:
+    target = crash_path or os.path.join(CONFIG_DIR, "crash.log")
+    if os.path.exists(target) and os.path.getsize(target) > 1024 * 1024:
+        try:
+            bak = target + ".bak"
+            if os.path.exists(bak):
+                os.remove(bak)
+            os.replace(target, bak)
+            return True
+        except OSError:
+            pass
+    return False
+
 # A native crash (for example inside a Windows audio call) leaves no Python traceback.
 # This writes one to crash.log next to the profile so it can be diagnosed afterwards.
 try:
     os.makedirs(CONFIG_DIR, exist_ok=True)
-    _crash_log = open(os.path.join(CONFIG_DIR, "crash.log"), "a", buffering=1)
+    _crash_path = os.path.join(CONFIG_DIR, "crash.log")
+    _rotate_crash_log_if_needed(_crash_path)
+    _crash_log = open(_crash_path, "a", buffering=1)
     faulthandler.enable(_crash_log)
 except OSError:
     pass
@@ -278,7 +294,7 @@ app.add_middleware(
     CORSMiddleware,
     # The desktop Studio is intentionally a localhost-only administration
     # surface. The paired PWA communicates over its authenticated WebSocket.
-    allow_origins=[f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}"],
+    allow_origins=[f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}", f"https://localhost:{PORT}", f"https://127.0.0.1:{PORT}"],
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
@@ -371,36 +387,58 @@ async def serve_manifest():
 # Handlers below that touch the network, COM, the registry or subprocesses are
 # plain `def`, so FastAPI runs them in its thread pool instead of the event loop.
 
+@app.get("/ca.crt")
+@app.get("/api/ca.crt")
+async def download_ca_cert():
+    ca_path = get_ca_certificate_path()
+    if not ca_path or not os.path.exists(ca_path):
+        ensure_ssl_certificates()
+        ca_path = get_ca_certificate_path()
+    if not ca_path or not os.path.exists(ca_path):
+        raise HTTPException(status_code=404, detail="Certificado CA no disponible")
+    return FileResponse(
+        ca_path,
+        media_type="application/x-x509-ca-cert",
+        filename="streamdesk-ca.crt",
+        headers={"Content-Disposition": 'attachment; filename="streamdesk-ca.crt"'}
+    )
+
 @app.get("/api/info")
-def get_system_info(_: None = Depends(require_local_request)):
+def get_system_info(request: Request, _: None = Depends(require_local_request)):
     ip = auth_manager.get_local_ip()
+    scheme = request.url.scheme if request else "https"
     return {
         "version": VERSION,
         "server_ip": ip,
         "port": PORT,
-        "direct_url": f"http://{ip}:{PORT}",
-        "studio_url": f"http://localhost:{PORT}/studio"
+        "protocol": scheme,
+        "direct_url": f"{scheme}://{ip}:{PORT}",
+        "studio_url": f"{scheme}://localhost:{PORT}/studio"
     }
 
 @app.get("/api/auth/pin")
-def get_pairing_pin(_: None = Depends(require_local_request)):
+def get_pairing_pin(request: Request, _: None = Depends(require_local_request)):
+    scheme = request.url.scheme if request else "https"
     return {
         "pin": auth_manager.get_current_pin(),
         "expires_in": auth_manager.pin_expires_in(),
-        "qr_code": auth_manager.generate_qr_base64(PORT),
+        "qr_code": auth_manager.generate_qr_base64(PORT, protocol=scheme),
         "ip": auth_manager.get_local_ip(),
-        "port": PORT
+        "port": PORT,
+        "protocol": scheme
     }
 
 @app.post("/api/auth/regenerate-pin")
-def regenerate_pin(_: None = Depends(require_local_request)):
+def regenerate_pin(request: Request, _: None = Depends(require_local_request)):
+    scheme = request.url.scheme if request else "https"
     new_pin = auth_manager.refresh_pin()
     return {
         "pin": new_pin,
         "expires_in": auth_manager.pin_expires_in(),
-        "qr_code": auth_manager.generate_qr_base64(PORT),
+        "qr_code": auth_manager.generate_qr_base64(PORT, protocol=scheme),
         "ip": auth_manager.get_local_ip(),
-        "port": PORT
+        "port": PORT,
+        "protocol": scheme
     }
 
 @app.post("/api/auth/verify")
@@ -1340,10 +1378,16 @@ async def serve_root():
 if __name__ == "__main__":
     import uvicorn
     ip = auth_manager.get_local_ip()
+    cert_file, key_file = ensure_ssl_certificates(ip)
+    use_ssl = bool(cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file))
+    scheme = "https" if use_ssl else "http"
     print("==================================================================")
-    print(f"[*] STREAMDESK PRO SERVER v{VERSION} EN PUERTO {PORT}")
-    print(f"[*] Panel PC (Studio):      http://localhost:{PORT}/studio")
-    print(f"[*] Conexion Movil (Wi-Fi): http://{ip}:{PORT}")
+    print(f"[*] STREAMDESK PRO SERVER v{VERSION} EN PUERTO {PORT} ({scheme.upper()})")
+    print(f"[*] Panel PC (Studio):      {scheme}://localhost:{PORT}/studio")
+    print(f"[*] Conexion Movil (Wi-Fi): {scheme}://{ip}:{PORT}")
     print(f"[*] Codigo PIN de Enlace:   {auth_manager.current_pin}")
+    if use_ssl:
+        print(f"[*] Certificado CA (Descarga): {scheme}://{ip}:{PORT}/ca.crt")
     print("==================================================================")
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
+    ssl_kwargs = {"ssl_certfile": cert_file, "ssl_keyfile": key_file} if use_ssl else {}
+    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning", **ssl_kwargs)
