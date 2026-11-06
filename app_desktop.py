@@ -42,10 +42,13 @@ import webview
 
 def start_server():
     try:
-        ip = auth_manager.get_local_ip()
-        cert_file, key_file = ensure_ssl_certificates(ip)
-        use_ssl = bool(cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file))
-        ssl_kwargs = {"ssl_certfile": cert_file, "ssl_keyfile": key_file} if use_ssl else {}
+        use_ssl = os.environ.get("STREAMDESK_HTTPS", "").lower() in ("1", "true", "yes")
+        ssl_kwargs = {}
+        if use_ssl:
+            ip = auth_manager.get_local_ip()
+            cert_file, key_file = ensure_ssl_certificates(ip)
+            if cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file):
+                ssl_kwargs = {"ssl_certfile": cert_file, "ssl_keyfile": key_file}
         uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning", **ssl_kwargs)
     except Exception as e:
         print(f"Server error: {e}")
@@ -74,9 +77,7 @@ def main():
     # Give server a brief moment to bind port
     time.sleep(0.6)
 
-    ip = auth_manager.get_local_ip()
-    cert_file, key_file = ensure_ssl_certificates(ip)
-    use_ssl = bool(cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file))
+    use_ssl = os.environ.get("STREAMDESK_HTTPS", "").lower() in ("1", "true", "yes")
     scheme = "https" if use_ssl else "http"
     studio_url = f"{scheme}://localhost:{PORT}/studio"
     webview.settings["IGNORE_SSL_ERRORS"] = True

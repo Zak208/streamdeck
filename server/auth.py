@@ -190,7 +190,7 @@ class AuthManager:
     def token_for_device(self, device_id: str) -> str:
         return next((t for t in self.authorized_tokens if self.device_id(t) == device_id), "")
 
-    def generate_qr_base64(self, port: int, protocol: str = "https") -> str:
+    def generate_qr_base64(self, port: int, protocol: str = "http") -> str:
         """Generates a QR code image as Base64 Data URL for instant mobile pairing."""
         ip = self.get_local_ip()
         url = f"{protocol}://{ip}:{port}/?pin={self.get_current_pin()}"

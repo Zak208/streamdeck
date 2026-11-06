@@ -406,7 +406,7 @@ async def download_ca_cert():
 @app.get("/api/info")
 def get_system_info(request: Request, _: None = Depends(require_local_request)):
     ip = auth_manager.get_local_ip()
-    scheme = request.url.scheme if request else "https"
+    scheme = request.url.scheme if request else "http"
     return {
         "version": VERSION,
         "server_ip": ip,
@@ -418,7 +418,7 @@ def get_system_info(request: Request, _: None = Depends(require_local_request)):
 
 @app.get("/api/auth/pin")
 def get_pairing_pin(request: Request, _: None = Depends(require_local_request)):
-    scheme = request.url.scheme if request else "https"
+    scheme = request.url.scheme if request else "http"
     return {
         "pin": auth_manager.get_current_pin(),
         "expires_in": auth_manager.pin_expires_in(),
@@ -430,7 +430,7 @@ def get_pairing_pin(request: Request, _: None = Depends(require_local_request)):
 
 @app.post("/api/auth/regenerate-pin")
 def regenerate_pin(request: Request, _: None = Depends(require_local_request)):
-    scheme = request.url.scheme if request else "https"
+    scheme = request.url.scheme if request else "http"
     new_pin = auth_manager.refresh_pin()
     return {
         "pin": new_pin,
@@ -1378,16 +1378,17 @@ async def serve_root():
 if __name__ == "__main__":
     import uvicorn
     ip = auth_manager.get_local_ip()
-    cert_file, key_file = ensure_ssl_certificates(ip)
-    use_ssl = bool(cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file))
-    scheme = "https" if use_ssl else "http"
+    use_ssl = os.environ.get("STREAMDESK_HTTPS", "").lower() in ("1", "true", "yes")
+    ssl_kwargs = {}
+    if use_ssl:
+        cert_file, key_file = ensure_ssl_certificates(ip)
+        if cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file):
+            ssl_kwargs = {"ssl_certfile": cert_file, "ssl_keyfile": key_file}
+    scheme = "https" if ssl_kwargs else "http"
     print("==================================================================")
     print(f"[*] STREAMDESK PRO SERVER v{VERSION} EN PUERTO {PORT} ({scheme.upper()})")
     print(f"[*] Panel PC (Studio):      {scheme}://localhost:{PORT}/studio")
     print(f"[*] Conexion Movil (Wi-Fi): {scheme}://{ip}:{PORT}")
     print(f"[*] Codigo PIN de Enlace:   {auth_manager.current_pin}")
-    if use_ssl:
-        print(f"[*] Certificado CA (Descarga): {scheme}://{ip}:{PORT}/ca.crt")
     print("==================================================================")
-    ssl_kwargs = {"ssl_certfile": cert_file, "ssl_keyfile": key_file} if use_ssl else {}
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning", **ssl_kwargs)

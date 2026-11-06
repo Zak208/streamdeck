@@ -14,6 +14,6 @@ if (-Not (Test-Path ".venv")) {
     & ".\.venv\Scripts\Activate.ps1"
 }
 
-Start-Process "https://localhost:48291/studio"
-Write-Host "[*] Servidor activo en puerto 48291 (HTTPS)." -ForegroundColor Green
+Start-Process "http://localhost:48291/studio"
+Write-Host "[*] Servidor activo en puerto 48291." -ForegroundColor Green
 & ".\.venv\Scripts\python.exe" -m server.main
