@@ -24,6 +24,17 @@ class ActionCatalogTests(unittest.TestCase):
         action = validate_action("discord_hotkey", "mute", {"hotkey": "CTRL+SHIFT+M"})
         self.assertEqual(action["extra"]["hotkey"], "CTRL+SHIFT+M")
 
+    def test_validates_sound_action(self):
+        self.assertEqual(validate_action("sound", "beep")["target"], "beep")
+        self.assertEqual(validate_action("sound", "horn.mp3")["target"], "horn.mp3")
+        self.assertEqual(validate_action("sound", "alert_effect.wav")["target"], "alert_effect.wav")
+        with self.assertRaises(ValueError):
+            validate_action("sound", "../secret.mp3")
+        with self.assertRaises(ValueError):
+            validate_action("sound", "bad.exe")
+        with self.assertRaises(ValueError):
+            validate_action("sound", "")
+
     def test_rejects_shell_actions(self):
         with self.assertRaises(ValueError):
             validate_action("command", "Remove-Item C:\\")

@@ -360,7 +360,7 @@ class SettingsEndpointTests(unittest.TestCase):
 
     def test_the_routes_are_guarded_like_the_others(self):
         paths = {route.path: route for route in main.app.routes if hasattr(route, "path")}
-        for path in ("/api/settings/webhooks",):
+        for path in ("/api/settings/webhooks", "/api/sounds", "/api/sounds/play"):
             deps = [d.call.__name__ for d in paths[path].dependant.dependencies]
             self.assertIn("require_local_request", deps)
 

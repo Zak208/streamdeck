@@ -139,7 +139,20 @@ header {
   transition: transform 0.06s ease, border-color 0.08s ease, background 0.08s ease;
 }
 .deck-btn-inner { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 100%; padding: 14px 6px 8px; }
-.deck-btn:active, .deck-btn.triggered { transform: scale(0.96); background: var(--surface-2); }
+.deck-btn:active, .deck-btn.triggered {
+  transform: scale(0.94);
+  background: var(--surface-3, #222938);
+  box-shadow: 0 0 16px var(--accent-soft, rgba(99, 102, 241, 0.25));
+  filter: brightness(1.15);
+  transition: transform 0.06s ease, filter 0.06s ease;
+}
+
+.sheet-haptic-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 700;
+}
 .deck-btn-accent { position: absolute; top: 0; left: 16%; right: 16%; height: 3px; border-radius: 0 0 3px 3px; }
 .deck-btn-icon-wrapper { display: grid; place-items: center; flex: 1 1 auto; min-height: 0; }
 .deck-btn-img { width: min(34px, 6.5vw); height: min(34px, 6.5vw); object-fit: contain; }

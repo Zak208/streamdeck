@@ -176,6 +176,41 @@ def launch_smart_app(app_id: str) -> bool:
     return False
 
 
+def play_local_sound(target: str) -> None:
+    if target == "beep":
+        winsound.Beep(1000, 200)
+        return
+    if target == "asterisk":
+        winsound.MessageBeep(winsound.MB_ICONASTERISK)
+        return
+    if target == "exclamation":
+        winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+        return
+
+    from server.paths import CONFIG_DIR
+    sound_dir = os.path.join(CONFIG_DIR, "sounds")
+    candidate = os.path.join(sound_dir, target) if not os.path.isabs(target) else target
+    if not os.path.isfile(candidate):
+        winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+        return
+
+    ext = os.path.splitext(candidate)[1].lower()
+    if ext == ".wav":
+        winsound.PlaySound(candidate, winsound.SND_ASYNC | winsound.SND_FILENAME)
+        return
+
+    try:
+        alias = f"sd_snd_{int(time.time() * 1000) % 10000}"
+        ctypes.windll.winmm.mciSendStringW(f'close {alias}', None, 0, 0)
+        ret = ctypes.windll.winmm.mciSendStringW(f'open "{candidate}" type mpegvideo alias {alias}', None, 0, 0)
+        if ret == 0:
+            ctypes.windll.winmm.mciSendStringW(f'play {alias} from 0', None, 0, 0)
+        else:
+            winsound.MessageBeep(winsound.MB_ICONASTERISK)
+    except Exception:
+        winsound.MessageBeep(winsound.MB_ICONASTERISK)
+
+
 def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] | None = None) -> Dict[str, Any]:
     """Validate then execute one safe action. Custom shell commands are intentionally unsupported."""
     try:
@@ -286,21 +321,7 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
             return {"success": True, "action": "none", "noop": True}
 
         if action_type == "sound":
-            if target == "beep":
-                winsound.Beep(1000, 200)
-            elif target == "asterisk":
-                winsound.MessageBeep(winsound.MB_ICONASTERISK)
-            elif target == "exclamation":
-                winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
-            else:
-                # Local sound file (Soundboard)
-                from server.paths import CONFIG_DIR
-                sound_dir = os.path.join(CONFIG_DIR, "sounds")
-                candidate = os.path.join(sound_dir, target) if not os.path.isabs(target) else target
-                if os.path.exists(candidate) and candidate.lower().endswith(".wav"):
-                    winsound.PlaySound(candidate, winsound.SND_ASYNC | winsound.SND_FILENAME)
-                else:
-                    winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+            play_local_sound(target)
             return {"success": True, "action": action_type, "target": target}
 
         return {"success": False, "error": "Tipo de acción no soportado"}

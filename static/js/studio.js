@@ -72,12 +72,14 @@ const COLOR_GROUPS = [
 ];
 const COLOR_SWATCHES = COLOR_GROUPS.flatMap(([, colours]) => colours);
 
-// Clean Vector SVG Library (30 Available Icons)
+// Clean Vector SVG Library (48 Available Icons)
 const SVG_ICONS = [
   "power", "play_pause", "play", "pause", "next", "prev", "mute", "volume_up",
-  "spotify", "discord", "obs", "steam", "chrome", "gamepad", "video", "broadcast",
-  "cpu", "ram", "disk", "sliders", "notes", "calc", "gear", "folder",
-  "link", "macro", "plus", "trash", "youtube", "fader", "soundboard"
+  "mic", "mic_off", "headset", "soundboard", "spotify", "discord", "obs", "twitch", "youtube", "steam",
+  "gamepad", "crosshair", "video", "broadcast", "camera", "sparkles", "heart",
+  "cpu", "ram", "disk", "network", "sliders", "fader", "notes", "calc", "gear", "folder",
+  "link", "macro", "plus", "trash", "refresh", "lock", "keyboard", "terminal", "clock", "bell",
+  "chevron_left", "chevron_right", "chrome"
 ];
 
 // Multimedia Preset Actions
@@ -2458,8 +2460,11 @@ function renderTabDesign(container, btn, index) {
     </div>
 
     <div class="form-group">
-      <label>Icono</label>
-      <div class="icon-picker-grid">${iconsHtml}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <label style="margin:0;">Icono (${SVG_ICONS.length})</label>
+        <input type="search" id="icon-filter-input" placeholder="🔍 Filtrar..." style="font-size:11px;padding:3px 8px;width:110px;height:26px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);">
+      </div>
+      <div class="icon-picker-grid" id="icon-picker-grid">${iconsHtml}</div>
     </div>
 
     <div class="form-group">
@@ -2503,6 +2508,15 @@ function renderTabDesign(container, btn, index) {
       if (accent) accent.style.background = btn.color;
       renderPhoneScreen();
       saveConfigToServer();
+    });
+  });
+
+  const iconFilter = document.getElementById("icon-filter-input");
+  iconFilter?.addEventListener("input", (e) => {
+    const term = e.target.value.trim().toLowerCase();
+    container.querySelectorAll(".icon-choice-btn").forEach(b => {
+      const name = (b.dataset.icon || "").toLowerCase();
+      b.style.display = (!term || name.includes(term)) ? "" : "none";
     });
   });
 

@@ -36,6 +36,12 @@ function builtInLibrary() {
       { id: "page_back", label: "Volver a la página anterior", sub: "Navegación", icon: "/static/icons/prev.svg", color: LIBRARY_ACCENT, action_type: "page", target: "back" },
       { id: "page_goto", label: "Ir a una página", sub: "Elige cuál", icon: "/static/icons/folder.svg", color: LIBRARY_ACCENT, action_type: "page", target: "first", configure: true },
     ] },
+    { category: "Efectos y Soundboard", items: [
+      { id: "local_sound", label: "Efecto de sonido / Soundboard", sub: "Reproduce audio en tu PC", icon: "/static/icons/soundboard.svg", color: "#ec4899", action_type: "sound", target: "beep", configure: true },
+      { id: "sound_beep", label: "Pitido del sistema", sub: "Sonido rápido", icon: "/static/icons/soundboard.svg", color: "#ec4899", action_type: "sound", target: "beep" },
+      { id: "sound_asterisk", label: "Información / Asterisk", sub: "Sonido de Windows", icon: "/static/icons/soundboard.svg", color: "#ec4899", action_type: "sound", target: "asterisk" },
+      { id: "sound_exclamation", label: "Alerta / Exclamación", sub: "Sonido de Windows", icon: "/static/icons/soundboard.svg", color: "#ec4899", action_type: "sound", target: "exclamation" },
+    ] },
     { category: "Contadores y tiempo", items: [
       { id: "counter_inc", label: "Contador +1", sub: "Suma y se ve en la tecla", icon: "/static/icons/plus.svg", color: "#10b981", action_type: "counter", target: "inc", extra: { step: 1 }, configure: true },
       { id: "counter_dec", label: "Contador -1", sub: "Resta y se ve en la tecla", icon: "/static/icons/chevron_left.svg", color: "#f59e0b", action_type: "counter", target: "dec", extra: { step: 1 }, configure: true },
@@ -200,7 +206,7 @@ function describeAction(a) {
     case "steam": return `Lanza el juego de Steam ${t}`;
     case "spotify_uri": return `Spotify: ${t}`;
     case "hardware_monitor": return `Muestra ${t.toUpperCase()} en vivo`;
-    case "sound": return `Sonido ${t}`;
+    case "sound": return t === "beep" ? "Pitido del sistema" : (t === "asterisk" ? "Sonido Información" : (t === "exclamation" ? "Sonido Alerta" : `Sonido «${t}»`));
     case "multi": return `Multiacción de ${a.extra?.actions?.length || 0} pasos`;
     case "none": return "";
     default: return a.action_type || "";
@@ -342,6 +348,84 @@ const ACTION_EDITORS = {
       select.innerHTML = `<option value="">${games.length ? "Elige un juego..." : "No se encontró ningún juego instalado"}</option>`
         + games.map(g => `<option value="${escapeHtml(g.appid)}" ${g.appid === btn.target ? "selected" : ""}>${escapeHtml(g.name)}</option>`).join("");
     }).catch(() => { select.innerHTML = `<option value="">No se pudo leer Steam: escribe el número</option>`; });
+  },
+
+  sound(el, btn) {
+    el.innerHTML = `
+      <label for="snd-select">Sonido a reproducir</label>
+      <div class="inline-row" style="display:flex;gap:8px;align-items:center;">
+        <select id="snd-select" style="flex:1;"><option value="">Cargando sonidos...</option></select>
+        <button type="button" class="btn-secondary" id="snd-play-test" title="Probar sonido">▶ Oír</button>
+      </div>
+      <p class="integration-hint">Se reproduce instantáneamente en tu PC sin depender de Discord ni de ventanas abiertas.</p>
+      <div style="margin-top:14px;padding:12px;background:var(--surface-2);border:1px dashed var(--line);border-radius:var(--radius-sm);">
+        <label for="snd-file-upload" style="display:block;margin-bottom:6px;font-size:12px;font-weight:700;">Subir nuevo sonido (.mp3, .wav, .ogg)</label>
+        <input type="file" id="snd-file-upload" accept="audio/wav,audio/mp3,audio/mpeg,audio/ogg" style="font-size:12px;width:100%;">
+      </div>
+    `;
+
+    const select = el.querySelector("#snd-select");
+    const testBtn = el.querySelector("#snd-play-test");
+    const uploadInput = el.querySelector("#snd-file-upload");
+
+    const refreshSounds = async (selectedId) => {
+      try {
+        const data = await apiJson("/api/sounds");
+        let html = '<optgroup label="Sonidos del sistema">';
+        html += (data.system || []).map(s => `<option value="${escapeHtml(s.id)}" ${(s.id === selectedId || (!selectedId && s.id === "beep")) ? "selected" : ""}>${escapeHtml(s.name)}</option>`).join("");
+        html += '</optgroup>';
+        if (data.custom && data.custom.length) {
+          html += '<optgroup label="Tus sonidos (Soundboard)">';
+          html += data.custom.map(s => `<option value="${escapeHtml(s.id)}" ${s.id === selectedId ? "selected" : ""}>🎵 ${escapeHtml(s.name)}</option>`).join("");
+          html += '</optgroup>';
+        }
+        select.innerHTML = html;
+        if (!btn.target) {
+          btn.target = select.value;
+          commitAction(btn);
+        }
+      } catch (err) {
+        select.innerHTML = '<option value="beep">Pitido del sistema</option>';
+      }
+    };
+
+    select.addEventListener("change", () => {
+      btn.target = select.value;
+      if (btn.type === "button" && (!btn.label || btn.label === "Botón" || btn.label.startsWith("Sonido"))) {
+        btn.label = (select.selectedOptions[0]?.textContent || "").replace(/^🎵\s*/, "").slice(0, 32);
+      }
+      commitAction(btn);
+    });
+
+    testBtn.addEventListener("click", async () => {
+      if (!btn.target) return;
+      try {
+        await postJson("/api/sounds/play", { id: btn.target });
+      } catch (e) {
+        showToast("No se pudo reproducir el sonido");
+      }
+    });
+
+    uploadInput.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const form = new FormData();
+      form.append("file", file);
+      try {
+        const res = await fetch("/api/sounds/upload", { method: "POST", body: form });
+        const resData = await res.json();
+        if (!res.ok) throw new Error(resData.detail || "Error al subir archivo");
+        showToast(`Sonido «${resData.name}» añadido`);
+        btn.target = resData.id;
+        if (btn.type === "button") btn.label = resData.name.slice(0, 32);
+        commitAction(btn);
+        await refreshSounds(resData.id);
+      } catch (err) {
+        showToast(err.message);
+      }
+    });
+
+    refreshSounds(btn.target);
   },
 };
 

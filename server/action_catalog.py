@@ -7,6 +7,7 @@ untrusted input even when it was created by StreamDesk Studio.
 from __future__ import annotations
 
 import copy
+import os
 import re
 from typing import Any, Dict, List
 from urllib.parse import urlparse
@@ -308,9 +309,18 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
         target_text = target_text.lower()
         clean_extra = {}
     elif action_type == "sound":
-        if target_text.lower() not in SOUND_TARGETS:
+        target_lower = target_text.lower().strip()
+        if target_lower in SOUND_TARGETS:
+            target_text = target_lower
+        elif (
+            re.fullmatch(r"[a-zA-Z0-9_\-\. ]{1,80}", target_text)
+            and not target_text.startswith(".")
+            and ".." not in target_text
+            and os.path.splitext(target_text)[1].lower() in (".wav", ".mp3", ".ogg", ".wma", ".m4a")
+        ):
+            target_text = target_text.strip()
+        else:
             raise ValueError("Sonido no válido")
-        target_text = target_text.lower()
         clean_extra = {}
     else:  # multi
         actions = action_extra.get("actions")

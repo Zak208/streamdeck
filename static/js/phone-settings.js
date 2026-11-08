@@ -199,11 +199,23 @@ function renderPages() {
 function renderScreen() {
   const container = document.getElementById("sheet-screen");
   const canFullscreen = Boolean(document.fullscreenEnabled);
+  const hapticLevel = localStorage.getItem("streamdesk_haptic") || "medium";
   container.innerHTML = `
     ${canFullscreen
       ? `<button class="btn-secondary" id="sheet-fullscreen">${document.fullscreenElement ? "Salir de pantalla completa" : "Pantalla completa"}</button>
          <label class="sheet-check"><input type="checkbox" id="sheet-fullscreen-pref" ${wantsFullscreen() ? "checked" : ""}> Abrir siempre en pantalla completa (al primer toque)</label>`
       : `<p class="sheet-note">Este móvil no permite pantalla completa desde la web. Instala la app y se verá sin barras.</p>`}
+    
+    <div style="margin: 12px 0 6px;">
+      <span class="sheet-label" style="display:block;margin-bottom:6px;font-size:13px;font-weight:700;">Vibración al tocar botones (Háptica)</span>
+      <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:6px;">
+        <button type="button" class="btn-secondary sheet-haptic-btn ${hapticLevel === 'off' ? 'active' : ''}" data-haptic="off" style="padding:6px 2px;font-size:11px;">No</button>
+        <button type="button" class="btn-secondary sheet-haptic-btn ${hapticLevel === 'soft' ? 'active' : ''}" data-haptic="soft" style="padding:6px 2px;font-size:11px;">Suave</button>
+        <button type="button" class="btn-secondary sheet-haptic-btn ${hapticLevel === 'medium' ? 'active' : ''}" data-haptic="medium" style="padding:6px 2px;font-size:11px;">Media</button>
+        <button type="button" class="btn-secondary sheet-haptic-btn ${hapticLevel === 'strong' ? 'active' : ''}" data-haptic="strong" style="padding:6px 2px;font-size:11px;">Fuerte</button>
+      </div>
+    </div>
+
     ${"wakeLock" in navigator
       ? `<p class="sheet-note">La pantalla no se apaga mientras StreamDesk está abierto.</p>`
       : `<p class="sheet-note">En http el navegador no deja mantener la pantalla encendida: se apagará sola según tu ajuste de pantalla. Con la app instalada por https no pasa.</p>`}`;
@@ -216,6 +228,14 @@ function renderScreen() {
   });
   container.querySelector("#sheet-fullscreen-pref")?.addEventListener("change", (event) => {
     try { localStorage.setItem("streamdesk_fullscreen", event.target.checked ? "1" : "0"); } catch (e) { /* private mode */ }
+  });
+  container.querySelectorAll(".sheet-haptic-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const level = btn.dataset.haptic;
+      localStorage.setItem("streamdesk_haptic", level);
+      container.querySelectorAll(".sheet-haptic-btn").forEach(b => b.classList.toggle("active", b === btn));
+      if (typeof haptic === "function") haptic(level === "soft" ? 12 : (level === "strong" ? 45 : 25));
+    });
   });
 }
 

@@ -92,8 +92,11 @@ function showMobileToast(msg, isError = false) {
 }
 
 function haptic(ms = 25) {
+  const pref = localStorage.getItem("streamdesk_haptic") || "medium";
+  if (pref === "off") return;
+  const duration = pref === "soft" ? 12 : (pref === "strong" ? 45 : (typeof ms === "number" ? ms : 25));
   if (navigator.vibrate) {
-    try { navigator.vibrate(ms); } catch (e) {}
+    try { navigator.vibrate(duration); } catch (e) {}
   }
 }
 

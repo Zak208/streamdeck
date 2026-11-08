@@ -672,6 +672,59 @@ def discord_sounds_cache(_: None = Depends(require_local_request)):
     return {"options": discord_connector.saved_sounds()}
 
 
+@app.get("/api/sounds")
+def list_sounds(_: None = Depends(require_local_request)):
+    """List available system and local custom soundboard sounds."""
+    sound_dir = os.path.join(CONFIG_DIR, "sounds")
+    os.makedirs(sound_dir, exist_ok=True)
+    custom_sounds = []
+    allowed_exts = {".wav", ".mp3", ".ogg", ".wma", ".m4a"}
+    if os.path.exists(sound_dir):
+        for entry in sorted(os.listdir(sound_dir)):
+            if os.path.isfile(os.path.join(sound_dir, entry)):
+                ext = os.path.splitext(entry)[1].lower()
+                if ext in allowed_exts:
+                    name = os.path.splitext(entry)[0].replace("_", " ").title()
+                    custom_sounds.append({"id": entry, "name": name, "filename": entry, "ext": ext[1:]})
+
+    system_sounds = [
+        {"id": "beep", "name": "Pitido del sistema (Beep)", "filename": "beep", "ext": "sys"},
+        {"id": "asterisk", "name": "Información (Asterisk)", "filename": "asterisk", "ext": "sys"},
+        {"id": "exclamation", "name": "Alerta (Exclamation)", "filename": "exclamation", "ext": "sys"},
+    ]
+    return {"system": system_sounds, "custom": custom_sounds}
+
+
+@app.post("/api/sounds/upload")
+async def upload_sound(file: UploadFile = File(...), _: None = Depends(require_local_request)):
+    """Upload a custom audio file to the local soundboard."""
+    sound_dir = os.path.join(CONFIG_DIR, "sounds")
+    os.makedirs(sound_dir, exist_ok=True)
+    raw_name = os.path.basename(file.filename or "audio.mp3")
+    ext = os.path.splitext(raw_name)[1].lower()
+    if ext not in {".wav", ".mp3", ".ogg", ".wma", ".m4a"}:
+        raise HTTPException(status_code=415, detail="El audio debe ser WAV, MP3 u OGG")
+    content = await file.read(10 * 1024 * 1024 + 1)
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="El archivo de audio no puede superar 10 MB")
+    clean_stem = re.sub(r"[^a-zA-Z0-9_\- ]", "", os.path.splitext(raw_name)[0]).strip() or "sonido"
+    safe_filename = f"{clean_stem[:40]}{ext}"
+    dest_path = os.path.join(sound_dir, safe_filename)
+    with open(dest_path, "wb") as f:
+        f.write(content)
+    return {"success": True, "id": safe_filename, "filename": safe_filename, "name": clean_stem.replace("_", " ").title()}
+
+
+@app.post("/api/sounds/play")
+def test_play_sound(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    """Test play a sound on the host PC."""
+    sound_id = str(values.get("id") or values.get("target") or "").strip()
+    if not sound_id:
+        raise HTTPException(status_code=422, detail="Falta el identificador de sonido")
+    actions.play_local_sound(sound_id)
+    return {"success": True, "played": sound_id}
+
+
 @app.post("/api/discord/server-page")
 async def create_discord_server_page(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
     """A page with the chosen sounds of one Discord server, opened by itself when the user is talking there."""
