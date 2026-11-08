@@ -270,6 +270,7 @@ function connectWebSocket() {
     reconnectAttempt = 0;
     lastMessageAt = Date.now();
     setOffline(false);
+    saveRecentIp(window.location.host);
     const banner = document.getElementById("reconnect-banner");
     if (banner) banner.style.display = "none";
     if (pinModal) pinModal.style.display = "none";
@@ -1070,6 +1071,129 @@ function updateAppModalList() {
   });
 }
 
+// --- QR Scanner & Roaming IP Management ---
+let qrStream = null;
+let qrScanInterval = null;
+
+function saveRecentIp(hostStr) {
+  if (!hostStr || hostStr.startsWith("localhost") || hostStr.startsWith("127.0.0.1")) return;
+  try {
+    let recent = JSON.parse(localStorage.getItem("streamdesk_recent_ips") || "[]");
+    recent = [hostStr, ...recent.filter(h => h !== hostStr)].slice(0, 5);
+    localStorage.setItem("streamdesk_recent_ips", JSON.stringify(recent));
+  } catch (e) {}
+}
+
+function renderRecentIps() {
+  const container = document.getElementById("recent-ips-container");
+  const list = document.getElementById("recent-ips-list");
+  if (!container || !list) return;
+  try {
+    const recent = JSON.parse(localStorage.getItem("streamdesk_recent_ips") || "[]");
+    if (!recent.length) { container.style.display = "none"; return; }
+    container.style.display = "block";
+    list.innerHTML = recent.map(host => `
+      <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px; border-radius: 4px;" data-recent-ip="${escapeHtml(host)}">
+        ${escapeHtml(host)}
+      </button>
+    `).join("");
+    list.querySelectorAll("[data-recent-ip]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        navigateToHost(btn.dataset.recentIp);
+      });
+    });
+  } catch (e) { container.style.display = "none"; }
+}
+
+function navigateToHost(hostStr, pin) {
+  let cleanHost = hostStr.trim().replace(/^https?:\/\//i, "").replace(/\/$/, "");
+  if (!cleanHost.includes(":")) cleanHost += ":48291";
+  saveRecentIp(cleanHost);
+  const target = pin ? `http://${cleanHost}/?pin=${encodeURIComponent(pin)}` : `http://${cleanHost}/`;
+  window.location.href = target;
+}
+
+async function startQrScanner() {
+  const box = document.getElementById("qr-scanner-box");
+  const pinControls = document.getElementById("pin-controls-box");
+  const video = document.getElementById("qr-video");
+  const status = document.getElementById("qr-scan-status");
+  if (!box || !video) return;
+
+  box.style.display = "block";
+  if (pinControls) pinControls.style.display = "none";
+  if (status) status.textContent = "Iniciando cámara...";
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    if (status) status.textContent = "Tu navegador no permite acceso a la cámara. Introduce la IP manualmente.";
+    return;
+  }
+
+  try {
+    qrStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } }
+    });
+    video.srcObject = qrStream;
+    await video.play();
+    if (status) status.textContent = "Apunta con la cámara al código QR de Studio...";
+
+    let detector = null;
+    if ("BarcodeDetector" in window) {
+      try {
+        detector = new BarcodeDetector({ formats: ["qr_code"] });
+      } catch (e) {}
+    }
+
+    qrScanInterval = setInterval(async () => {
+      if (!qrStream || video.readyState < 2) return;
+      try {
+        if (detector) {
+          const barcodes = await detector.detect(video);
+          if (barcodes && barcodes.length > 0) {
+            handleScannedQr(barcodes[0].rawValue);
+          }
+        }
+      } catch (e) {}
+    }, 250);
+  } catch (err) {
+    console.error("Camera access error:", err);
+    if (status) status.textContent = "No se pudo acceder a la cámara. Introduce la IP abajo.";
+  }
+}
+
+function stopQrScanner() {
+  if (qrScanInterval) { clearInterval(qrScanInterval); qrScanInterval = null; }
+  if (qrStream) {
+    qrStream.getTracks().forEach(t => t.stop());
+    qrStream = null;
+  }
+  const box = document.getElementById("qr-scanner-box");
+  const pinControls = document.getElementById("pin-controls-box");
+  if (box) box.style.display = "none";
+  if (pinControls) pinControls.style.display = "block";
+}
+
+function handleScannedQr(rawText) {
+  stopQrScanner();
+  showMobileToast("¡Código QR detectado!");
+  haptic([30, 50]);
+
+  try {
+    if (rawText.startsWith("http://") || rawText.startsWith("https://")) {
+      const url = new URL(rawText);
+      saveRecentIp(url.host);
+      window.location.href = rawText;
+      return;
+    }
+    if (/^\d{6}$/.test(rawText.trim())) {
+      autoPairWithPin(rawText.trim());
+      return;
+    }
+  } catch (e) {
+    console.error("QR Parse error", e);
+  }
+}
+
 // PIN Modal & Authentication Handlers
 function showPinModal(canClose = true) {
   if (pinModal) {
@@ -1078,6 +1202,11 @@ function showPinModal(canClose = true) {
   if (btnClosePinModal) {
     btnClosePinModal.style.display = canClose ? "block" : "none";
   }
+  const customIpInput = document.getElementById("custom-ip-input");
+  if (customIpInput && !customIpInput.value) {
+    customIpInput.value = window.location.host;
+  }
+  renderRecentIps();
   setTimeout(() => {
     document.getElementById("pin-input")?.focus();
   }, 100);
@@ -1212,6 +1341,45 @@ document.getElementById("pin-input")?.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     document.getElementById("btn-verify-pin")?.click();
   }
+});
+
+// Event Listeners for QR & IP Switching
+document.getElementById("btn-start-qr")?.addEventListener("click", startQrScanner);
+document.getElementById("btn-cancel-qr")?.addEventListener("click", stopQrScanner);
+
+document.getElementById("btn-toggle-custom-ip")?.addEventListener("click", () => {
+  const customIpBox = document.getElementById("custom-ip-box");
+  if (customIpBox) {
+    const isHidden = customIpBox.style.display === "none";
+    customIpBox.style.display = isHidden ? "block" : "none";
+    if (isHidden) {
+      renderRecentIps();
+      document.getElementById("custom-ip-input")?.focus();
+    }
+  }
+});
+
+document.getElementById("btn-connect-custom-ip")?.addEventListener("click", () => {
+  const customIpInput = document.getElementById("custom-ip-input");
+  const host = (customIpInput?.value || "").trim();
+  if (host) {
+    navigateToHost(host);
+  }
+});
+
+document.getElementById("custom-ip-input")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    document.getElementById("btn-connect-custom-ip")?.click();
+  }
+});
+
+document.getElementById("btn-banner-reconnect")?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  showPinModal(true);
+});
+
+document.getElementById("reconnect-banner")?.addEventListener("click", () => {
+  showPinModal(true);
 });
 
 // Startup Hook: auto-pair if ?pin= is present, else connect

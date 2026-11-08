@@ -1361,6 +1361,75 @@ function closeActionPicker() {
   if (actionPicker) { const picker = actionPicker; actionPicker = null; picker.close(); }
 }
 
+function openAppHub(host, app, btn, index, onBack) {
+  const appId = String(app.id || app.name).toLowerCase();
+  const connector = CONNECTOR_CARDS.find(c => c.id === appId || (c.id === "obs" && appId.includes("obs")) || (c.id === "discord" && appId.includes("discord")) || (c.id === "spotify" && appId.includes("spotify")) || (c.id === "steam" && appId.includes("steam")));
+  const pack = (programCatalog?.programs || []).find(p => p.id === appId || appId.includes(p.id) || p.id.includes(appId));
+
+  if (!connector && !pack) {
+    assignFromTemplate(btn, index, {
+      label: app.name, sublabel: app.category || "App", icon: app.icon || "/static/icons/power.svg",
+      color: app.color || "#f8c700", action_type: "preset_app", target: app.id || app.name,
+    });
+    return;
+  }
+
+  host.innerHTML = `
+    <div style="margin-bottom: 12px;">
+      <button type="button" class="btn-secondary prog-back" id="apphub-btn-back">← Volver</button>
+    </div>
+    <div class="apphub-header">
+      <img src="${escapeHtml(app.icon || '/static/icons/power.svg')}" class="apphub-icon" alt="">
+      <div class="apphub-title-box">
+        <span class="apphub-name">${escapeHtml(app.name)}</span>
+        <span class="apphub-cat">${escapeHtml(app.category || 'Aplicación')}</span>
+      </div>
+    </div>
+
+    <div class="apphub-primary-launch" id="apphub-btn-launch" role="button" tabindex="0">
+      <div>
+        <strong>🚀 Abrir ${escapeHtml(app.name)}</strong>
+        <div><span>Lanza o trae al primer plano la aplicación en tu PC</span></div>
+      </div>
+      <button type="button" class="btn-primary" style="pointer-events: none;">Elegir</button>
+    </div>
+
+    ${connector ? `<div class="picker-category">⚡ Acciones Conectadas de ${escapeHtml(app.name)}</div><div id="apphub-connector-box"></div>` : ""}
+    ${pack ? `<div class="picker-category" style="margin-top: 14px;">⌨️ Atajos de Teclado de ${escapeHtml(app.name)} (${pack.actions.length})</div><div class="picker-items" id="apphub-pack-box"></div>` : ""}
+  `;
+
+  host.querySelector("#apphub-btn-back").addEventListener("click", onBack);
+  host.querySelector("#apphub-btn-launch").addEventListener("click", () => {
+    assignFromTemplate(btn, index, {
+      label: app.name, sublabel: app.category || "App", icon: app.icon || "/static/icons/power.svg",
+      color: app.color || "#f8c700", action_type: "preset_app", target: app.id || app.name,
+    });
+  });
+
+  if (connector) {
+    openConnectorId = connector.id;
+    renderTabConnectors(host.querySelector("#apphub-connector-box"), { action_type: connector.actionType }, index, Boolean(pickerSession));
+  }
+
+  if (pack) {
+    const packBox = host.querySelector("#apphub-pack-box");
+    packBox.innerHTML = pack.actions.map(a => `
+      <button type="button" class="picker-item" data-action="${escapeHtml(a.id)}">
+        <img src="/static/icons/${escapeHtml(a.icon)}.svg" alt="">
+        <div><strong>${escapeHtml(a.label)}</strong><span>${escapeHtml(a.sub || a.keys)}</span></div>
+      </button>
+    `).join("");
+    packBox.addEventListener("click", (e) => {
+      const chosen = pack.actions.find(a => a.id === e.target.closest("[data-action]")?.dataset.action);
+      if (!chosen) return;
+      assignFromTemplate(btn, index, {
+        label: chosen.label, sublabel: chosen.sub || chosen.keys, icon: `/static/icons/${chosen.icon}.svg`,
+        color: pack.color || "#f8c700", action_type: "hotkey", target: chosen.keys, extra: {},
+      });
+    });
+  }
+}
+
 function openActionPicker(btn, index, startTab = "apps", session = null) {
   closeActionPicker();
   pickerSession = session;
@@ -1372,10 +1441,16 @@ function openActionPicker(btn, index, startTab = "apps", session = null) {
     title: session?.title || "Elegir qué hace este botón",
     description: session ? "El botón no cambia: solo se añade esta acción." : "",
     body: `
-      <div class="picker-tabs" role="tablist">
-        ${tabs.map(([id, name]) => `<button class="picker-tab ${id === current ? "active" : ""}" role="tab" data-picker-tab="${id}">${name}</button>`).join("")}
+      <div class="omni-search-wrapper">
+        <svg class="omni-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="search" id="omni-search-input" class="omni-search-input" placeholder="🔍 Buscar cualquier acción (mute, spotify, discord, obs, play, atajo...)" aria-label="Buscar cualquier acción">
       </div>
-      <p class="tab-hint" id="picker-hint"></p>
+      <div id="picker-tabs-bar">
+        <div class="picker-tabs" role="tablist">
+          ${tabs.map(([id, name]) => `<button class="picker-tab ${id === current ? "active" : ""}" role="tab" data-picker-tab="${id}">${name}</button>`).join("")}
+        </div>
+        <p class="tab-hint" id="picker-hint"></p>
+      </div>
       <div class="picker-body" id="picker-body"></div>`,
     actions: [{ label: "Cerrar", kind: "secondary" }],
     onMount: () => {},
@@ -1389,13 +1464,141 @@ function openActionPicker(btn, index, startTab = "apps", session = null) {
   };
 
   const hints = {
-    apps: "Solo abre el programa que elijas.",
+    apps: "Elige cualquier app: puedes abrirla directamente, controlar sus funciones (Discord, OBS, Spotify) o usar sus atajos.",
     programs: "Acciones dentro de un programa: OBS, Discord, Spotify y Windows (conectados), y los atajos de más de 30 programas (VLC, DaVinci, Excel, Chrome...). Los atajos van a la ventana que esté a la vista: el programa tiene que estar delante.",
     shortcuts: "Pulsa teclas, escribe un texto, abre una web o una carpeta, o encadena varias acciones.",
     system: "Volumen, bloqueo del PC, comandos de consola, monitores del PC y navegación entre páginas.",
   };
   const body = modal.el.querySelector("#picker-body");
   const hint = modal.el.querySelector("#picker-hint");
+  const tabsBar = modal.el.querySelector("#picker-tabs-bar");
+  const omniInput = modal.el.querySelector("#omni-search-input");
+
+  const runOmniSearch = (term) => {
+    const t = term.trim().toLowerCase();
+    if (!t) {
+      tabsBar.style.display = "";
+      show(current);
+      return;
+    }
+    tabsBar.style.display = "none";
+    body.innerHTML = "";
+
+    const libMatches = [];
+    (libraryCategories || []).forEach(cat => {
+      (cat.items || []).forEach(item => {
+        const matchScore = `${item.label} ${item.sub || ""} ${cat.category} ${item.target || ""}`.toLowerCase();
+        if (matchScore.includes(t)) {
+          libMatches.push({ ...item, categoryName: cat.category });
+        }
+      });
+    });
+
+    const progMatches = [];
+    (programCatalog?.programs || []).forEach(pack => {
+      (pack.actions || []).forEach(action => {
+        const matchScore = `${action.label} ${action.sub || ""} ${pack.name} ${pack.category || ""} ${action.keys || ""}`.toLowerCase();
+        if (matchScore.includes(t)) {
+          progMatches.push({
+            label: action.label,
+            sublabel: `${pack.name} • ${action.sub || action.keys}`,
+            icon: `/static/icons/${action.icon}.svg`,
+            color: pack.color || "#f8c700",
+            action_type: "hotkey",
+            target: action.keys,
+            extra: {},
+            packName: pack.name,
+          });
+        }
+      });
+    });
+
+    const appMatches = [];
+    const apps = detectedSystemApps.length > 0 ? detectedSystemApps : [
+      { id: "discord", name: "Discord", icon: "/static/icons/discord.svg", color: "#5865f2", category: "Voz y chat" },
+      { id: "spotify", name: "Spotify", icon: "/static/icons/spotify.svg", color: "#1db954", category: "Música" },
+      { id: "obs", name: "OBS Studio", icon: "/static/icons/obs.svg", color: "#302e31", category: "Directo" },
+      { id: "steam", name: "Steam", icon: "/static/icons/steam.svg", color: "#171a21", category: "Juegos" },
+      { id: "chrome", name: "Chrome", icon: "/static/icons/chrome.svg", color: "#ea4335", category: "Navegador" }
+    ];
+    apps.forEach(app => {
+      if (`${app.name} ${app.category || ""} ${app.id}`.toLowerCase().includes(t)) {
+        appMatches.push(app);
+      }
+    });
+
+    if (!libMatches.length && !progMatches.length && !appMatches.length) {
+      body.innerHTML = `<div class="empty-note">No se encontró ninguna acción ni programa para «${escapeHtml(t)}».</div>`;
+      return;
+    }
+
+    let html = "";
+    if (appMatches.length) {
+      html += `<div class="picker-category">Programas y Apps (${appMatches.length})</div><div class="picker-items" style="margin-bottom: 14px;">`;
+      html += appMatches.map((a, i) => `
+        <button type="button" class="picker-item" data-omni-app="${i}">
+          <img src="${escapeHtml(a.icon || '/static/icons/power.svg')}" alt="">
+          <div><strong>${escapeHtml(a.name)}</strong><span>${escapeHtml(a.category || "App")} <span class="omni-category-badge">App</span></span></div>
+        </button>`).join("");
+      html += `</div>`;
+    }
+
+    if (libMatches.length) {
+      html += `<div class="picker-category">Acciones del Sistema (${libMatches.length})</div><div class="picker-items" style="margin-bottom: 14px;">`;
+      html += libMatches.map((item, i) => `
+        <button type="button" class="picker-item" data-omni-lib="${i}">
+          <img src="${escapeHtml(item.icon)}" alt="">
+          <div><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.sub || item.categoryName)} <span class="omni-category-badge">${escapeHtml(item.categoryName)}</span></span></div>
+        </button>`).join("");
+      html += `</div>`;
+    }
+
+    if (progMatches.length) {
+      html += `<div class="picker-category">Atajos de Programas (${progMatches.length})</div><div class="picker-items">`;
+      html += progMatches.map((item, i) => `
+        <button type="button" class="picker-item" data-omni-prog="${i}">
+          <img src="${escapeHtml(item.icon)}" alt="">
+          <div><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.sublabel)} <span class="omni-category-badge">${escapeHtml(item.packName)}</span></span></div>
+        </button>`).join("");
+      html += `</div>`;
+    }
+
+    body.innerHTML = html;
+
+    body.querySelectorAll("[data-omni-app]").forEach(el => {
+      el.addEventListener("click", () => {
+        const a = appMatches[Number(el.dataset.omniApp)];
+        openAppHub(body, a, btn, index, () => runOmniSearch(omniInput.value));
+      });
+    });
+
+    body.querySelectorAll("[data-omni-lib]").forEach(el => {
+      el.addEventListener("click", () => {
+        const item = libMatches[Number(el.dataset.omniLib)];
+        if (item.openConnector || item.opensTab) {
+          const connCard = CONNECTOR_CARDS.find(c => c.id === (item.openConnector || item.opensTab));
+          if (connCard) {
+            openAppHub(body, connCard, btn, index, () => runOmniSearch(omniInput.value));
+            return;
+          }
+        }
+        assignFromTemplate(btn, index, {
+          label: item.label, sublabel: item.sub || "", icon: item.icon, color: item.color,
+          action_type: item.action_type, target: item.target, extra: item.extra,
+          configure: item.configure, confirm_default: item.confirm_default,
+        });
+      });
+    });
+
+    body.querySelectorAll("[data-omni-prog]").forEach(el => {
+      el.addEventListener("click", () => {
+        const item = progMatches[Number(el.dataset.omniProg)];
+        assignFromTemplate(btn, index, item);
+      });
+    });
+  };
+
+  omniInput.addEventListener("input", (e) => runOmniSearch(e.target.value));
 
   const libraryGroups = (names, host) => {
     host.innerHTML = `<input type="search" id="picker-search" placeholder="Buscar una acción" aria-label="Buscar una acción">` + `<div id="picker-list"></div>`;
@@ -1405,13 +1608,20 @@ function openActionPicker(btn, index, startTab = "apps", session = null) {
       list.innerHTML = libraryCategories
         .filter(c => names.some(n => c.category.toLowerCase().startsWith(n.toLowerCase())))
         .map(c => {
-          const items = c.items.filter(i => !i.opensTab && (!t || `${i.label} ${i.sub}`.toLowerCase().includes(t)));
+          const items = c.items.filter(i => (!t || `${i.label} ${i.sub}`.toLowerCase().includes(t)));
           if (!items.length) return "";
           return `<div class="picker-category">${escapeHtml(c.category)}</div><div class="picker-items">${items.map(i => `
             <button class="picker-item" data-pick="${escapeHtml(i.id)}"><img src="${escapeHtml(i.icon)}" alt=""><div><strong>${escapeHtml(i.label)}</strong><span>${escapeHtml(i.sub || "")}</span></div></button>`).join("")}</div>`;
         }).join("") || `<div class="empty-note">Ninguna acción coincide.</div>`;
       list.querySelectorAll("[data-pick]").forEach(el => el.addEventListener("click", () => {
         const item = libraryCategories.flatMap(c => c.items).find(i => i.id === el.dataset.pick);
+        if (item.openConnector || item.opensTab) {
+          const connCard = CONNECTOR_CARDS.find(c => c.id === (item.openConnector || item.opensTab));
+          if (connCard) {
+            openAppHub(host, connCard, btn, index, () => draw(host.querySelector("#picker-search")?.value || ""));
+            return;
+          }
+        }
         assignFromTemplate(btn, index, {
           label: item.label, sublabel: item.sub || "", icon: item.icon, color: item.color,
           action_type: item.action_type, target: item.target, extra: item.extra,
@@ -1434,7 +1644,7 @@ function openActionPicker(btn, index, startTab = "apps", session = null) {
     if (tab === "apps") renderTabApps(host, scopeBtn, index);
     else if (tab === "programs") renderTabPrograms(host, scopeBtn, index, Boolean(session));
     else if (tab === "shortcuts") libraryGroups(["Sistema", "Reuniones", "Vídeo", "Creación", "Navegador", "Atajos de Windows", "Edición", "Música"], host);
-    else libraryGroups(["Windows", "Páginas", "Multimedia", "Monitores", "Contadores", "Conexiones web"], host);
+    else libraryGroups(["Windows", "Páginas", "Multimedia", "Monitores", "Contadores", "Conexiones web", "OBS", "Discord", "Spotify"], host);
   };
   modal.el.querySelectorAll(".picker-tab").forEach(b => b.addEventListener("click", () => show(b.dataset.pickerTab)));
   show(startTab);
@@ -1525,8 +1735,15 @@ function renderTabPrograms(host, btn, index, pick) {
   body.addEventListener("click", (event) => {
     const card = event.target.closest("[data-connector], [data-pack]");
     if (!card) return;
-    if (card.dataset.connector) showConnector(CONNECTOR_CARDS.find(c => c.id === card.dataset.connector));
-    else showPack(packs.find(p => p.id === card.dataset.pack));
+    if (card.dataset.connector) {
+      const conn = CONNECTOR_CARDS.find(c => c.id === card.dataset.connector);
+      search.hidden = true;
+      openAppHub(body, conn, btn, index, showList);
+    } else {
+      const pack = packs.find(p => p.id === card.dataset.pack);
+      search.hidden = true;
+      openAppHub(body, pack, btn, index, showList);
+    }
   });
   body.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -1546,7 +1763,9 @@ function renderTabPrograms(host, btn, index, pick) {
     // A key that opens one of these programs goes straight to its actions.
     const own = !pick && ["preset_app", "launch"].includes(btn.action_type) ? packs.find(p => p.id === String(btn.target || "").toLowerCase()) : null;
     const ownConnector = !pick && CONNECTOR_CARDS.find(c => c.id === String(btn.target || "").toLowerCase() && ["preset_app", "launch"].includes(btn.action_type));
-    if (own) showPack(own); else if (ownConnector) showConnector(ownConnector); else showList();
+    if (own) { search.hidden = true; openAppHub(body, own, btn, index, showList); }
+    else if (ownConnector) { search.hidden = true; openAppHub(body, ownConnector, btn, index, showList); }
+    else showList();
   })();
 }
 
@@ -1592,12 +1811,11 @@ function renderTabApps(container, btn, index) {
             <div class="app-card-cat">${escapeHtml(app.category || 'App')}</div>
           </div>
         </div>
-        <span class="app-card-badge">Usar</span>
+        <span class="app-card-badge">Configurar</span>
       `;
-      card.addEventListener("click", () => assignFromTemplate(btn, index, {
-        label: app.name, sublabel: app.category || "App", icon: app.icon || "/static/icons/power.svg",
-        color: app.color || "#f8c700", action_type: "preset_app", target: app.id || app.name,
-      }));
+      card.addEventListener("click", () => {
+        openAppHub(container, app, btn, index, () => renderTabApps(container, btn, index));
+      });
       listGrid.appendChild(card);
     });
   }

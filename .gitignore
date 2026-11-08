@@ -14,3 +14,12 @@ instalador_streamdeck.exe
 instalador_streamdeck.exe.sha256
 config/
 webview_data/
+
+# Android build output
+.gradle/
+android/.gradle/
+android/app/build/
+android/build/
+*.apk
+*.aab
+

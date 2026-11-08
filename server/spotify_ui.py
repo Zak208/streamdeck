@@ -114,3 +114,29 @@ def _play(uri: str) -> None:
 def play(uri: str) -> None:
     """Open a spotify: link and press its play button. Raises SpotifyUiError with the reason."""
     ui_worker.call(_play, uri, timeout=60)
+
+
+def _toggle_like() -> bool:
+    if not _running():
+        raise SpotifyUiError("Spotify no está abierto.")
+    window = _Window(guard=True, app=SPOTIFY)
+    try:
+        window._wait_for_tree()
+        like_targets = (
+            "guardar en tu biblioteca", "añadir a canciones que te gustan", "añadir a tu biblioteca",
+            "eliminar de canciones que te gustan", "eliminar de tu biblioteca", "quitar de tu biblioteca",
+            "save to your library", "remove from your library", "add to liked songs"
+        )
+        for element, name, _ in window._all(UIA_BUTTON):
+            low = (name or "").strip().lower()
+            if any(t in low for t in like_targets):
+                window._invoke(element)
+                return True
+        raise SpotifyUiError("No encuentro el botón de Me gusta en la app de Spotify.")
+    finally:
+        window.close()
+
+
+def toggle_like() -> bool:
+    """Toggles like/favorite on the currently playing track in Spotify desktop without taking window focus."""
+    return ui_worker.call(_toggle_like, timeout=15)

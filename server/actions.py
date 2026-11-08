@@ -193,6 +193,11 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
         if action_type == "spotify_uri":
             return spotify.play(target)
 
+        if action_type == "spotify_action":
+            if target in ("like", "toggle_like"):
+                return spotify.toggle_like()
+            return {"success": False, "error": "Acción de Spotify no válida"}
+
         if action_type == "windows":
             return windows.execute(target, extra)
 
@@ -285,8 +290,17 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
                 winsound.Beep(1000, 200)
             elif target == "asterisk":
                 winsound.MessageBeep(winsound.MB_ICONASTERISK)
-            else:
+            elif target == "exclamation":
                 winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+            else:
+                # Local sound file (Soundboard)
+                from server.paths import CONFIG_DIR
+                sound_dir = os.path.join(CONFIG_DIR, "sounds")
+                candidate = os.path.join(sound_dir, target) if not os.path.isabs(target) else target
+                if os.path.exists(candidate) and candidate.lower().endswith(".wav"):
+                    winsound.PlaySound(candidate, winsound.SND_ASYNC | winsound.SND_FILENAME)
+                else:
+                    winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
             return {"success": True, "action": action_type, "target": target}
 
         return {"success": False, "error": "Tipo de acción no soportado"}

@@ -37,7 +37,7 @@ INFO = {
 AUTH_URL = "https://accounts.spotify.com/authorize"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
 API_URL = "https://api.spotify.com/v1"
-SCOPES = "user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative"
+SCOPES = "user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative user-library-read user-library-modify"
 # Spotify requires the literal loopback address, not "localhost".
 REDIRECT_URI = f"http://127.0.0.1:{PORT}/api/connectors/spotify/callback"
 CLIENT_ID_LENGTH = 32
@@ -257,8 +257,47 @@ def status() -> Dict[str, Any]:
     return {"state": "ready", "detail": f"Conectado como {name}"}
 
 
+def toggle_like() -> Dict[str, Any]:
+    """Like or unlike the currently playing track via Web API or background UI automation."""
+    if settings.get("spotify").get("refresh_token"):
+        try:
+            current = _api("GET", "/me/player/currently-playing")
+            if current and current.get("item") and current["item"].get("id"):
+                track_id = current["item"]["id"]
+                track_name = current["item"].get("name", "Canción")
+                contains = _api("GET", f"/me/tracks/contains?ids={track_id}")
+                is_liked = bool(contains and contains[0]) if isinstance(contains, list) else False
+                if is_liked:
+                    _api("DELETE", f"/me/tracks?ids={track_id}")
+                    return {"success": True, "action": "spotify_action", "liked": False, "track": track_name,
+                            "note": f"Quitada de favoritos: {track_name}"}
+                else:
+                    _api("PUT", f"/me/tracks?ids={track_id}")
+                    return {"success": True, "action": "spotify_action", "liked": True, "track": track_name,
+                            "note": f"Añadida a canciones que te gustan: {track_name}"}
+        except SpotifyError:
+            pass  # Fall back to UI automation
+
+    try:
+        spotify_ui.toggle_like()
+        return {"success": True, "action": "spotify_action", "mode": "ui"}
+    except spotify_ui.SpotifyUiError as exc:
+        return {"success": False, "error": str(exc)}
+    except Exception:
+        return {"success": False, "error": "No se pudo pulsar Me gusta en Spotify. Comprueba que la app está abierta."}
+
+
 def actions() -> List[Dict[str, Any]]:
-    return []  # Spotify buttons are created from the playlist picker or a pasted link.
+    return [
+        {"id": "like", "label": "Me gusta", "sublabel": "Spotify", "icon": "/static/icons/plus.svg", "color": "#1db954",
+         "action_type": "spotify_action", "target": "like", "extra": {}},
+        {"id": "play_pause", "label": "Play/Pausa", "sublabel": "Spotify", "icon": "/static/icons/play_pause.svg", "color": "#1db954",
+         "action_type": "media", "target": "play_pause", "extra": {}},
+        {"id": "next", "label": "Siguiente", "sublabel": "Spotify", "icon": "/static/icons/next.svg", "color": "#1db954",
+         "action_type": "media", "target": "next", "extra": {}},
+        {"id": "prev", "label": "Anterior", "sublabel": "Spotify", "icon": "/static/icons/prev.svg", "color": "#1db954",
+         "action_type": "media", "target": "prev", "extra": {}},
+    ]
 
 
 def options(name: str) -> List[Dict[str, Any]]:

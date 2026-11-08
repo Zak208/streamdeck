@@ -87,7 +87,7 @@ LIBRARY: List[Dict[str, Any]] = [
          "Reproducir, siguiente, me gusta, aleatorio y repetir. Se abre sola cuando Spotify está a la vista.",
          [media("Play/Pausa", "play_pause", "play_pause", "#1db954"), media("Anterior", "prev", "prev", "#1db954"),
           media("Siguiente", "next", "next", "#1db954"),
-          hotkey("Me gusta", "Spotify a la vista", "ALT+SHIFT+B", "plus", "#1db954"),
+          key("Me gusta", "Spotify", "plus", "#1db954", "spotify_action", "like"),
           hotkey("Aleatorio", "Spotify a la vista", "CTRL+S", "macro", "#1db954"),
           hotkey("Repetir", "Spotify a la vista", "CTRL+R", "next", "#1db954"),
           app("Spotify", "Abrir", "spotify", "#1db954", "spotify"),

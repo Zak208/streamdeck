@@ -219,6 +219,16 @@ class _Panel(_Window):
             # Two buttons carry this name (the call bar and the full-screen view): press whichever can be pressed.
             openers = [e for e, n, _ in self._all(UIA_BUTTON) if n == OPEN_PANEL and e.GetCurrentPattern(INVOKE_PATTERN)]
             if not openers:
+                # If Discord is viewing a text chat or another screen, click the voice bar to switch to the voice view
+                voice_btn = next((e for e, n, _ in self._all(UIA_BUTTON) if (n and (VOICE_STATUS in n or "Voz conectada" in n or "Detalles de voz" in n)) and e.GetCurrentPattern(INVOKE_PATTERN)), None)
+                if voice_btn:
+                    try:
+                        self._invoke(voice_btn)
+                        time.sleep(0.6)
+                        openers = [e for e, n, _ in self._all(UIA_BUTTON) if n == OPEN_PANEL and e.GetCurrentPattern(INVOKE_PATTERN)]
+                    except Exception:
+                        pass
+            if not openers:
                 raise DiscordUiError("Discord solo ofrece el panel de sonidos dentro de un canal de voz. Entra en uno de un servidor y vuelve a pulsar.")
             self._invoke(openers[0])
             for _ in range(16):

@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">StreamDesk</string>
+    <string name="connect_title">Conectar con PC</string>
+    <string name="connect_hint">Introduce la dirección IP de tu PC (ej. 192.168.1.50:48291)</string>
+    <string name="btn_connect">Conectar</string>
+    <string name="change_server">Cambiar servidor</string>
+</resources>

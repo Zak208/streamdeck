@@ -104,6 +104,7 @@ class LibraryTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(actions.winsound, "MessageBeep", recorder))
             stack.enter_context(mock.patch.object(actions.windows, "execute", return_value={"success": True}))
             stack.enter_context(mock.patch.object(actions.spotify, "play", return_value={"success": True}))
+            stack.enter_context(mock.patch.object(actions.spotify, "toggle_like", return_value={"success": True}))
             stack.enter_context(mock.patch.object(discord_ui, "play"))
             stack.enter_context(mock.patch.object(discord_ui, "toggle_voice", return_value=True))
             stack.enter_context(mock.patch("server.obs_client.obs_client.execute_obs_action", return_value={"success": True}))

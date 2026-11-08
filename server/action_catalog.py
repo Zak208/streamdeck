@@ -18,7 +18,7 @@ from server.layouts import LAYOUTS, layout_dict, layout_name, size_of
 
 ACTION_TYPES = frozenset({
     "preset_app", "launch", "media", "url", "obs_action", "hardware_monitor",
-    "sound", "multi", "spotify_uri", "discord_hotkey", "discord_sound", "windows", "hotkey", "text", "page", "folder", "command", "counter", "timer", "webhook",
+    "sound", "multi", "spotify_uri", "spotify_action", "discord_hotkey", "discord_sound", "windows", "hotkey", "text", "page", "folder", "command", "counter", "timer", "webhook",
     "none", "steam",
 })
 # These need the button they belong to (its own value or timer), so a macro step cannot be one.
@@ -210,6 +210,11 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
         clean_extra = {"commands": validate_commands(action_extra.get("commands"))}
     elif action_type == "spotify_uri":
         target_text = normalize_spotify_uri(target_text)
+        clean_extra = {}
+    elif action_type == "spotify_action":
+        target_text = target_text.lower()
+        if target_text not in {"like", "toggle_like"}:
+            raise ValueError("Acción de Spotify no válida")
         clean_extra = {}
     elif action_type == "discord_hotkey":
         if target_text.lower() not in DISCORD_TARGETS:

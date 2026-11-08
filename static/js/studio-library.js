@@ -141,16 +141,19 @@ async function loadLibrary() {
           connector: c.id, configure: a.configure, confirm_default: a.confirm_default, fields: a.fields,
         })),
       }));
-    // Spotify and the Discord soundboard need a choice, so they open the Connectors tab.
+    // Spotify and the Discord soundboard need a choice, so they open their app connector hub.
     const spotify = fromConnectors.find(c => c.category === "Spotify");
-    const extra = [
-      { category: "Spotify", items: [{ id: "spotify_pick", label: "Playlist o canción", sub: "Elige o pega un enlace", icon: "/static/icons/spotify.svg", color: "#1db954", action_type: "sound", target: "beep", opensTab: "integrations", openConnector: "spotify" }] },
-    ];
+    const pickPlaylist = { id: "spotify_pick", label: "Playlist o canción", sub: "Elige o pega un enlace", icon: "/static/icons/spotify.svg", color: "#1db954", action_type: "spotify_uri", target: "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M", opensTab: "programs", openConnector: "spotify" };
+    if (spotify) {
+      spotify.items.unshift(pickPlaylist);
+    } else {
+      fromConnectors.push({ category: "Spotify", items: [pickPlaylist] });
+    }
     const discord = fromConnectors.find(c => c.category === "Discord");
     if (discord) {
-      discord.items.push({ id: "discord_sound", label: "Sonido del soundboard", sub: "Elige de tus servidores", icon: "/static/icons/soundboard.svg", color: "#5865f2", action_type: "sound", target: "beep", opensTab: "integrations", openConnector: "discord" });
+      discord.items.push({ id: "discord_sound", label: "Sonido del soundboard", sub: "Elige de tus servidores", icon: "/static/icons/soundboard.svg", color: "#5865f2", action_type: "discord_sound", target: "sonido", extra: { section: "Favoritos" }, opensTab: "programs", openConnector: "discord" });
     }
-    libraryCategories = [...libraryCategories, ...fromConnectors.filter(c => c !== spotify), ...extra];
+    libraryCategories = [...libraryCategories, ...fromConnectors];
   } catch (e) {
     console.error("Library connectors", e);
   }
@@ -181,6 +184,7 @@ function describeAction(a) {
       return `Va a ${names[t] || `«${pages.find(p => p.id === t)?.name || "página borrada"}»`}`;
     }
     case "media": return `Multimedia: ${t.replace("_", " ")}`;
+    case "spotify_action": return t === "like" ? "Spotify: Me gusta (favoritos)" : `Spotify: ${t}`;
     case "preset_app": case "launch": return `Abre ${t}`;
     case "obs_action": return `OBS: ${t.replace("_", " ")}`;
     case "discord_hotkey": return t === "sound" ? `Sonido de Discord (${a.extra?.sound_name || "sin nombre"})` : t === "mute" ? "Silencia o activa tu micrófono en Discord" : t === "deafen" ? "Ensordece o activa el sonido en Discord" : `Discord: ${t}`;
@@ -350,16 +354,62 @@ function editorFor(action) {
 
 function renderTabAction(container, btn, index) {
   const editor = editorFor(btn);
+  const emptyHtml = `
+    <div class="quick-presets-box">
+      <span class="section-label" style="margin: 0 0 6px;">Configuración Rápida</span>
+      <p class="integration-hint" style="margin: 0 0 10px;">Elige qué hacer directamente o abre el catálogo:</p>
+      <div class="quick-presets-grid">
+        <button type="button" class="quick-preset-btn" data-quick="hotkey">
+          <img src="/static/icons/keyboard.svg" alt="">
+          <div><strong>Atajo de teclado</strong><span>Grabar combinación</span></div>
+        </button>
+        <button type="button" class="quick-preset-btn" data-quick="app">
+          <img src="/static/icons/power.svg" alt="">
+          <div><strong>Abrir programa</strong><span>Elige de tu PC</span></div>
+        </button>
+        <button type="button" class="quick-preset-btn" data-quick="media">
+          <img src="/static/icons/play_pause.svg" alt="">
+          <div><strong>Multimedia</strong><span>Play o volumen</span></div>
+        </button>
+        <button type="button" class="quick-preset-btn" data-quick="text">
+          <img src="/static/icons/notes.svg" alt="">
+          <div><strong>Escribir texto</strong><span>Texto con acentos</span></div>
+        </button>
+      </div>
+      <button type="button" class="btn-primary" style="margin-top: 10px; width: 100%; justify-content: center;" data-quick="catalog">
+        🔍 Explorar catálogo completo...
+      </button>
+    </div>`;
+
   container.innerHTML = `
     <div class="action-summary">
       <span class="section-label" style="margin: 0 0 4px;">Este botón</span>
       <strong id="action-summary">${escapeHtml(describeAction(btn))}</strong>
     </div>
     <div id="action-editor"></div>
-    ${editor ? "" : `<p class="integration-hint" style="margin-top: 12px;">${btn.action_type === "none"
-      ? "Este botón está vacío: no hace nada hasta que pulses «Elegir acción» y decidas qué hace."
-      : "Esta acción no necesita ajustes. Para cambiarla, pulsa «Elegir acción»."}</p>`}
+    ${editor ? "" : (btn.action_type === "none" ? emptyHtml : `<p class="integration-hint" style="margin-top: 12px;">Esta acción no necesita ajustes. Para cambiarla, pulsa «Elegir acción».</p>`)}
     ${btn.action_type === "hardware_monitor" || btn.action_type === "none" ? "" : `<div id="gesture-section"></div>`}`;
+
+  if (btn.action_type === "none") {
+    container.querySelectorAll("[data-quick]").forEach(el => el.addEventListener("click", () => {
+      const q = el.dataset.quick;
+      if (q === "hotkey") {
+        btn.action_type = "hotkey"; btn.label = "Atajo"; btn.target = "CTRL+SHIFT+M"; btn.color = "#f8c700"; btn.image = "/static/icons/keyboard.svg";
+        commitAction(btn); renderPhoneScreen(); renderButtonInspector(btn, index);
+      } else if (q === "app") {
+        openActionPicker(btn, index, "apps");
+      } else if (q === "media") {
+        btn.action_type = "media"; btn.label = "Play/Pausa"; btn.target = "play_pause"; btn.color = "#f8c700"; btn.image = "/static/icons/play_pause.svg";
+        commitAction(btn); renderPhoneScreen(); renderButtonInspector(btn, index);
+      } else if (q === "text") {
+        btn.action_type = "text"; btn.label = "Texto"; btn.target = "Texto"; btn.extra = { press_enter: false }; btn.color = "#f8c700"; btn.image = "/static/icons/notes.svg";
+        commitAction(btn); renderPhoneScreen(); renderButtonInspector(btn, index);
+      } else if (q === "catalog") {
+        openActionPicker(btn, index);
+      }
+    }));
+  }
+
   editor?.(container.querySelector("#action-editor"), btn, index);
   const gestures = container.querySelector("#gesture-section");
   if (gestures) renderGestureSection(gestures, btn, index);

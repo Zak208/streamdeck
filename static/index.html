@@ -56,9 +56,10 @@
   </header>
 
   <!-- Reconnection Alert Banner -->
-  <div id="reconnect-banner" class="reconnect-banner" style="display: none;">
+  <div id="reconnect-banner" class="reconnect-banner" style="display: none; cursor: pointer;">
     <span class="reconnect-dot-pulse"></span>
     <span data-banner-text>Reconectando con tu PC... Comprueba que estás en la misma red Wi-Fi</span>
+    <button type="button" class="btn-banner-action" id="btn-banner-reconnect" style="margin-left: 8px; padding: 4px 8px; font-size: 11px; border-radius: 6px; background: rgba(248, 199, 0, 0.2); border: 1px solid var(--accent, #f8c700); color: var(--accent, #f8c700); cursor: pointer; white-space: nowrap;">Escanear QR / IP</button>
   </div>
 
   <!-- Main Container: 6x2 Grid (Supports Touch Swipe) -->
@@ -71,16 +72,48 @@
   <!-- PIN Pairing / Settings Modal -->
   <div class="modal-overlay" id="pin-modal" style="display: none;">
     <div class="modal-card">
-      <div class="modal-title">Vincular con tu PC</div>
-      <div class="modal-desc">
-        Introduce el <strong>código PIN de 6 dígitos</strong> que aparece en la pantalla de tu PC (Studio). Solo necesitas hacerlo una vez.
+      <div class="modal-title" id="pin-modal-title">Vincular con tu PC</div>
+      <div class="modal-desc" id="pin-modal-desc">
+        Introduce el <strong>código PIN de 6 dígitos</strong> que aparece en la pantalla de tu PC (Studio), o escanea el código QR.
       </div>
-      <div class="pin-inputs">
-        <input type="text" id="pin-input" class="pin-input" maxlength="6" pattern="[0-9]*" inputmode="numeric" placeholder="· · · · · ·" autofocus>
+
+      <!-- Live Camera QR Scanner Box -->
+      <div id="qr-scanner-box" style="display: none; margin: 12px 0; text-align: center; position: relative;">
+        <video id="qr-video" playsinline style="width: 100%; max-height: 200px; border-radius: 8px; background: #000; object-fit: cover;"></video>
+        <p id="qr-scan-status" style="font-size: 12px; color: var(--accent, #f8c700); margin: 6px 0 0;">Apunta con la cámara al código QR de Studio...</p>
+        <button type="button" class="btn-secondary" id="btn-cancel-qr" style="margin-top: 8px;">Cerrar cámara</button>
       </div>
-      <p id="pin-error" class="pin-error" role="alert"></p>
-      <button class="btn-primary" id="btn-verify-pin">Conectar con PC</button>
-      <button class="btn-secondary" id="btn-close-pin-modal" style="display: none; margin-top: 8px;">Cerrar</button>
+
+      <div id="pin-controls-box">
+        <div class="pin-inputs">
+          <input type="text" id="pin-input" class="pin-input" maxlength="6" pattern="[0-9]*" inputmode="numeric" placeholder="· · · · · ·" autofocus>
+        </div>
+        <p id="pin-error" class="pin-error" role="alert"></p>
+        <button class="btn-primary" id="btn-verify-pin">Conectar con PC</button>
+        <div style="display: flex; gap: 8px; margin-top: 10px;">
+          <button type="button" class="btn-secondary" id="btn-start-qr" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
+            <span>📷 Escanear QR</span>
+          </button>
+          <button type="button" class="btn-secondary" id="btn-toggle-custom-ip" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
+            <span>⚙️ Cambiar IP</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Manual IP Change Box -->
+      <div id="custom-ip-box" style="display: none; margin-top: 14px; text-align: left; border-top: 1px solid var(--line, #262626); padding-top: 12px;">
+        <label for="custom-ip-input" style="font-size: 12px; color: var(--muted, #888); display: block; margin-bottom: 6px;">Dirección IP del PC:</label>
+        <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+          <input type="text" id="custom-ip-input" class="pin-input" placeholder="Ej: 192.168.1.50:48291" style="flex: 1; font-size: 14px; letter-spacing: normal; text-align: left; padding: 0 12px; height: 42px;">
+          <button type="button" class="btn-primary" id="btn-connect-custom-ip" style="width: auto; padding: 0 16px; min-height: 42px;">Ir</button>
+        </div>
+        <div id="recent-ips-container" style="display: none; margin-top: 8px;">
+          <span style="font-size: 11px; color: var(--muted, #888); display: block; margin-bottom: 4px;">IPs recientes:</span>
+          <div id="recent-ips-list" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+        </div>
+      </div>
+
+      <button class="btn-secondary" id="btn-close-pin-modal" style="display: none; margin-top: 10px;">Cerrar</button>
     </div>
   </div>
 

@@ -12,6 +12,13 @@ class ActionCatalogTests(unittest.TestCase):
         uri = normalize_spotify_uri("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=test")
         self.assertEqual(uri, "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M")
 
+    def test_validates_spotify_action(self):
+        action = validate_action("spotify_action", "like")
+        self.assertEqual(action["action_type"], "spotify_action")
+        self.assertEqual(action["target"], "like")
+        with self.assertRaises(ValueError):
+            validate_action("spotify_action", "invalid")
+
     def test_validates_discord_global_hotkey(self):
         self.assertEqual(validate_hotkey("control + shift + m"), "CTRL+SHIFT+M")
         action = validate_action("discord_hotkey", "mute", {"hotkey": "CTRL+SHIFT+M"})
