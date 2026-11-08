@@ -179,24 +179,47 @@ aside {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
-  padding: 10px 6px;
+  padding: 10px 8px;
   text-align: center;
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 10px;
   cursor: grab;
+  box-sizing: border-box;
+  overflow: hidden;
+  min-width: 0;
 }
 .palette-item:hover { border-color: var(--accent); }
 .palette-item:active { cursor: grabbing; }
 /* The tile is the control as it will look on the deck: same keycap and fader as the preview and the drag image. */
-.palette-preview { display: grid; place-items: center; width: 100%; height: 132px; pointer-events: none; }
-.palette-box { display: block; container-type: size; }
-.palette-box-key { width: 88px; height: 88px; }
+.palette-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 132px;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.palette-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  container-type: size;
+  margin: 0 auto;
+}
+.palette-box-key {
+  width: min(84px, 100%);
+  height: auto;
+  aspect-ratio: 1;
+  max-width: 100%;
+}
 .palette-box-fader { width: 54px; height: 128px; }
-.palette-box .slot-keycap, .palette-box .slot-fader { height: 100%; }
-.palette-item { min-width: 0; }
-.palette-item > div { min-width: 0; }
+.palette-box .slot-keycap { width: 100%; height: 100%; aspect-ratio: 1; }
+.palette-box .slot-fader { height: 100%; }
+.palette-item > div { min-width: 0; width: 100%; }
 .palette-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .palette-svg-icon { width: 18px; height: 18px; }
 .palette-item-title { font-size: 13px; font-weight: 700; }
@@ -810,6 +833,72 @@ a.template-card { text-decoration: none; color: inherit; }
 .quick-presets-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
 .quick-preset-btn { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); text-align: left; cursor: pointer; transition: border-color 0.12s, background 0.12s; }
 .quick-preset-btn:hover { border-color: var(--accent); background: var(--surface-3, #222938); }
+
+/* Category Accordion / Desplegables */
+.category-accordion {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  margin-bottom: 10px;
+  background: var(--surface);
+  overflow: hidden;
+  transition: border-color 0.15s ease;
+}
+.category-accordion:hover {
+  border-color: var(--line-strong);
+}
+.category-accordion[open] {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+.category-accordion-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  background: var(--surface-2);
+  transition: background 0.12s ease;
+}
+.category-accordion-summary:hover {
+  background: var(--surface-3, #222938);
+}
+.category-accordion-summary::-webkit-details-marker {
+  display: none;
+}
+.category-accordion-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.category-accordion-icon {
+  font-size: 14px;
+  opacity: 0.85;
+}
+.category-accordion-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  background: var(--surface);
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+.category-accordion-arrow {
+  margin-left: 8px;
+  font-size: 10px;
+  color: var(--text-3);
+  transition: transform 0.2s ease;
+}
+.category-accordion[open] .category-accordion-arrow {
+  transform: rotate(90deg);
+}
+.category-accordion-content {
+  padding: 12px;
+}
 .quick-preset-btn img { width: 22px; height: 22px; flex: none; }
 .quick-preset-btn strong { display: block; font-size: 12px; font-weight: 700; }
 .quick-preset-btn span { display: block; font-size: 10px; color: var(--text-3); }

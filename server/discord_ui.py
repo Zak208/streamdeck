@@ -193,9 +193,14 @@ class _Window:
 
     def _invoke(self, element) -> None:
         pattern = element.GetCurrentPattern(INVOKE_PATTERN)
-        if not pattern:
-            raise DiscordUiError("Discord no deja pulsar ese botón.")
-        pattern.QueryInterface(self.UIA.IUIAutomationInvokePattern).Invoke()
+        if pattern:
+            pattern.QueryInterface(self.UIA.IUIAutomationInvokePattern).Invoke()
+            return
+        toggle = element.GetCurrentPattern(TOGGLE_PATTERN)
+        if toggle:
+            toggle.QueryInterface(self.UIA.IUIAutomationTogglePattern).Toggle()
+            return
+        raise DiscordUiError("Discord no deja pulsar ese botón.")
 
 
 class _Panel(_Window):
@@ -212,24 +217,46 @@ class _Panel(_Window):
             self.close()
             raise
 
+    def _find_soundboard_openers(self) -> List[Any]:
+        openers = []
+        for e, n, _ in self._all(UIA_BUTTON):
+            if not n:
+                continue
+            nl = n.lower()
+            if ("panel de sonido" in nl or "selector de sonido" in nl or "soundboard" in nl) and "volumen" not in nl and not nl.startswith(PLAY_PREFIX.lower()):
+                if e.GetCurrentPattern(INVOKE_PATTERN) or e.GetCurrentPattern(TOGGLE_PATTERN):
+                    openers.append(e)
+        return openers
+
     # ---- the panel
     def _open_panel(self) -> None:
         anchor = self._named(PANEL_ANCHOR)
         if anchor is None:
-            # Two buttons carry this name (the call bar and the full-screen view): press whichever can be pressed.
-            openers = [e for e, n, _ in self._all(UIA_BUTTON) if n == OPEN_PANEL and e.GetCurrentPattern(INVOKE_PATTERN)]
+            openers = self._find_soundboard_openers()
             if not openers:
-                # If Discord is viewing a text chat or another screen, click the voice bar to switch to the voice view
-                voice_btn = next((e for e, n, _ in self._all(UIA_BUTTON) if (n and (VOICE_STATUS in n or "Voz conectada" in n or "Detalles de voz" in n)) and e.GetCurrentPattern(INVOKE_PATTERN)), None)
-                if voice_btn:
-                    try:
-                        self._invoke(voice_btn)
-                        time.sleep(0.6)
-                        openers = [e for e, n, _ in self._all(UIA_BUTTON) if n == OPEN_PANEL and e.GetCurrentPattern(INVOKE_PATTERN)]
-                    except Exception:
-                        pass
+                # If Discord is viewing a text chat or another screen, switch to the voice view via channel hyperlink or status bar
+                switched = False
+                for e, name, _ in self._all(UIA_HYPERLINK):
+                    if name and (" / " in name or parse_voice_link(name)):
+                        try:
+                            self._invoke(e)
+                            switched = True
+                            break
+                        except Exception:
+                            pass
+                if not switched:
+                    voice_btn = next((e for e, n, _ in self._all(UIA_BUTTON) if (n and (VOICE_STATUS in n or "Voz conectada" in n or "Detalles de voz" in n))), None)
+                    if voice_btn:
+                        try:
+                            self._invoke(voice_btn)
+                            switched = True
+                        except Exception:
+                            pass
+                if switched:
+                    time.sleep(0.6)
+                    openers = self._find_soundboard_openers()
             if not openers:
-                raise DiscordUiError("Discord solo ofrece el panel de sonidos dentro de un canal de voz. Entra en uno de un servidor y vuelve a pulsar.")
+                raise DiscordUiError("Discord solo ofrece el panel de sonidos dentro de un canal de voz. Pulsa en tu canal de voz en Discord o usa la acción «Sonido local» de StreamDesk.")
             self._invoke(openers[0])
             for _ in range(16):
                 time.sleep(0.25)

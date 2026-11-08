@@ -1408,7 +1408,7 @@ function openAppHub(host, app, btn, index, onBack) {
 
   if (connector) {
     openConnectorId = connector.id;
-    renderTabConnectors(host.querySelector("#apphub-connector-box"), { action_type: connector.actionType }, index, Boolean(pickerSession));
+    renderTabConnectors(host.querySelector("#apphub-connector-box"), btn, index, Boolean(pickerSession), connector.id);
   }
 
   if (pack) {
@@ -1717,16 +1717,44 @@ function renderTabPrograms(host, btn, index, pick) {
       const groups = (programCatalog?.categories || []).map(category => ({
         category, items: packs.filter(p => p.category === category && (!t || `${p.name} ${p.id}`.toLowerCase().includes(t))),
       })).filter(g => g.items.length);
-      body.innerHTML = [
-        connectors.length ? `<div class="picker-category">Conectados a StreamDesk</div><div class="apps-cards-grid">${connectors.map(c => `
-          <div class="app-card-item" role="button" tabindex="0" data-connector="${c.id}">
-            <div class="app-card-left"><img src="${c.icon}" class="app-card-icon" alt=""><div><div class="app-card-name">${escapeHtml(c.name)}</div><div class="app-card-cat">${escapeHtml(c.sub)}</div></div></div>
-            <span class="app-card-badge">Conectar</span></div>`).join("")}</div>` : "",
-        ...groups.map(g => `<div class="picker-category">${escapeHtml(g.category)}</div><div class="apps-cards-grid">${g.items.map(p => `
-          <div class="app-card-item" role="button" tabindex="0" data-pack="${escapeHtml(p.id)}">
-            <div class="app-card-left"><img src="/static/icons/${escapeHtml(p.icon)}.svg" class="app-card-icon" alt="" style="background: ${escapeHtml(p.color)}33"><div><div class="app-card-name">${escapeHtml(p.name)}</div><div class="app-card-cat">${p.actions.length} atajos</div></div></div>
-            <span class="app-card-badge">Ver</span></div>`).join("")}</div>`),
-      ].join("") || `<div class="empty-note">Ningún programa coincide.</div>`;
+
+      const connHtml = connectors.length ? `
+        <details class="category-accordion" open>
+          <summary class="category-accordion-summary">
+            <span class="category-accordion-title">
+              <span class="category-accordion-icon">⚡</span>
+              <span>Conectados a StreamDesk</span>
+              <span class="category-accordion-badge">${connectors.length}</span>
+            </span>
+            <span class="category-accordion-arrow">▶</span>
+          </summary>
+          <div class="category-accordion-content">
+            <div class="apps-cards-grid">${connectors.map(c => `
+              <div class="app-card-item" role="button" tabindex="0" data-connector="${c.id}">
+                <div class="app-card-left"><img src="${c.icon}" class="app-card-icon" alt=""><div><div class="app-card-name">${escapeHtml(c.name)}</div><div class="app-card-cat">${escapeHtml(c.sub)}</div></div></div>
+                <span class="app-card-badge">Conectar</span></div>`).join("")}</div>
+          </div>
+        </details>` : "";
+
+      const groupsHtml = groups.map((g, idx) => `
+        <details class="category-accordion" ${t || idx < 2 ? "open" : ""}>
+          <summary class="category-accordion-summary">
+            <span class="category-accordion-title">
+              <span class="category-accordion-icon">📦</span>
+              <span>${escapeHtml(g.category)}</span>
+              <span class="category-accordion-badge">${g.items.length}</span>
+            </span>
+            <span class="category-accordion-arrow">▶</span>
+          </summary>
+          <div class="category-accordion-content">
+            <div class="apps-cards-grid">${g.items.map(p => `
+              <div class="app-card-item" role="button" tabindex="0" data-pack="${escapeHtml(p.id)}">
+                <div class="app-card-left"><img src="/static/icons/${escapeHtml(p.icon)}.svg" class="app-card-icon" alt="" style="background: ${escapeHtml(p.color)}33"><div><div class="app-card-name">${escapeHtml(p.name)}</div><div class="app-card-cat">${p.actions.length} atajos</div></div></div>
+                <span class="app-card-badge">Ver</span></div>`).join("")}</div>
+          </div>
+        </details>`).join("");
+
+      body.innerHTML = (connHtml || groupsHtml) ? (connHtml + groupsHtml) : `<div class="empty-note">Ningún programa coincide.</div>`;
     };
     draw(search.value || "");
     search.oninput = (event) => draw(event.target.value);
@@ -1790,6 +1818,27 @@ function renderTabApps(container, btn, index) {
   const listGrid = document.getElementById("apps-list-grid");
   const searchInput = document.getElementById("app-search-input");
 
+  function createAppCard(app) {
+    const card = document.createElement("div");
+    card.className = "app-card-item";
+    card.setAttribute("role", "button");
+    card.setAttribute("tabindex", "0");
+    card.innerHTML = `
+      <div class="app-card-left">
+        <img src="${escapeHtml(app.icon || '/static/icons/power.svg')}" class="app-card-icon" alt="">
+        <div>
+          <div class="app-card-name">${escapeHtml(app.name)}</div>
+          <div class="app-card-cat">${escapeHtml(app.category || 'App')}</div>
+        </div>
+      </div>
+      <span class="app-card-badge">Configurar</span>
+    `;
+    card.addEventListener("click", () => {
+      openAppHub(container, app, btn, index, () => renderTabApps(container, btn, index));
+    });
+    return card;
+  }
+
   function populateApps(filter = "") {
     listGrid.innerHTML = "";
     const term = filter.toLowerCase().trim();
@@ -1800,23 +1849,36 @@ function renderTabApps(container, btn, index) {
       return;
     }
 
-    filtered.forEach(app => {
-      const card = document.createElement("div");
-      card.className = "app-card-item";
-      card.innerHTML = `
-        <div class="app-card-left">
-          <img src="${escapeHtml(app.icon || '/static/icons/power.svg')}" class="app-card-icon" alt="">
-          <div>
-            <div class="app-card-name">${escapeHtml(app.name)}</div>
-            <div class="app-card-cat">${escapeHtml(app.category || 'App')}</div>
-          </div>
+    const categories = [...new Set(filtered.map(a => a.category || "Otras aplicaciones"))];
+    if (categories.length <= 1) {
+      const grid = document.createElement("div");
+      grid.className = "apps-cards-grid";
+      filtered.forEach(app => grid.appendChild(createAppCard(app)));
+      listGrid.appendChild(grid);
+      return;
+    }
+
+    categories.forEach((cat, idx) => {
+      const catApps = filtered.filter(a => (a.category || "Otras aplicaciones") === cat);
+      const acc = document.createElement("details");
+      acc.className = "category-accordion";
+      if (term || idx < 2) acc.open = true;
+      acc.innerHTML = `
+        <summary class="category-accordion-summary">
+          <span class="category-accordion-title">
+            <span class="category-accordion-icon">📱</span>
+            <span>${escapeHtml(cat)}</span>
+            <span class="category-accordion-badge">${catApps.length}</span>
+          </span>
+          <span class="category-accordion-arrow">▶</span>
+        </summary>
+        <div class="category-accordion-content">
+          <div class="apps-cards-grid"></div>
         </div>
-        <span class="app-card-badge">Configurar</span>
       `;
-      card.addEventListener("click", () => {
-        openAppHub(container, app, btn, index, () => renderTabApps(container, btn, index));
-      });
-      listGrid.appendChild(card);
+      const grid = acc.querySelector(".apps-cards-grid");
+      catApps.forEach(app => grid.appendChild(createAppCard(app)));
+      listGrid.appendChild(acc);
     });
   }
 
@@ -1853,21 +1915,26 @@ function assignFromTemplate(btn, index, template, overrides = {}) {
     session.onPick({ action_type: t.action_type, target: t.target, extra: JSON.parse(JSON.stringify(t.extra || {})) });
     return;
   }
-  btn.label = String(t.label || "Acción").slice(0, 32);
-  btn.sublabel = String(t.sublabel || "").slice(0, 36);
-  btn.image = t.icon;
-  btn.icon = "";
-  btn.color = t.color;
-  btn.action_type = t.action_type;
-  btn.target = t.target;
-  btn.extra = JSON.parse(JSON.stringify(t.extra || {}));
-  if (t.confirm_default) btn.confirm = true; // e.g. console commands: ask before running
+  const page = config.pages[activePageIndex];
+  const slot = (typeof index === "number" && page?.slots?.[index]) ? page.slots[index] : btn;
+  const target = slot || btn;
+  target.type = "button";
+  target.id = target.id || `btn_${Date.now()}_${index}`;
+  target.label = String(t.label || "Acción").slice(0, 32);
+  target.sublabel = String(t.sublabel || "").slice(0, 36);
+  target.image = t.icon || t.image || "/static/icons/power.svg";
+  target.icon = "";
+  target.color = t.color || target.color || "#f8c700";
+  target.action_type = t.action_type;
+  target.target = t.target;
+  target.extra = JSON.parse(JSON.stringify(t.extra || {}));
+  if (t.confirm_default) target.confirm = true; // e.g. console commands: ask before running
   activeInspectorTab = "action"; // show what the button now does, and its settings
   if (typeof closeActionPicker === "function") closeActionPicker();
   renderPhoneScreen();
-  renderButtonInspector(btn, index);
+  renderButtonInspector(target, index);
   saveConfigToServer();
-  showToast(`"${btn.label}" asignado a la casilla ${index + 1}`);
+  showToast(`"${target.label}" asignado a la casilla ${index + 1}`);
 }
 
 function actionTilesHtml(actions) {
@@ -2299,11 +2366,12 @@ function connectorScope(btn) {
   return null; // an empty or generic button: every connector
 }
 
-function renderTabConnectors(container, btn, index, pick = false) {
+function renderTabConnectors(container, btn, index, pick = false, forceConnectorId = null) {
   const ctx = { btn, index, refresh: null, pick };
-  const scope = connectorScope(btn);
+  const scope = forceConnectorId ? { connector: forceConnectorId, app: forceConnectorId } : connectorScope(btn);
   let showAll = !scope;
-  if (scope?.connector) openConnectorId = scope.connector;
+  if (forceConnectorId) openConnectorId = forceConnectorId;
+  else if (scope?.connector) openConnectorId = scope.connector;
 
   const draw = (allConnectors) => {
     if (!container.isConnected) return;
