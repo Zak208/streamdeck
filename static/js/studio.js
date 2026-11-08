@@ -328,6 +328,7 @@ async function loadConfig() {
     if (selectedSlotIndex !== null) {
       selectSlot(selectedSlotIndex);
     }
+    initUndoBaseline();
   } catch (e) {
     console.error("Error loading config", e);
   }
@@ -2740,8 +2741,82 @@ async function persistConfig() {
   }
 }
 
+let lastSavedSnapshot = null;
+const undoStack = [];
+const MAX_UNDO_STATES = 25;
+
+function initUndoBaseline() {
+  if (!config) return;
+  try {
+    lastSavedSnapshot = JSON.stringify({
+      config,
+      activePageIndex,
+      selectedSlotIndex,
+    });
+    updateUndoButtonState();
+  } catch (e) {}
+}
+
+function pushUndoState() {
+  if (!config) return;
+  try {
+    const current = JSON.stringify({
+      config,
+      activePageIndex,
+      selectedSlotIndex,
+    });
+    if (lastSavedSnapshot && lastSavedSnapshot !== current) {
+      undoStack.push(lastSavedSnapshot);
+      if (undoStack.length > MAX_UNDO_STATES) undoStack.shift();
+      updateUndoButtonState();
+    }
+    lastSavedSnapshot = current;
+  } catch (e) {}
+}
+window.pushUndoState = pushUndoState;
+
+async function performUndo() {
+  if (!undoStack.length) {
+    showToast("No hay más cambios para deshacer");
+    return;
+  }
+  const snapshotJson = undoStack.pop();
+  try {
+    const state = JSON.parse(snapshotJson);
+    config = state.config;
+    if (typeof state.activePageIndex === "number" && config.pages && config.pages[state.activePageIndex]) {
+      activePageIndex = state.activePageIndex;
+    }
+    renderPageTabs();
+    renderPhoneScreen();
+    if (typeof state.selectedSlotIndex === "number" && config.pages[activePageIndex]?.slots?.[state.selectedSlotIndex]) {
+      selectSlot(state.selectedSlotIndex);
+    } else {
+      clearInspector();
+    }
+    lastSavedSnapshot = snapshotJson;
+    await saveConfigToServer({ immediate: true, skipUndo: true });
+    updateUndoButtonState();
+    showToast("Cambio deshecho");
+  } catch (e) {
+    showToast("No se pudo deshacer");
+  }
+}
+
+function updateUndoButtonState() {
+  const btn = document.getElementById("btn-undo");
+  if (btn) {
+    btn.disabled = undoStack.length === 0;
+    btn.style.opacity = undoStack.length === 0 ? "0.35" : "1";
+    btn.title = undoStack.length > 0 ? `Deshacer último cambio (Ctrl+Z) - ${undoStack.length} disponibles` : "Deshacer (Ctrl+Z)";
+  }
+}
+
 function saveConfigToServer(options = {}) {
   if (!config) return Promise.resolve(false);
+  if (!options.skipUndo) {
+    pushUndoState();
+  }
   if (saveTimer) clearTimeout(saveTimer);
   if (options.immediate === true) {
     if (resolvePendingSave) resolvePendingSave(false);
@@ -2817,5 +2892,14 @@ window.addEventListener("DOMContentLoaded", () => {
   setupTrashDropZone();
   checkGitHubUpdates();
   connectStudioSocket();
+  document.getElementById("btn-undo")?.addEventListener("click", performUndo);
+  document.addEventListener("keydown", (event) => {
+    const tag = (event.target?.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea") return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !event.shiftKey) {
+      event.preventDefault();
+      performUndo();
+    }
+  });
   setInterval(loadAudioSessions, 15000); // safety net: the live feed does the real work
 });

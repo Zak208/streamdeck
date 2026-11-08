@@ -121,6 +121,16 @@ async function openNewPageDialog() {
 
 // ---------- Page settings: name, program that opens it, duplicate ----------
 
+const POPULAR_APPS = [
+  { name: "Valorant", exe: "VALORANT-Win64-Shipping.exe" },
+  { name: "CS2", exe: "cs2.exe" },
+  { name: "LoL", exe: "League of Legends.exe" },
+  { name: "OBS Studio", exe: "obs64.exe" },
+  { name: "Discord", exe: "Discord.exe" },
+  { name: "Spotify", exe: "Spotify.exe" },
+  { name: "Chrome", exe: "chrome.exe" },
+];
+
 function openPageSettings() {
   const page = config.pages[activePageIndex];
   const programs = [...new Set([...detectedSystemApps.map(a => a.exe_name), ...audioSessions.map(s => s.process_name)].filter(Boolean))]
@@ -137,6 +147,12 @@ function openPageSettings() {
         <label class="section-label" for="ps-app" style="margin: 0;">Abrir esta página sola cuando este programa esté en primer plano</label>
         <input type="text" id="ps-app" list="ps-programs" maxlength="128" value="${escapeHtml(page.auto_app || "")}" placeholder="Por ejemplo obs64.exe. Vacío para no usarlo.">
         <datalist id="ps-programs">${programs.map(p => `<option value="${escapeHtml(p)}"></option>`).join("")}</datalist>
+        <div style="margin-top: 6px;">
+          <span style="font-size: 11px; color: var(--text-3); display: block; margin-bottom: 4px;">Sugerencias rápidas:</span>
+          <div class="chip-list">
+            ${POPULAR_APPS.map(app => `<button type="button" class="chip ps-app-chip" data-exe="${escapeHtml(app.exe)}">${escapeHtml(app.name)}</button>`).join("")}
+          </div>
+        </div>
         <p class="integration-hint">Es como los perfiles inteligentes de Stream Deck: al cambiar de programa en tu PC, el móvil salta a esta página. Si lo mueves tú a otra página, no te lo deshace hasta que cambies de programa.</p>
       </div>
       <div class="dialog-field" style="margin-top: 16px;">
@@ -145,9 +161,12 @@ function openPageSettings() {
         <datalist id="ps-servers">${servers.map(name => `<option value="${escapeHtml(name)}"></option>`).join("")}</datalist>
         <p class="integration-hint">Escribe el nombre tal como lo ves en Discord (o busca tus sonidos en Conectores para que aparezcan aquí). Lo más fácil es crear la página desde la lista de sonidos de ese servidor.</p>
       </div>
-      <div class="inline-row" style="margin-top: 16px;">
-        <button class="btn-secondary" id="ps-duplicate">Duplicar página</button>
-        <button class="btn-danger" id="ps-delete" style="width: auto; margin-top: 0;">Eliminar página</button>
+      <div class="inline-row" style="margin-top: 20px; flex-wrap: wrap; gap: 8px;">
+        <button type="button" class="btn-secondary" id="ps-export" title="Descargar esta página como archivo .sdpage">Exportar página</button>
+        <button type="button" class="btn-secondary" id="ps-import" title="Cargar botones desde un archivo .sdpage">Importar página</button>
+        <input type="file" id="ps-import-file" accept=".sdpage,.json" style="display: none;">
+        <button type="button" class="btn-secondary" id="ps-duplicate">Duplicar página</button>
+        <button type="button" class="btn-danger" id="ps-delete" style="width: auto; margin-top: 0;">Eliminar página</button>
       </div>`,
     actions: [
       { label: "Cancelar", kind: "secondary" },
@@ -180,6 +199,84 @@ function openPageSettings() {
       },
     ],
     onMount: (modal) => {
+      modal.el.querySelectorAll(".ps-app-chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+          const input = modal.el.querySelector("#ps-app");
+          if (input) {
+            input.value = chip.dataset.exe || "";
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.focus();
+          }
+        });
+      });
+      modal.el.querySelector("#ps-export")?.addEventListener("click", () => {
+        const pageData = {
+          version: 1,
+          type: "streamdesk_page",
+          name: page.name || `Página ${activePageIndex + 1}`,
+          auto_app: page.auto_app,
+          auto_discord: page.auto_discord,
+          slots: page.slots || []
+        };
+        const blob = new Blob([JSON.stringify(pageData, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const safeName = (page.name || "pagina").replace(/[^a-zA-Z0-9_\u00C0-\u017F-]/g, "_").toLowerCase();
+        a.download = `${safeName}.sdpage`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast("Página exportada");
+      });
+      const importInput = modal.el.querySelector("#ps-import-file");
+      modal.el.querySelector("#ps-import")?.addEventListener("click", () => {
+        importInput?.click();
+      });
+      importInput?.addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try {
+          const data = JSON.parse(await file.text());
+          let importedSlots = null;
+          let importedName = null;
+          if (data && typeof data === "object") {
+            if (Array.isArray(data.slots)) {
+              importedSlots = data.slots;
+              importedName = data.name;
+            } else if (Array.isArray(data)) {
+              importedSlots = data;
+            }
+          }
+          if (!importedSlots || !Array.isArray(importedSlots)) {
+            showToast("El archivo no contiene botones válidos");
+            return;
+          }
+          if (typeof pushUndoState === "function") pushUndoState();
+          page.slots = importedSlots;
+          if (importedName) {
+            page.name = importedName;
+            const nameInput = modal.el.querySelector("#ps-name");
+            if (nameInput) nameInput.value = importedName;
+          }
+          if (data.auto_app) {
+            page.auto_app = data.auto_app;
+            const appInput = modal.el.querySelector("#ps-app");
+            if (appInput) appInput.value = data.auto_app;
+          }
+          if (data.auto_discord) {
+            page.auto_discord = data.auto_discord;
+            const discInput = modal.el.querySelector("#ps-discord");
+            if (discInput) discInput.value = data.auto_discord;
+          }
+          await saveConfigToServer({ immediate: true });
+          renderPageTabs();
+          renderPhoneScreen();
+          modal.close();
+          showToast(`Página cargada desde "${file.name}"`);
+        } catch (err) {
+          showToast("Error al importar la página: " + err.message);
+        }
+      });
       modal.el.querySelector("#ps-duplicate").addEventListener("click", async () => {
         try {
           await flushSave();

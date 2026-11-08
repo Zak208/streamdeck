@@ -510,8 +510,8 @@ textarea:focus { border-color: var(--accent); }
 .playlist-row:hover { border-color: var(--accent); }
 .playlist-row img { width: 32px; height: 32px; flex: none; border-radius: 5px; object-fit: cover; }
 .chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { padding: 6px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; font-size: 12px; }
-.chip:hover { border-color: var(--accent); }
+.chip { padding: 5px 11px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; font-size: 11px; color: var(--text-2); cursor: pointer; user-select: none; transition: all var(--t-fast); }
+.chip:hover { border-color: var(--accent); color: var(--text); background: var(--bg-hover); }
 .setup-steps { margin: 0; padding-left: 20px; color: var(--text-2); font-size: 12px; line-height: 1.55; }
 .setup-steps li { margin-bottom: 10px; }
 .setup-steps input { margin: 6px 0; }
