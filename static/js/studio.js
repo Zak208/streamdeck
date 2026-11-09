@@ -335,15 +335,37 @@ btnApplyUpdate?.addEventListener("click", async () => {
 // Look again every few hours while Studio stays open, so a release published later still shows up.
 setInterval(checkGitHubUpdates, 6 * 60 * 60 * 1000);
 
-// Load System Apps
-async function loadSystemApps() {
-  try {
-    const res = await fetch("/api/system/apps");
-    const data = await res.json();
-    detectedSystemApps = data.apps || [];
-  } catch (e) {
-    console.error("Error loading system apps", e);
+// Load System Apps: the programs Windows lists in the Start menu. The first scan takes a couple of seconds.
+let systemAppsState = "idle"; // idle | loading | ready | error
+let systemAppsPromise = null;
+function loadSystemApps(refresh = false) {
+  if (systemAppsPromise && !refresh) return systemAppsPromise;
+  systemAppsState = "loading";
+  systemAppsPromise = (async () => {
+    try {
+      const res = await fetch(`/api/system/apps${refresh ? "?refresh=1" : ""}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      detectedSystemApps = (await res.json()).apps || [];
+      systemAppsState = "ready";
+    } catch (e) {
+      console.error("Error loading system apps", e);
+      systemAppsState = "error";
+      systemAppsPromise = null; // the next try asks again
+    }
+  })();
+  return systemAppsPromise;
+}
+
+// An app placed on a button: with its own icon (the real one from Windows, or a lettered square).
+async function assignApp(btn, index, app) {
+  let icon = app.icon || "/static/icons/power.svg";
+  if (icon === "/static/icons/power.svg" && app.id) {
+    try { icon = (await postJson("/api/system/apps/icon", { app_id: app.id })).url || icon; } catch (e) { /* the generic icon will do */ }
   }
+  assignFromTemplate(btn, index, {
+    label: app.name, sublabel: app.category || "App", icon,
+    color: app.color || "#f8c700", action_type: "preset_app", target: app.id || app.name,
+  });
 }
 
 // Load Audio Sessions
@@ -488,9 +510,9 @@ function resetInspectorDrawer() {
     <div class="empty-inspector-tip">
       <img src="/static/icons/sliders.svg" alt="">
       <ol class="empty-steps">
-        <li><strong>Elige una casilla</strong> de la pantalla del centro.</li>
-        <li><strong>Pulsa «Elegir acción»</strong> para decidir qué hace. Un botón nuevo nace vacío.</li>
-        <li><strong>Ajusta el aspecto</strong>: título, color e icono.</li>
+        <li><strong>Pulsa una casilla</strong> de la pantalla del centro.</li>
+        <li><strong>Elige qué hace:</strong> abrir una app, subir el volumen, escribir un texto...</li>
+        <li><strong>Pruébalo</strong> con el botón «Probar» y cambia su título, color o icono si quieres.</li>
       </ol>
       <p class="empty-arrow">← Arrastra un botón o un fader desde «Añadir»</p>
     </div>
@@ -1313,14 +1335,26 @@ function renderEmptySlotInspector(index) {
   inspectorContent.innerHTML = `
     <p class="integration-hint" style="margin-bottom: 14px;">Esta casilla está vacía. ¿Qué quieres poner aquí?</p>
     <div class="inspector-actions">
-      <button class="btn-primary" id="btn-create-button-here">
-        <img src="/static/icons/plus.svg" alt=""> Añadir un botón vacío
+      <button class="btn-primary" id="btn-pick-action-here">
+        <img src="/static/icons/plus.svg" alt=""> Poner un botón y elegir qué hace
+      </button>
+      <button class="btn-secondary" id="btn-create-button-here">
+        <img src="/static/icons/plus.svg" alt=""> Añadir un botón vacío (lo configuro luego)
       </button>
       <button class="btn-secondary" id="btn-create-slider-here">
         <img src="/static/icons/fader.svg" alt=""> Añadir un fader del volumen de Windows (columna ${col + 1})
       </button>
     </div>
   `;
+
+  document.getElementById("btn-pick-action-here")?.addEventListener("click", () => {
+    currentSlots[index] = newEmptyButton(index);
+    activeInspectorTab = "action";
+    renderPhoneScreen();
+    selectSlot(index);
+    saveConfigToServer();
+    openActionPicker(currentSlots[index], index, "apps"); // straight to the choice: the one thing a new button needs
+  });
 
   document.getElementById("btn-create-button-here")?.addEventListener("click", () => {
     currentSlots[index] = newEmptyButton(index);
@@ -1342,6 +1376,8 @@ function renderEmptySlotInspector(index) {
 // Button inspector: a summary of what the button does, then three folding sections:
 // what it does, how it looks, and the extras (long press, double tap, confirmation, off).
 // The actions are chosen in one dialog (see openActionPicker).
+// Actions that are safe to try from Studio: they open or play something. Power, lock, typing and counters are not tried here.
+const TESTABLE_ACTIONS = new Set(["preset_app", "launch", "url", "folder", "media", "sound", "spotify_uri", "spotify_action", "obs_action", "discord_hotkey", "discord_sound"]);
 const INSPECTOR_TABS = [
   ["apps", "Apps"],
   ["integrations", "Conectores"],
@@ -1372,7 +1408,8 @@ function renderButtonInspector(btn, index) {
       <div class="inspector-summary-text">
         <span class="inspector-summary-label">Este botón hace</span>
         <strong id="inspector-summary-action">${escapeHtml(describeAction(btn) || "Nada todavía")}</strong>
-        <button class="btn-primary btn-choose-action" id="btn-choose-action" type="button">Elegir acción</button>
+        <button class="btn-primary btn-choose-action" id="btn-choose-action" type="button">${btn.action_type === "none" ? "Elegir qué hace" : "Cambiar lo que hace"}</button>
+        ${TESTABLE_ACTIONS.has(btn.action_type) ? `<button class="btn-secondary btn-test-action" id="btn-test-action" type="button" title="Hace lo mismo que al tocar el botón en el móvil">▶ Probar aquí en el PC</button>` : ""}
       </div>
     </div>
 
@@ -1416,6 +1453,10 @@ function renderButtonInspector(btn, index) {
   if (statesBox) renderToggleSection(statesBox, btn, index);
 
   document.getElementById("btn-choose-action")?.addEventListener("click", () => openActionPicker(btn, index));
+  document.getElementById("btn-test-action")?.addEventListener("click", () => withToast(async () => {
+    const result = await postJson("/api/actions/test", { action_type: btn.action_type, target: btn.target, extra: btn.extra || {} });
+    if (!result.success) throw new Error(result.error || "No se pudo probar. Revisa que el programa esté instalado.");
+  }, "Listo: así reaccionará el botón al tocarlo en el móvil"));
   if (wantedPicker) openActionPicker(btn, index, wantedPicker);
 
   document.getElementById("btn-delete-slot")?.addEventListener("click", () => emptySlotByIndex(index));
@@ -1437,10 +1478,7 @@ function openAppHub(host, app, btn, index, onBack) {
   const pack = (programCatalog?.programs || []).find(p => p.id === appId || appId.includes(p.id) || p.id.includes(appId));
 
   if (!connector && !pack) {
-    assignFromTemplate(btn, index, {
-      label: app.name, sublabel: app.category || "App", icon: app.icon || "/static/icons/power.svg",
-      color: app.color || "#f8c700", action_type: "preset_app", target: app.id || app.name,
-    });
+    assignApp(btn, index, app);
     return;
   }
 
@@ -1469,12 +1507,7 @@ function openAppHub(host, app, btn, index, onBack) {
   `;
 
   host.querySelector("#apphub-btn-back").addEventListener("click", onBack);
-  host.querySelector("#apphub-btn-launch").addEventListener("click", () => {
-    assignFromTemplate(btn, index, {
-      label: app.name, sublabel: app.category || "App", icon: app.icon || "/static/icons/power.svg",
-      color: app.color || "#f8c700", action_type: "preset_app", target: app.id || app.name,
-    });
-  });
+  host.querySelector("#apphub-btn-launch").addEventListener("click", () => assignApp(btn, index, app));
 
   if (connector) {
     openConnectorId = connector.id;
@@ -1505,15 +1538,15 @@ function openActionPicker(btn, index, startTab = "apps", session = null) {
   pickerSession = session;
   // Choosing for a gesture must not be narrowed to the app this key opens, nor place sounds on the key itself.
   const scopeBtn = session ? { action_type: "none" } : btn;
-  const tabs = [["apps", "Abrir una app"], ["programs", "Programas"], ["shortcuts", "Atajos y texto"], ["system", "Sistema"]];
+  const tabs = [["apps", "Abrir una app"], ["programs", "Controlar programa"], ["shortcuts", "Teclas y webs"], ["system", "Windows y volumen"]];
   let current = startTab;
   const modal = openModal({
-    title: session?.title || "Elegir qué hace este botón",
-    description: session ? "El botón no cambia: solo se añade esta acción." : "",
+    title: session?.title || "¿Qué quieres que haga este botón?",
+    description: session ? "El botón no cambia: solo se añade esta acción." : "Elige una opción. Podrás cambiarla cuando quieras.",
     body: `
       <div class="omni-search-wrapper">
         <svg class="omni-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-        <input type="search" id="omni-search-input" class="omni-search-input" placeholder="🔍 Buscar cualquier acción (mute, spotify, discord, obs, play, atajo...)" aria-label="Buscar cualquier acción">
+        <input type="search" id="omni-search-input" class="omni-search-input" placeholder="¿Buscas algo concreto? Escribe: silenciar, Spotify, volumen, copiar..." aria-label="Buscar cualquier acción">
       </div>
       <div id="picker-tabs-bar">
         <div class="picker-tabs" role="tablist">
@@ -1534,10 +1567,10 @@ function openActionPicker(btn, index, startTab = "apps", session = null) {
   };
 
   const hints = {
-    apps: "Elige cualquier app: puedes abrirla directamente, controlar sus funciones (Discord, OBS, Spotify) o usar sus atajos.",
-    programs: "Acciones dentro de un programa: OBS, Discord, Spotify y Windows (conectados), y los atajos de más de 30 programas (VLC, DaVinci, Excel, Chrome...). Los atajos van a la ventana que esté a la vista: el programa tiene que estar delante.",
-    shortcuts: "Pulsa teclas, escribe un texto, abre una web o una carpeta, o encadena varias acciones.",
-    system: "Volumen, bloqueo del PC, comandos de consola, monitores del PC y navegación entre páginas.",
+    apps: "El botón abrirá la app que elijas en tu PC. Si la app tiene más funciones (Discord, OBS, Spotify...), podrás elegirlas después.",
+    programs: "Para mandar órdenes a un programa que ya está abierto: silenciar en Discord, cambiar de escena en OBS, pausar en Spotify o usar atajos de VLC, Excel, Chrome... El programa tiene que estar a la vista en el PC.",
+    shortcuts: "Para pulsar teclas (copiar, pegar...), escribir un texto, abrir una web o una carpeta, o hacer varias cosas con un solo botón.",
+    system: "Para subir o bajar el volumen, bloquear el PC, ver el uso del procesador y cambiar de página en el móvil.",
   };
   const body = modal.el.querySelector("#picker-body");
   const hint = modal.el.querySelector("#picker-hint");
@@ -1867,94 +1900,94 @@ function renderTabPrograms(host, btn, index, pick) {
   })();
 }
 
-// Apps installed on this PC, found by the scanner. One click links the button.
+// Apps installed on this PC, as Windows lists them. One click puts the app on the button.
 function renderTabApps(container, btn, index) {
-  const apps = detectedSystemApps.length > 0 ? detectedSystemApps : [
-    { id: "discord", name: "Discord", icon: "/static/icons/discord.svg", color: "#5865f2", category: "Voz y chat" },
-    { id: "spotify", name: "Spotify", icon: "/static/icons/spotify.svg", color: "#1db954", category: "Música" },
-    { id: "obs", name: "OBS Studio", icon: "/static/icons/obs.svg", color: "#302e31", category: "Directo" },
-    { id: "steam", name: "Steam", icon: "/static/icons/steam.svg", color: "#171a21", category: "Juegos" },
-    { id: "chrome", name: "Chrome", icon: "/static/icons/chrome.svg", color: "#ea4335", category: "Navegador" }
-  ];
-
   container.innerHTML = `
-    <div class="search-input-wrapper">
-      <img src="/static/icons/power.svg" class="search-icon-svg" alt="">
-      <input type="search" id="app-search-input" class="search-input" placeholder="Busca una app de tu PC">
-    </div>
-    <div class="apps-cards-grid" id="apps-list-grid"></div>
-  `;
-
-  const listGrid = document.getElementById("apps-list-grid");
-  const searchInput = document.getElementById("app-search-input");
-
-  function createAppCard(app) {
-    const card = document.createElement("div");
-    card.className = "app-card-item";
-    card.setAttribute("role", "button");
-    card.setAttribute("tabindex", "0");
-    card.setAttribute("title", app.name);
-    card.innerHTML = `
-      <div class="app-card-left">
-        <img src="${escapeHtml(app.icon || '/static/icons/power.svg')}" class="app-card-icon" alt="">
-        <div>
-          <div class="app-card-name" title="${escapeHtml(app.name)}">${escapeHtml(app.name)}</div>
-          <div class="app-card-cat">${escapeHtml(app.category || 'App')}</div>
-        </div>
+    <div class="apps-toolbar">
+      <div class="search-input-wrapper">
+        <img src="/static/icons/power.svg" class="search-icon-svg" alt="">
+        <input type="search" id="app-search-input" class="search-input" placeholder="Escribe el nombre de la app (Spotify, Chrome, Word...)" aria-label="Buscar una app de tu PC">
       </div>
-      <span class="app-card-badge">Configurar</span>
+      <button type="button" class="btn-secondary apps-refresh" id="apps-refresh" title="Volver a buscar las apps instaladas">Actualizar</button>
+    </div>
+    <div id="apps-list-grid"></div>
+  `;
+  const listGrid = container.querySelector("#apps-list-grid");
+  const searchInput = container.querySelector("#app-search-input");
+  const refreshBtn = container.querySelector("#apps-refresh");
+
+  function createAppTile(app) {
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = "app-tile";
+    tile.title = app.name;
+    const hasIcon = app.icon && app.icon !== "/static/icons/power.svg";
+    const letter = (app.name.match(/[\p{L}\p{N}]/u)?.[0] || "?").toUpperCase();
+    tile.innerHTML = `
+      ${hasIcon ? `<img src="${escapeHtml(app.icon)}" class="app-tile-icon" alt="">` : `<span class="app-tile-icon app-tile-letter" aria-hidden="true">${escapeHtml(letter)}</span>`}
+      <span class="app-tile-text"><strong>${escapeHtml(app.name)}</strong><small>${escapeHtml(app.category || "App")}</small></span>
     `;
-    card.addEventListener("click", () => {
-      openAppHub(container, app, btn, index, () => renderTabApps(container, btn, index));
-    });
-    return card;
+    tile.addEventListener("click", () => openAppHub(container, app, btn, index, () => renderTabApps(container, btn, index)));
+    return tile;
+  }
+
+  function showState(html) {
+    listGrid.innerHTML = `<div class="apps-state">${html}</div>`;
   }
 
   function populateApps(filter = "") {
-    listGrid.innerHTML = "";
+    if (!listGrid.isConnected) return; // another tab was opened while the list loaded
+    refreshBtn.disabled = systemAppsState === "loading";
+    if (systemAppsState === "loading" || systemAppsState === "idle") {
+      showState(`<span class="apps-spinner" aria-hidden="true"></span> Buscando las apps de tu PC...`);
+      return;
+    }
+    if (systemAppsState === "error") {
+      showState(`No se pudo leer la lista de apps.<br><button type="button" class="btn-secondary" id="apps-retry">Reintentar</button>`);
+      listGrid.querySelector("#apps-retry").addEventListener("click", () => reload(false));
+      return;
+    }
     const term = filter.toLowerCase().trim();
-    const filtered = apps.filter(a => a.name.toLowerCase().includes(term) || (a.category && a.category.toLowerCase().includes(term)));
-
+    const filtered = detectedSystemApps.filter(a => !term || a.name.toLowerCase().includes(term) || (a.category || "").toLowerCase().includes(term));
     if (filtered.length === 0) {
-      listGrid.innerHTML = `<div class="empty-note">No se encontró ninguna app con ese nombre</div>`;
+      showState(term
+        ? `No hay ninguna app llamada «${escapeHtml(filter.trim())}».<br><small>Prueba con otra palabra, o pulsa «Actualizar» si acabas de instalarla.</small>`
+        : `No se encontró ninguna app instalada.`);
       return;
     }
 
-    const categories = [...new Set(filtered.map(a => a.category || "Otras aplicaciones"))];
-    if (categories.length <= 1) {
-      const grid = document.createElement("div");
-      grid.className = "apps-cards-grid";
-      filtered.forEach(app => grid.appendChild(createAppCard(app)));
-      listGrid.appendChild(grid);
-      return;
-    }
-
+    listGrid.innerHTML = "";
+    const categories = [...new Set(filtered.map(a => a.category || "Otras apps"))];
     categories.forEach((cat, idx) => {
-      const catApps = filtered.filter(a => (a.category || "Otras aplicaciones") === cat);
-      const acc = document.createElement("details");
-      acc.className = "category-accordion";
-      if (term || idx < 2) acc.open = true;
-      acc.innerHTML = `
+      const catApps = filtered.filter(a => (a.category || "Otras apps") === cat);
+      const section = document.createElement("details");
+      section.className = "category-accordion";
+      section.open = Boolean(term) || idx < 2;
+      section.innerHTML = `
         <summary class="category-accordion-summary">
-          <span class="category-accordion-title">
-            <span class="category-accordion-icon">📱</span>
-            <span>${escapeHtml(cat)}</span>
-            <span class="category-accordion-badge">${catApps.length}</span>
-          </span>
+          <span class="category-accordion-title"><span>${escapeHtml(cat)}</span><span class="category-accordion-badge">${catApps.length}</span></span>
           <span class="category-accordion-arrow">▶</span>
         </summary>
-        <div class="category-accordion-content">
-          <div class="apps-cards-grid"></div>
-        </div>
+        <div class="category-accordion-content"><div class="apps-grid"></div></div>
       `;
-      const grid = acc.querySelector(".apps-cards-grid");
-      catApps.forEach(app => grid.appendChild(createAppCard(app)));
-      listGrid.appendChild(acc);
+      const grid = section.querySelector(".apps-grid");
+      catApps.forEach(app => grid.appendChild(createAppTile(app)));
+      listGrid.appendChild(section);
     });
   }
 
+  async function reload(refresh) {
+    const wait = loadSystemApps(refresh);
+    populateApps(searchInput.value);
+    await wait;
+    populateApps(searchInput.value);
+  }
+
   searchInput.addEventListener("input", (e) => populateApps(e.target.value));
+  refreshBtn.addEventListener("click", () => reload(true));
   populateApps();
+  // Opening the tab asks again when the first load failed or has not finished (a finished one is reused).
+  if (systemAppsState !== "ready") reload(false);
 }
 
 // 5. Tab Connectors: Windows, OBS, Spotify and Discord, set up and assigned in one place

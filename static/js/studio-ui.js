@@ -704,13 +704,14 @@ function openWelcome() {
 
   const modal = openModal({
     title: "Bienvenido a StreamDesk",
-    description: "Convierte tu móvil en un panel de control de tu PC en tres pasos.",
+    description: "Tu móvil se convierte en un mando para tu PC: cada botón abre una app, sube el volumen, pone música... Lo que tú quieras.",
     body: `
       <ol class="steps-list">
-        <li><strong>Enlaza tu móvil.</strong> Escanea el código QR del panel lateral con la cámara y escribe el PIN.</li>
-        <li><strong>Elige un punto de partida.</strong> La biblioteca tiene decenas de páginas ya montadas (Streamer, Spotify, OBS, Excel...) para añadir con un clic.</li>
-        <li><strong>Ajusta lo que quieras.</strong> Pulsa una casilla para cambiar su acción, conectar OBS, Spotify o Discord, o cambiar su aspecto.</li>
-      </ol>`,
+        <li><strong>Conecta tu móvil.</strong> Pon el móvil en la misma wifi que este PC, abre la cámara y apunta al código QR de la columna izquierda. Después escribe el PIN que aparece al lado.</li>
+        <li><strong>Empieza con algo hecho.</strong> «Abrir la biblioteca» tiene páginas ya montadas (para directos, música, trabajo...). Con un clic las añades y ya funcionan.</li>
+        <li><strong>Cambia lo que quieras.</strong> Pulsa una casilla de la pantalla, elige «Elegir qué hace» y busca tu app (Chrome, Spotify, Word...). Con «Probar» ves al momento si funciona.</li>
+      </ol>
+      <p class="integration-hint">No hay nada que romper: todo se puede cambiar o deshacer con Ctrl+Z.</p>`,
     actions: [
       {
         label: "Empezar sin plantilla",

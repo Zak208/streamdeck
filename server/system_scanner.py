@@ -1,15 +1,103 @@
-import os
-import shutil
 import glob
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import threading
+import time
+import unicodedata
 import winreg
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
-def resolve_app_icon(name_lower: str) -> str:
+GENERIC_ICON = "/static/icons/power.svg"
+CREATE_NO_WINDOW = 0x08000000
+
+# One short list of groups, in the order Studio shows them. Every app ends in one of these.
+CATEGORIES = ["Juegos", "Música y audio", "Vídeo y foto", "Comunicación", "Navegadores", "Oficina", "Desarrollo", "Sistema y utilidades", "Otras apps"]
+_CATEGORY_ALIASES = {
+    "Comunicaciones": "Comunicación", "Música": "Música y audio", "Audio": "Música y audio", "Streaming": "Vídeo y foto",
+    "Multimedia": "Vídeo y foto", "Diseño": "Vídeo y foto", "Productividad": "Oficina", "Utilidades": "Sistema y utilidades",
+    "Sistema": "Sistema y utilidades",
+}
+# First match wins, so the more specific groups come first.
+_CATEGORY_HINTS = [
+    ("Navegadores", ("chrome", "firefox", "edge", "brave", "opera", "vivaldi", "navegador")),
+    ("Juegos", ("steam", "epic games", "riot", "valorant", "league of", "minecraft", "roblox", "xbox", "battle.net", "blizzard",
+                "ubisoft", "gog galaxy", "ea app", "launcher", "game", "juego", "curseforge", "overwolf")),
+    ("Comunicación", ("discord", "telegram", "whatsapp", "teams", "zoom", "skype", "slack", "outlook", "correo", "mail",
+                      "messenger", "instagram", "linkedin", "anydesk", "teamviewer")),
+    ("Música y audio", ("spotify", "music", "música", "musica", "audio", "sonido", "sound", "voicemeeter", "audacity", "reaper",
+                        "fl studio", "grabadora", "g hub", "mixline", "equalizer")),
+    ("Vídeo y foto", ("video", "vídeo", "photo", "foto", "premiere", "capcut", "clipchamp", "cámara", "camara", "davinci", "obs",
+                      "photoshop", "gimp", "blender", "paint", "recortes", "after effects", "lightroom", "canva", "crunchyroll", "netflix")),
+    ("Oficina", ("word", "excel", "powerpoint", "onenote", "access", "office", "acrobat", "pdf", "notion", "obsidian",
+                 "bloc de notas", "notepad", "calculadora", "to do", "onedrive", "dropbox", "winrar", "7-zip")),
+    ("Desarrollo", ("visual studio", "code", "git", "python", "node", "docker", "terminal", "powershell", "símbolo del sistema",
+                    "java", "sql", "xampp", "antigravity", "pycharm", "intellij", "android studio", "inno setup", "heidi", "mobaxterm")),
+    ("Sistema y utilidades", ("windows", "configuración", "panel de control", "administrador", "explorador", "registro", "msconfig",
+                              "información del sistema", "task", "defender", "seguridad", "monitor", "cpu", "gpu", "aida", "nvidia", "amd")),
+]
+# Start Menu entries that are not programs: help files, websites, uninstallers, logs, folders.
+_NOISE_NAME = re.compile(
+    r"\b(uninstall\w*|desinstal\w*|readme|l[eé]eme|licen[sc]e|licencia|documentation|documentaci[oó]n|manual|release notes|"
+    r"notas de la versi[oó]n|faq|help|ayuda|website|sitio web|en la web|homepage|support|soporte|check for updates|"
+    r"comprobar actualizaciones|buscar actualizaciones|error log|directory|aviso legal|privacidad|privacy|bug report|redeem|"
+    r"examples?|samples?|tutorial|streamdesk|module docs|acerca de|about|installer|instalador|telemetr\w*|"
+    r"preferencias de idioma|install additional tools)\b|command prompt \(|^add .* components$|\(dark\)|\(wow\)",
+    re.IGNORECASE,
+)
+_NOISE_EXE = re.compile(r"(unins|setup|install|update|redeem)", re.IGNORECASE)
+# The folder codes that Get-StartApps puts at the front of a program's id, mapped to the real folder.
+_KNOWN_FOLDERS = {
+    "6D809377-6AF0-444B-8957-A3773F02200E": "%ProgramW6432%",
+    "7C5A40EF-A0FB-4BFC-874A-C0F2E0B9FA8E": "%ProgramFiles(x86)%",
+    "1AC14E77-02E7-4E5D-B744-2EB1AE5198B7": r"%SystemRoot%\System32",
+    "D65231B0-B2F1-4857-A4CE-A8E7C6EA7D27": r"%SystemRoot%\SysWOW64",
+    "F38BF404-1D43-42F2-9305-67DE0B28FC23": "%SystemRoot%",
+    "F1B32785-6FBA-4FCF-9D55-7B8E7F157091": "%LOCALAPPDATA%",
+    "3EB685DB-65F9-4CF6-A03A-E3EF65729F3D": "%APPDATA%",
+    "62AB5D82-FDC1-4DC3-A9DD-070D1D495D97": "%ProgramData%",
+}
+
+
+def _plain(text: str) -> str:
+    """Lower case letters and digits only, to tell that two names are the same program."""
+    return re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower())
+
+
+def normalize_category(name: str) -> str:
+    name = _CATEGORY_ALIASES.get(name, name)
+    return name if name in CATEGORIES else "Otras apps"
+
+
+_CATEGORY_PATTERNS = [(category, re.compile(r"(?<![a-z0-9])(?:" + "|".join(re.escape(w) for w in words) + r")s?(?![a-z0-9])"))
+                      for category, words in _CATEGORY_HINTS]
+
+
+def guess_category(name: str) -> str:
+    # Whole words only: "obs" must not match "Obsidian".
+    low = name.lower()
+    for category, pattern in _CATEGORY_PATTERNS:
+        if pattern.search(low):
+            return category
+    return "Otras apps"
+
+
+
+def resolve_app_icon(name_lower: str, fuzzy: bool = True) -> str:
+    """One of StreamDesk's drawn icons for a well-known brand, else the generic one.
+
+    Short names are matched as whole words ("obs" is not "Obsidian"). `fuzzy` keeps the old guess by theme
+    ("game", "music"...) for the curated list; the apps found on the PC skip it, and get their own icon instead.
+    """
+    words = set(re.findall(r"[a-z0-9]+", name_lower))
     if "valorant" in name_lower or "riot" in name_lower:
         return "/static/icons/valorant.svg"
     if "cs2" in name_lower or "counter-strike" in name_lower or "cs:go" in name_lower:
         return "/static/icons/cs2.svg"
-    if "league of legends" in name_lower or "lol" in name_lower:
+    if "league of legends" in name_lower or "lol" in words:
         return "/static/icons/league.svg"
     if "fortnite" in name_lower:
         return "/static/icons/fortnite.svg"
@@ -27,7 +115,7 @@ def resolve_app_icon(name_lower: str) -> str:
         return "/static/icons/vscode.svg"
     if "firefox" in name_lower:
         return "/static/icons/firefox.svg"
-    if "edge" in name_lower:
+    if "edge" in words:
         return "/static/icons/edge.svg"
     if "opera" in name_lower:
         return "/static/icons/opera.svg"
@@ -41,7 +129,7 @@ def resolve_app_icon(name_lower: str) -> str:
         return "/static/icons/whatsapp.svg"
     if "battle.net" in name_lower or "blizzard" in name_lower:
         return "/static/icons/battlenet.svg"
-    if "epic" in name_lower:
+    if "epic" in words:
         return "/static/icons/epic.svg"
     if "steam" in name_lower:
         return "/static/icons/steam.svg"
@@ -49,12 +137,14 @@ def resolve_app_icon(name_lower: str) -> str:
         return "/static/icons/discord.svg"
     if "spotify" in name_lower:
         return "/static/icons/spotify.svg"
-    if "obs" in name_lower:
+    if "obs" in words:
         return "/static/icons/obs.svg"
     if "twitch" in name_lower:
         return "/static/icons/twitch.svg"
     if "youtube" in name_lower:
         return "/static/icons/youtube.svg"
+    if not fuzzy:
+        return GENERIC_ICON
     if any(k in name_lower for k in ("game", "play", "war", "craft", "rpg", "simul")):
         return "/static/icons/gamepad.svg"
     if any(k in name_lower for k in ("music", "audio", "sound", "player", "tune")):
@@ -456,20 +546,58 @@ class SystemScanner:
         },
     ]
 
-    _cache = []
-    _cache_time = 0
+    _cache: List[Dict[str, Any]] = []
+    _cache_time = 0.0
+    _lock = threading.Lock()
+    CACHE_SECONDS = 600
 
     @classmethod
     def get_detected_apps(cls, force_refresh: bool = False) -> List[Dict[str, Any]]:
-        """Returns verified list of apps installed on this PC with 60s memory cache."""
-        import time
-        now = time.time()
-        if not force_refresh and cls._cache and (now - cls._cache_time < 60):
+        """The apps installed on this PC, from a cache (10 minutes). Only one scan runs at a time."""
+        if not force_refresh and cls._cache and time.time() - cls._cache_time < cls.CACHE_SECONDS:
             return cls._cache
-        detected = []
-        seen_names = set()
+        with cls._lock:
+            # Someone else may have finished the scan while this call waited for the lock.
+            if not force_refresh and cls._cache and time.time() - cls._cache_time < cls.CACHE_SECONDS:
+                return cls._cache
+            apps = cls._scan()
+            cls._cache = apps
+            cls._cache_time = time.time()
+            return apps
 
-        # 1. Scan popular curated list
+    @classmethod
+    def warm_up(cls) -> None:
+        """Scan in the background at startup, so the list is ready when the apps tab is first opened."""
+        threading.Thread(target=cls.get_detected_apps, name="app-scan", daemon=True).start()
+
+    @classmethod
+    def public_apps(cls, force_refresh: bool = False) -> List[Dict[str, Any]]:
+        """What Studio is told: no launch details and no local paths, only what it needs to draw a card."""
+        return [{key: app[key] for key in ("id", "name", "icon", "color", "category", "exe_name")}
+                for app in cls.get_detected_apps(force_refresh)]
+
+    @classmethod
+    def find(cls, app_id: str) -> Optional[Dict[str, Any]]:
+        key = (app_id or "").lower().strip()
+        return next((app for app in cls.get_detected_apps() if app["id"].lower() == key), None)
+
+    @classmethod
+    def _scan(cls) -> List[Dict[str, Any]]:
+        curated = cls._scan_curated()
+        found = cls._scan_start_menu(curated)
+        if not found:
+            found = cls._scan_registry(curated)  # PowerShell blocked or missing: the old way still finds the common programs
+        apps = curated + found
+        for app in apps:
+            app["category"] = normalize_category(app.get("category", ""))
+        order = {name: position for position, name in enumerate(CATEGORIES)}
+        apps.sort(key=lambda app: (order[app["category"]], app["name"].lower()))
+        return apps
+
+    @classmethod
+    def _scan_curated(cls) -> List[Dict[str, Any]]:
+        """The well-known programs, with their own icon and colour, when they are installed where they usually are."""
+        detected = []
         for app in cls.POPULAR_APPS:
             found_path = None
             for p in app["paths"]:
@@ -485,81 +613,126 @@ class SystemScanner:
                 elif os.path.exists(raw_path):
                     found_path = p
                     break
-
             if found_path:
                 detected.append({
-                    "id": app["id"],
-                    "name": app["name"],
-                    "icon": app["icon"],
-                    "color": app["color"],
-                    "category": app.get("category", "General"),
-                    "path": found_path,
-                    "exe_name": app["exe_names"][0]
+                    "id": app["id"], "name": app["name"], "icon": app["icon"], "color": app["color"],
+                    "category": app.get("category", "General"), "path": found_path, "exe_name": app["exe_names"][0],
+                    "exe_names": [name.lower() for name in app["exe_names"]],
+                    "icon_source": found_path.split(" --")[0] if os.path.isabs(found_path.split(" --")[0]) else "",
                 })
-                seen_names.add(app["name"].lower())
+        return detected
 
-        # 2. Scan Windows Registry for additional user programs
-        registry_keys = [
+    @staticmethod
+    def _start_apps() -> List[Dict[str, str]]:
+        """Windows' own list of what the Start menu shows: classic programs, Store apps and Steam games."""
+        script = ("[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+                  "Get-StartApps | Select-Object Name,AppID | ConvertTo-Json -Compress")
+        shell = shutil.which("powershell.exe") or r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+        try:
+            result = subprocess.run([shell, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
+                                    stdin=subprocess.DEVNULL, timeout=30, creationflags=CREATE_NO_WINDOW)
+            data = json.loads(result.stdout.decode("utf-8", errors="replace") or "[]")
+        except Exception as exc:
+            print(f"Could not read the Start menu apps: {exc}")
+            return []
+        data = [data] if isinstance(data, dict) else data
+        return [{"name": str(item.get("Name") or "").strip(), "appid": str(item.get("AppID") or "").strip()}
+                for item in data if isinstance(item, dict)]
+
+    @staticmethod
+    def _resolve_appid_path(appid: str) -> str:
+        """The .exe file behind a Start entry, when its id is a path (with or without a folder code in front)."""
+        match = re.match(r"^\{([0-9A-Fa-f-]{36})\}\\(.+)$", appid)
+        if match:
+            base = _KNOWN_FOLDERS.get(match.group(1).upper())
+            return os.path.join(os.path.expandvars(base), match.group(2)) if base else ""
+        return appid if re.match(r"^[A-Za-z]:\\", appid) else ""
+
+    @staticmethod
+    def _make_id(name: str, unique_source: str, used: set) -> str:
+        """A short id made of the name (letters, digits, underscore). A repeated name gets a few characters of a hash."""
+        base = re.sub(r"[^a-z0-9]+", "_", unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()).strip("_")[:30] or "app"
+        app_id = base if base not in used else f"{base}_{hashlib.sha1(unique_source.encode('utf-8')).hexdigest()[:4]}"
+        used.add(app_id)
+        return app_id
+
+    @classmethod
+    def _scan_start_menu(cls, curated: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        known_names = {_plain(app["name"]) for app in curated}
+        known_exes = {exe for app in curated for exe in app["exe_names"]}
+        used_ids = {app["id"] for app in curated}
+        seen_names = set()
+        found = []
+        for entry in sorted(cls._start_apps(), key=lambda e: (e["name"].lower(), e["appid"])):
+            name, appid = entry["name"], entry["appid"]
+            if len(name) < 2 or not appid or _NOISE_NAME.search(name):
+                continue
+            plain = _plain(name)
+            if not plain or plain in seen_names:
+                continue
+            # The same program as one of the well-known ones ("Epic Games Launcher" is "Epic Games"): theirs wins.
+            if plain in known_names or any(len(k) >= 5 and (k in plain or plain in k) for k in known_names):
+                continue
+
+            exe_path = cls._resolve_appid_path(appid)
+            steam = re.fullmatch(r"steam://rungameid/\d+", appid, re.IGNORECASE)
+            if steam:
+                launch = {"type": "steam", "url": appid}
+            elif exe_path:
+                exe_name = os.path.basename(exe_path).lower()
+                if not exe_name.endswith(".exe") or _NOISE_EXE.search(exe_name) or exe_name in known_exes:
+                    continue  # a document, a folder, an uninstaller, or something already listed
+                launch = {"type": "appsfolder", "appid": appid}
+            elif "://" in appid or appid.lower().endswith((".url", ".lnk", ".chm", ".txt", ".html", ".htm")):
+                continue  # a web link or a help file
+            else:
+                launch = {"type": "appsfolder", "appid": appid}  # a Store app or a shortcut: Windows opens it by this id
+
+            seen_names.add(plain)
+            found.append({
+                "id": cls._make_id(name, appid, used_ids), "name": name[:64],
+                "icon": GENERIC_ICON if steam else resolve_app_icon(name.lower(), fuzzy=False),
+                "color": "#f8c700", "category": "Juegos" if steam else guess_category(name),
+                "path": exe_path or appid, "exe_name": os.path.basename(exe_path) if exe_path else "",
+                "launch": launch, "icon_source": exe_path,
+            })
+        return found
+
+    @classmethod
+    def _scan_registry(cls, curated: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Fallback: programs that registered an uninstaller. Only real .exe files, never folders or uninstallers."""
+        known_names = {_plain(app["name"]) for app in curated}
+        used_ids = {app["id"] for app in curated}
+        found = []
+        for hkey, subkey in (
             (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
             (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
-            (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall")
-        ]
-
-        # Ignore helper/system noise
-        ignore_words = ["driver", "redistributable", "update", "service", "framework", "directx", "vulkan", "runtime", "uninstall", "setup", "helper", "patch"]
-
-        for hkey, subkey in registry_keys:
+            (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        ):
             try:
-                with winreg.OpenKey(hkey, subkey) as key:
-                    for i in range(min(winreg.QueryInfoKey(key)[0], 200)):
-                        try:
-                            subkey_name = winreg.EnumKey(key, i)
-                            with winreg.OpenKey(key, subkey_name) as app_key:
-                                disp_name, _ = winreg.QueryValueEx(app_key, "DisplayName")
-                                if not disp_name or not isinstance(disp_name, str):
-                                    continue
-                                clean_name = disp_name.strip()
-                                low = clean_name.lower()
-                                if any(w in low for w in ignore_words) or len(clean_name) < 3 or low in seen_names:
-                                    continue
+                key = winreg.OpenKey(hkey, subkey)
+            except OSError:
+                continue
+            with key:
+                for i in range(winreg.QueryInfoKey(key)[0]):
+                    try:
+                        with winreg.OpenKey(key, winreg.EnumKey(key, i)) as app_key:
+                            name = str(winreg.QueryValueEx(app_key, "DisplayName")[0] or "").strip()
+                            icon = str(winreg.QueryValueEx(app_key, "DisplayIcon")[0] or "").split(",")[0].strip('"')
+                    except OSError:
+                        continue
+                    plain = _plain(name)
+                    if (len(name) < 3 or not plain or plain in known_names or _NOISE_NAME.search(name)
+                            or not icon.lower().endswith(".exe") or _NOISE_EXE.search(os.path.basename(icon))
+                            or not os.path.isfile(icon)):
+                        continue
+                    known_names.add(plain)
+                    found.append({
+                        "id": cls._make_id(name, icon, used_ids), "name": name[:64], "icon": resolve_app_icon(name.lower(), fuzzy=False),
+                        "color": "#f8c700", "category": guess_category(name), "path": icon, "exe_name": os.path.basename(icon),
+                        "launch": {"type": "file", "path": icon}, "icon_source": icon,
+                    })
+        return found
 
-                                # Get path or display icon
-                                icon_path = ""
-                                try:
-                                    icon_path, _ = winreg.QueryValueEx(app_key, "DisplayIcon")
-                                    if icon_path:
-                                        icon_path = icon_path.split(",")[0].strip('"')
-                                except Exception:
-                                    pass
-
-                                install_dir = ""
-                                try:
-                                    install_dir, _ = winreg.QueryValueEx(app_key, "InstallLocation")
-                                except Exception:
-                                    pass
-
-                                exec_path = icon_path if (icon_path and icon_path.lower().endswith(".exe") and os.path.exists(icon_path)) else install_dir
-                                if not exec_path:
-                                    continue
-
-                                seen_names.add(low)
-                                safe_id = "".join(c for c in clean_name if c.isalnum() or c == "_").lower()[:32]
-                                detected.append({
-                                    "id": safe_id,
-                                    "name": clean_name[:64],
-                                    "icon": resolve_app_icon(low),
-                                    "color": "#0ea5e9",
-                                    "category": "Programas Instalados",
-                                    "path": exec_path,
-                                    "exe_name": os.path.basename(exec_path) if exec_path.endswith(".exe") else f"{safe_id}.exe"
-                                })
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
-        cls._cache = detected
-        cls._cache_time = time.time()
-        return detected
 
 system_scanner = SystemScanner()

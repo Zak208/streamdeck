@@ -144,6 +144,8 @@ Las casillas de monitor muestran en vivo: **CPU**, **RAM**, **GPU** y **VRAM** (
 - **Plantillas:** `+ Página` ofrece Streamer, Gamer, Trabajo o una página en blanco. Cada plantilla usa tus atajos de Discord guardados.
 - **Guardado automático:** no hay botón de guardar; el indicador de la barra superior muestra "Guardando", "Guardado" o el error.
 - **Ajustes:** tema, móviles emparejados (se pueden quitar, y el móvil se desconecta en el acto), versión y la guía de bienvenida.
+- **Pensado para quien empieza:** pulsa una casilla vacía, «Poner un botón y elegir qué hace» y elige. Las pestañas hablan en llano («Abrir una app», «Controlar programa», «Teclas y webs», «Windows y volumen») y el botón «▶ Probar aquí en el PC» ejecuta el botón sin coger el móvil (solo acciones seguras: abrir apps, webs, carpetas, multimedia, OBS, Spotify y Discord; nunca apagar ni bloquear).
+- **Todas tus apps, no solo las famosas:** «Abrir una app» usa la lista del menú Inicio de Windows (programas clásicos, apps de la Tienda y juegos de Steam), agrupada por temas y con buscador. «Actualizar» vuelve a buscar si acabas de instalar algo. Cada botón recibe el icono real del programa o, si Windows no lo da, un cuadrado con su inicial.
 - **Móvil en vertical:** funciona, pero el panel de 6x2 se ve mejor en horizontal; la app avisa.
 
 ## 🔌 Conectores (OBS, Spotify, Discord y Windows)

@@ -48,7 +48,7 @@ from server.audio_controller import audio_controller
 from server.com_worker import com_worker
 from server.actions import execute_action
 from server.auth import auth_manager
-from server import diagnostics, discord_ui, firewall, layouts, live_buttons, page_library, program_packs, shell_actions, steam, templates, updater, webhooks
+from server import app_icons, diagnostics, discord_ui, firewall, layouts, live_buttons, page_library, program_packs, shell_actions, steam, templates, updater, webhooks
 from server.action_catalog import GESTURES, validate_deck_config
 from server.config_manager import CONFIG_FILE, config_manager
 from server.connectors import discord as discord_connector, spotify, windows
@@ -279,6 +279,7 @@ async def smart_page_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    system_scanner.warm_up()  # the list of installed apps, ready before the apps tab is opened
     sync_task = asyncio.create_task(audio_sync_loop())
     telemetry_task = asyncio.create_task(telemetry_sync_loop())
     smart_task = asyncio.create_task(smart_page_loop())
@@ -889,10 +890,18 @@ async def get_audio_sessions(_: None = Depends(require_local_request)):
     return await run_audio(read_audio_state)
 
 @app.get("/api/system/apps")
-def get_system_apps(_: None = Depends(require_local_request)):
-    return {
-        "apps": system_scanner.get_detected_apps()
-    }
+def get_system_apps(refresh: bool = Query(False), _: None = Depends(require_local_request)):
+    """The apps on this PC (what the Start menu lists). `refresh` looks again instead of using the last scan."""
+    return {"apps": system_scanner.public_apps(force_refresh=refresh)}
+
+
+@app.post("/api/system/apps/icon")
+def get_system_app_icon(app_id: str = Body(..., embed=True), _: None = Depends(require_local_request)):
+    """The icon to put on a button that opens this app: its real one when Windows has it, else a lettered square."""
+    url = app_icons.icon_for_app(app_id, UPLOADS_DIR)
+    if not url:
+        raise HTTPException(status_code=404, detail="Esa aplicación ya no está en la lista")
+    return {"url": url}
 
 @app.post("/api/upload")
 async def upload_button_image(file: UploadFile = File(...), _: None = Depends(require_local_request)):
@@ -1074,22 +1083,22 @@ def get_version_changelog(version: str) -> Dict[str, Any]:
         "title": f"Novedades de StreamDesk v{version}",
         "steps": [
             {
-                "title": "Conexión Móvil Instantánea y PWA",
-                "tag": "Móvil & PWA",
-                "icon": "phone",
-                "description": "Tu móvil ahora conecta de forma directa e inmediata por HTTP en el puerto 48291. Sin advertencias de certificados SSL ni bloqueos de protocolo. Además, puedes añadirlo a la pantalla de inicio desde Chrome o Safari para usarlo a pantalla completa como una app nativa.",
-            },
-            {
-                "title": "14 Nuevos Programas y Packs Integrados",
-                "tag": "Apps & Biblioteca",
+                "title": "«Abrir una app» vuelve a mostrar tus apps",
+                "tag": "Arreglo",
                 "icon": "grid",
-                "description": "Detección y control automático para 14 programas esenciales: OBS Studio, Discord, Voicemeeter, Twitch, Steam, CapCut PC, GIMP, Obsidian, Windows Terminal, GitHub Desktop, Brave Browser, Opera GX, Telegram y WhatsApp.",
+                "description": "La lista de apps se veía vacía por un fallo de diseño. Ahora aparecen todas las de tu PC (programas, apps de la Tienda y juegos de Steam), ordenadas por temas y con buscador. Cada botón lleva el icono real de la app.",
             },
             {
-                "title": "Máxima Estabilidad, Seguridad y Rendimiento",
-                "tag": "Rendimiento & Seguridad",
+                "title": "Más fácil para empezar",
+                "tag": "Facilidad",
+                "icon": "phone",
+                "description": "Pulsa una casilla vacía y elige qué hace con un solo paso. Los textos están en lenguaje llano y el nuevo botón «Probar aquí en el PC» te deja comprobar un botón sin coger el móvil.",
+            },
+            {
+                "title": "Guía de bienvenida renovada",
+                "tag": "Primeros pasos",
                 "icon": "shield",
-                "description": "Telemetría GPU blindada contra cuelgues en controladores NVIDIA, rotación inteligente de registros de error para cuidar tu disco, protección anti-SSRF y guardado atómico de configuraciones.",
+                "description": "La bienvenida explica en tres pasos cómo conectar el móvil (misma wifi, QR y PIN), cómo empezar con una página hecha y cómo cambiar un botón. Todo se puede deshacer con Ctrl+Z.",
             },
         ],
     }

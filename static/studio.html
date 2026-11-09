@@ -8,8 +8,8 @@
     // Apply the saved theme before first paint so the window does not flash the wrong colours.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.17.2">
-  <link rel="stylesheet" href="/static/css/studio.css?v=2.17.2">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.17.3">
+  <link rel="stylesheet" href="/static/css/studio.css?v=2.17.3">
 </head>
 <body>
 
@@ -152,9 +152,9 @@
         <div class="empty-inspector-tip">
           <img src="/static/icons/sliders.svg" alt="">
           <ol class="empty-steps">
-            <li><strong>Elige una casilla</strong> de la pantalla del centro.</li>
-            <li><strong>Pulsa «Elegir acción»</strong> para decidir qué hace. Un botón nuevo nace vacío.</li>
-            <li><strong>Ajusta el aspecto</strong>: título, color e icono.</li>
+            <li><strong>Pulsa una casilla</strong> de la pantalla del centro.</li>
+            <li><strong>Elige qué hace:</strong> abrir una app, subir el volumen, escribir un texto...</li>
+            <li><strong>Pruébalo</strong> con el botón «Probar» y cambia su título, color o icono si quieres.</li>
           </ol>
           <p class="empty-arrow">← Arrastra un botón o un fader desde «Añadir»</p>
         </div>
@@ -164,9 +164,9 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/monitors.js?v=2.17.2"></script>
-  <script src="/static/js/studio.js?v=2.17.2"></script>
-  <script src="/static/js/studio-library.js?v=2.17.2"></script>
-  <script src="/static/js/studio-ui.js?v=2.17.2"></script>
+  <script src="/static/js/monitors.js?v=2.17.3"></script>
+  <script src="/static/js/studio.js?v=2.17.3"></script>
+  <script src="/static/js/studio-library.js?v=2.17.3"></script>
+  <script src="/static/js/studio-ui.js?v=2.17.3"></script>
 </body>
 </html>

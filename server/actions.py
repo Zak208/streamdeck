@@ -2,6 +2,7 @@
 
 import ctypes
 import os
+import re
 import time
 import webbrowser
 import winsound
@@ -149,7 +150,20 @@ def launch_smart_app(app_id: str) -> bool:
         if app["id"].lower() != app_key:
             continue
         path = app["path"]
+        launch = app.get("launch") or {}
         try:
+            # Apps found in the Start menu open the way a click there does. The id and the address come from
+            # Windows' own list (the scanner), never from the remotely editable profile.
+            if launch.get("type") == "appsfolder":
+                os.startfile("shell:AppsFolder\\" + launch["appid"])
+                return True
+            if launch.get("type") == "steam":
+                if not re.fullmatch(r"steam://rungameid/\d+", launch.get("url", ""), re.IGNORECASE):
+                    return False
+                os.startfile(launch["url"])
+                return True
+            if launch.get("type") == "file":
+                path = launch["path"]
             # Discord's updater needs its documented process argument. It is
             # constructed here, never taken from the remotely editable profile.
             if app_key == "discord" and "Update.exe" in path:

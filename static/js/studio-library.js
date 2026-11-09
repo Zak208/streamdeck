@@ -191,7 +191,7 @@ function describeAction(a) {
     }
     case "media": return `Multimedia: ${t.replace("_", " ")}`;
     case "spotify_action": return t === "like" ? "Spotify: Me gusta (favoritos)" : `Spotify: ${t}`;
-    case "preset_app": case "launch": return `Abre ${t}`;
+    case "preset_app": case "launch": return `Abre ${detectedSystemApps.find(app => app.id === t)?.name || t}`;
     case "obs_action": return `OBS: ${t.replace("_", " ")}`;
     case "discord_hotkey": return t === "sound" ? `Sonido de Discord (${a.extra?.sound_name || "sin nombre"})` : t === "mute" ? "Silencia o activa tu micrófono en Discord" : t === "deafen" ? "Ensordece o activa el sonido en Discord" : `Discord: ${t}`;
     case "discord_sound": return `Reproduce «${a.target || a.extra?.sound_name || "un sonido"}» en tu canal de voz${a.extra?.hotkey ? ` (atajo ${a.extra.hotkey})` : ""}`;
@@ -471,7 +471,7 @@ function renderTabAction(container, btn, index) {
       <strong id="action-summary">${escapeHtml(describeAction(btn))}</strong>
     </div>
     <div id="action-editor"></div>
-    ${editor ? "" : (btn.action_type === "none" ? emptyHtml : `<p class="integration-hint" style="margin-top: 12px;">Esta acción no necesita ajustes. Para cambiarla, pulsa «Elegir acción».</p>`)}
+    ${editor ? "" : (btn.action_type === "none" ? emptyHtml : `<p class="integration-hint" style="margin-top: 12px;">Esta acción no necesita ajustes. Para cambiarla, pulsa «Cambiar lo que hace» arriba.</p>`)}
     ${btn.action_type === "hardware_monitor" || btn.action_type === "none" ? "" : `<div id="gesture-section"></div>`}`;
 
   if (btn.action_type === "none") {
