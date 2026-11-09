@@ -8,8 +8,8 @@
     // Apply the saved theme before first paint so the window does not flash the wrong colours.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.17.1">
-  <link rel="stylesheet" href="/static/css/studio.css?v=2.17.1">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.17.2">
+  <link rel="stylesheet" href="/static/css/studio.css?v=2.17.2">
 </head>
 <body>
 
@@ -50,7 +50,10 @@
   </header>
 
   <div class="studio-shell">
-    <aside>
+    <aside id="sidebar-panel">
+      <div class="sidebar-resizer" id="sidebar-resizer" role="separator" aria-orientation="vertical" tabindex="0"
+           aria-label="Ancho del panel izquierdo. Arrastra, o usa las flechas izquierda y derecha. Doble clic para volver al ancho normal."
+           title="Arrastra para cambiar el ancho del panel izquierdo (doble clic: ancho normal)"></div>
       <div class="sidebar-scroll">
         <details class="panel-card panel-pairing" id="pairing-panel" open>
           <summary class="panel-title">
@@ -161,9 +164,9 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/monitors.js?v=2.17.1"></script>
-  <script src="/static/js/studio.js?v=2.17.1"></script>
-  <script src="/static/js/studio-library.js?v=2.17.1"></script>
-  <script src="/static/js/studio-ui.js?v=2.17.1"></script>
+  <script src="/static/js/monitors.js?v=2.17.2"></script>
+  <script src="/static/js/studio.js?v=2.17.2"></script>
+  <script src="/static/js/studio-library.js?v=2.17.2"></script>
+  <script src="/static/js/studio-ui.js?v=2.17.2"></script>
 </body>
 </html>

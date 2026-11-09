@@ -4,6 +4,68 @@ import glob
 import winreg
 from typing import List, Dict, Any
 
+def resolve_app_icon(name_lower: str) -> str:
+    if "valorant" in name_lower or "riot" in name_lower:
+        return "/static/icons/valorant.svg"
+    if "cs2" in name_lower or "counter-strike" in name_lower or "cs:go" in name_lower:
+        return "/static/icons/cs2.svg"
+    if "league of legends" in name_lower or "lol" in name_lower:
+        return "/static/icons/league.svg"
+    if "fortnite" in name_lower:
+        return "/static/icons/fortnite.svg"
+    if "minecraft" in name_lower:
+        return "/static/icons/minecraft.svg"
+    if "roblox" in name_lower:
+        return "/static/icons/roblox.svg"
+    if "photoshop" in name_lower:
+        return "/static/icons/photoshop.svg"
+    if "premiere" in name_lower:
+        return "/static/icons/premiere.svg"
+    if "blender" in name_lower:
+        return "/static/icons/blender.svg"
+    if "vscode" in name_lower or "visual studio code" in name_lower:
+        return "/static/icons/vscode.svg"
+    if "firefox" in name_lower:
+        return "/static/icons/firefox.svg"
+    if "edge" in name_lower:
+        return "/static/icons/edge.svg"
+    if "opera" in name_lower:
+        return "/static/icons/opera.svg"
+    if "netflix" in name_lower:
+        return "/static/icons/netflix.svg"
+    if "tiktok" in name_lower:
+        return "/static/icons/tiktok.svg"
+    if "telegram" in name_lower:
+        return "/static/icons/telegram.svg"
+    if "whatsapp" in name_lower:
+        return "/static/icons/whatsapp.svg"
+    if "battle.net" in name_lower or "blizzard" in name_lower:
+        return "/static/icons/battlenet.svg"
+    if "epic" in name_lower:
+        return "/static/icons/epic.svg"
+    if "steam" in name_lower:
+        return "/static/icons/steam.svg"
+    if "discord" in name_lower:
+        return "/static/icons/discord.svg"
+    if "spotify" in name_lower:
+        return "/static/icons/spotify.svg"
+    if "obs" in name_lower:
+        return "/static/icons/obs.svg"
+    if "twitch" in name_lower:
+        return "/static/icons/twitch.svg"
+    if "youtube" in name_lower:
+        return "/static/icons/youtube.svg"
+    if any(k in name_lower for k in ("game", "play", "war", "craft", "rpg", "simul")):
+        return "/static/icons/gamepad.svg"
+    if any(k in name_lower for k in ("music", "audio", "sound", "player", "tune")):
+        return "/static/icons/music.svg"
+    if any(k in name_lower for k in ("video", "cam", "media", "film", "stream")):
+        return "/static/icons/video.svg"
+    if any(k in name_lower for k in ("code", "develop", "git", "studio", "terminal")):
+        return "/static/icons/code.svg"
+    return "/static/icons/power.svg"
+
+
 class SystemScanner:
     """Scans Windows for installed applications, focusing on creator, gamer, and productivity tools."""
 
@@ -71,7 +133,7 @@ class SystemScanner:
         {
             "id": "vscode",
             "name": "Visual Studio Code",
-            "icon": "/static/icons/sliders.svg",
+            "icon": "/static/icons/vscode.svg",
             "color": "#007ACC",
             "category": "Desarrollo",
             "exe_names": ["Code.exe"],
@@ -82,19 +144,55 @@ class SystemScanner:
         },
         {
             "id": "riot",
-            "name": "Riot Client / Valorant",
-            "icon": "/static/icons/gamepad.svg",
+            "name": "Valorant / Riot Client",
+            "icon": "/static/icons/valorant.svg",
             "color": "#D13639",
             "category": "Juegos",
-            "exe_names": ["RiotClientServices.exe"],
+            "exe_names": ["RiotClientServices.exe", "VALORANT-Win64-Shipping.exe", "VALORANT.exe"],
             "paths": [
-                r"C:\Riot Games\Riot Client\RiotClientServices.exe"
+                r"C:\Riot Games\Riot Client\RiotClientServices.exe",
+                r"C:\Riot Games\VALORANT\live\VALORANT.exe"
+            ]
+        },
+        {
+            "id": "cs2",
+            "name": "Counter-Strike 2",
+            "icon": "/static/icons/cs2.svg",
+            "color": "#DE9B35",
+            "category": "Juegos",
+            "exe_names": ["cs2.exe"],
+            "paths": [
+                r"C:\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive\game\bin\win64\cs2.exe",
+                r"C:\Program Files\Steam\steamapps\common\Counter-Strike Global Offensive\game\bin\win64\cs2.exe"
+            ]
+        },
+        {
+            "id": "league",
+            "name": "League of Legends",
+            "icon": "/static/icons/league.svg",
+            "color": "#C8AA6E",
+            "category": "Juegos",
+            "exe_names": ["LeagueClient.exe", "League of Legends.exe"],
+            "paths": [
+                r"C:\Riot Games\League of Legends\LeagueClient.exe"
+            ]
+        },
+        {
+            "id": "battlenet",
+            "name": "Battle.net",
+            "icon": "/static/icons/battlenet.svg",
+            "color": "#00AEFF",
+            "category": "Juegos",
+            "exe_names": ["Battle.net.exe"],
+            "paths": [
+                r"C:\Program Files (x86)\Battle.net\Battle.net.exe",
+                r"C:\Program Files\Battle.net\Battle.net.exe"
             ]
         },
         {
             "id": "epicgames",
             "name": "Epic Games",
-            "icon": "/static/icons/gamepad.svg",
+            "icon": "/static/icons/epic.svg",
             "color": "#2A2A2A",
             "category": "Juegos",
             "exe_names": ["EpicGamesLauncher.exe"],
@@ -129,13 +227,25 @@ class SystemScanner:
         {
             "id": "edge",
             "name": "Microsoft Edge",
-            "icon": "/static/icons/chrome.svg",
+            "icon": "/static/icons/edge.svg",
             "color": "#0078D7",
             "category": "Navegadores",
             "exe_names": ["msedge.exe"],
             "paths": [
                 r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
                 r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+            ]
+        },
+        {
+            "id": "firefox",
+            "name": "Mozilla Firefox",
+            "icon": "/static/icons/firefox.svg",
+            "color": "#FF7139",
+            "category": "Navegadores",
+            "exe_names": ["firefox.exe"],
+            "paths": [
+                r"C:\Program Files\Mozilla Firefox\firefox.exe",
+                r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe"
             ]
         },
         {
@@ -193,13 +303,36 @@ class SystemScanner:
         {
             "id": "gimp",
             "name": "GIMP",
-            "icon": "/static/icons/sliders.svg",
+            "icon": "/static/icons/brush.svg",
             "color": "#5C5543",
             "category": "Diseño",
             "exe_names": ["gimp-2.10.exe", "gimp-3.0.exe", "gimp.exe"],
             "paths": [
                 r"C:\Program Files\GIMP 2\bin\gimp-2.10.exe",
                 r"C:\Program Files\GIMP 3\bin\gimp-3.0.exe"
+            ]
+        },
+        {
+            "id": "photoshop",
+            "name": "Adobe Photoshop",
+            "icon": "/static/icons/photoshop.svg",
+            "color": "#31A8FF",
+            "category": "Diseño",
+            "exe_names": ["Photoshop.exe"],
+            "paths": [
+                r"C:\Program Files\Adobe\Adobe Photoshop *\Photoshop.exe",
+                r"C:\Program Files\Adobe\Photoshop *\Photoshop.exe"
+            ]
+        },
+        {
+            "id": "premiere",
+            "name": "Adobe Premiere Pro",
+            "icon": "/static/icons/premiere.svg",
+            "color": "#9999FF",
+            "category": "Multimedia",
+            "exe_names": ["Adobe Premiere Pro.exe"],
+            "paths": [
+                r"C:\Program Files\Adobe\Adobe Premiere Pro *\Adobe Premiere Pro.exe"
             ]
         },
         {
@@ -217,7 +350,7 @@ class SystemScanner:
         {
             "id": "operagx",
             "name": "Opera GX",
-            "icon": "/static/icons/chrome.svg",
+            "icon": "/static/icons/opera.svg",
             "color": "#FA1E4E",
             "category": "Navegadores",
             "exe_names": ["opera.exe"],
@@ -229,7 +362,7 @@ class SystemScanner:
         {
             "id": "telegram",
             "name": "Telegram Desktop",
-            "icon": "/static/icons/notes.svg",
+            "icon": "/static/icons/telegram.svg",
             "color": "#24A1DE",
             "category": "Comunicaciones",
             "exe_names": ["Telegram.exe"],
@@ -241,7 +374,7 @@ class SystemScanner:
         {
             "id": "whatsapp",
             "name": "WhatsApp",
-            "icon": "/static/icons/notes.svg",
+            "icon": "/static/icons/whatsapp.svg",
             "color": "#25D366",
             "category": "Comunicaciones",
             "exe_names": ["WhatsApp.exe"],
@@ -253,7 +386,7 @@ class SystemScanner:
         {
             "id": "github_desktop",
             "name": "GitHub Desktop",
-            "icon": "/static/icons/link.svg",
+            "icon": "/static/icons/github.svg",
             "color": "#9B51E0",
             "category": "Desarrollo",
             "exe_names": ["GitHubDesktop.exe"],
@@ -265,7 +398,7 @@ class SystemScanner:
         {
             "id": "terminal",
             "name": "Windows Terminal",
-            "icon": "/static/icons/keyboard.svg",
+            "icon": "/static/icons/terminal.svg",
             "color": "#4CC2FF",
             "category": "Desarrollo",
             "exe_names": ["wt.exe"],
@@ -289,12 +422,36 @@ class SystemScanner:
         {
             "id": "blender",
             "name": "Blender",
-            "icon": "/static/icons/gpu.svg",
+            "icon": "/static/icons/blender.svg",
             "color": "#EA7600",
             "category": "Diseño",
             "exe_names": ["blender.exe"],
             "paths": [
                 r"C:\Program Files\Blender Foundation\Blender *\blender.exe"
+            ]
+        },
+        {
+            "id": "minecraft",
+            "name": "Minecraft",
+            "icon": "/static/icons/minecraft.svg",
+            "color": "#5B8731",
+            "category": "Juegos",
+            "exe_names": ["MinecraftLauncher.exe", "Minecraft.exe"],
+            "paths": [
+                os.path.expandvars(r"%LOCALAPPDATA%\Packages\Microsoft.4297127D64C94_8wekyb3d8bbwe\LocalCache\Local\Microsoft\WritablePackageRoot\Minecraft.exe"),
+                r"C:\Program Files (x86)\Minecraft Launcher\MinecraftLauncher.exe"
+            ]
+        },
+        {
+            "id": "roblox",
+            "name": "Roblox",
+            "icon": "/static/icons/roblox.svg",
+            "color": "#000000",
+            "category": "Juegos",
+            "exe_names": ["RobloxPlayerLauncher.exe", "RobloxPlayerBeta.exe"],
+            "paths": [
+                os.path.expandvars(r"%LOCALAPPDATA%\Roblox\Versions\*\RobloxPlayerBeta.exe"),
+                os.path.expandvars(r"%LOCALAPPDATA%\Roblox\Versions\*\RobloxPlayerLauncher.exe")
             ]
         },
     ]
@@ -386,11 +543,11 @@ class SystemScanner:
                                     continue
 
                                 seen_names.add(low)
-                                safe_id = "".join(c for c in clean_name if c.isalnum() or c == "_").lower()[:16]
+                                safe_id = "".join(c for c in clean_name if c.isalnum() or c == "_").lower()[:32]
                                 detected.append({
                                     "id": safe_id,
-                                    "name": clean_name[:24],
-                                    "icon": "/static/icons/gamepad.svg" if ("game" in low or "play" in low or "war" in low) else "/static/icons/power.svg",
+                                    "name": clean_name[:64],
+                                    "icon": resolve_app_icon(low),
                                     "color": "#0ea5e9",
                                     "category": "Programas Instalados",
                                     "path": exec_path,

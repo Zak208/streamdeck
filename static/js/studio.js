@@ -72,15 +72,82 @@ const COLOR_GROUPS = [
 ];
 const COLOR_SWATCHES = COLOR_GROUPS.flatMap(([, colours]) => colours);
 
-// Clean Vector SVG Library (48 Available Icons)
+// Clean Vector SVG Library (101 Available Icons)
 const SVG_ICONS = [
-  "power", "play_pause", "play", "pause", "next", "prev", "mute", "volume_up",
-  "mic", "mic_off", "headset", "soundboard", "spotify", "discord", "obs", "twitch", "youtube", "steam",
-  "gamepad", "crosshair", "video", "broadcast", "camera", "sparkles", "heart",
-  "cpu", "ram", "disk", "network", "sliders", "fader", "notes", "calc", "gear", "folder",
-  "link", "macro", "plus", "trash", "refresh", "lock", "keyboard", "terminal", "clock", "bell",
-  "chevron_left", "chevron_right", "chrome"
+  "valorant", "cs2", "league", "fortnite", "minecraft", "roblox", "steam", "battlenet", "epic", "gamepad", "crosshair",
+  "discord", "obs", "twitch", "youtube", "spotify", "music", "tiktok", "netflix",
+  "chrome", "firefox", "edge", "opera", "globe",
+  "vscode", "github", "git", "terminal", "code", "photoshop", "premiere", "blender",
+  "twitter", "instagram", "telegram", "whatsapp", "mail",
+  "play_pause", "play", "pause", "stop", "next", "prev", "shuffle", "repeat", "record", "screenshot",
+  "volume_up", "volume_down", "mute", "mic", "mic_off", "headset", "soundboard", "video", "broadcast", "camera",
+  "power", "lock", "shield", "zap", "flame", "trophy", "star", "bookmark", "skull", "heart", "sparkles",
+  "cpu", "ram", "gpu", "disk", "network", "wifi", "bluetooth", "brightness", "moon", "eye", "eye_off",
+  "sliders", "fader", "notes", "calc", "gear", "folder", "clipboard", "pencil", "download", "upload", "send",
+  "link", "macro", "plus", "trash", "refresh", "keyboard", "clock", "bell", "brush",
+  "chevron_left", "chevron_right"
 ];
+
+const ICON_TAGS = {
+  valorant: "juego shooter riot fps val",
+  cs2: "juego shooter counter strike valve fps cs",
+  league: "juego lol riot moba legends",
+  fortnite: "juego battle royale epic shooter",
+  minecraft: "juego cubos crafteo mojang",
+  roblox: "juego gaming",
+  steam: "juego tienda valve",
+  battlenet: "juego blizzard activision warcraft diablo overwatch",
+  epic: "juego tienda games",
+  gamepad: "juego mando controller gaming",
+  crosshair: "juego mira apuntar shooter fps",
+  spotify: "musica cancion audio sonido reproductor podcast",
+  music: "musica cancion notas audio sonido",
+  discord: "voz chat microfono llamada amigos",
+  obs: "directo stream grabar streaming camara",
+  twitch: "directo streaming stream live",
+  youtube: "video canal stream clips yt",
+  tiktok: "video red social clips",
+  netflix: "pelicula serie cine video streaming",
+  chrome: "navegador web internet google browser",
+  firefox: "navegador web internet mozilla browser",
+  edge: "navegador web internet microsoft browser",
+  opera: "navegador web internet gaming gx browser",
+  globe: "web internet online pagina enlace url",
+  vscode: "codigo programar editor visual studio visualstudio dev development",
+  github: "git codigo repositorio dev pull push",
+  git: "codigo version commit rama branch",
+  terminal: "consola cmd powershell bash comandos terminal",
+  code: "codigo programar html javascript dev script",
+  photoshop: "foto imagen edicion diseño adobe ps graficos",
+  premiere: "video edicion montaje adobe pr render",
+  blender: "3d modelado render animacion diseño",
+  twitter: "red social x tweets",
+  instagram: "fotos social red ig reels",
+  telegram: "mensajes chat bot canal llamada",
+  whatsapp: "mensajes chat telefono movil ws llamada",
+  mail: "correo email mensaje buzon",
+  volume_up: "volumen sonido altavoz subir mas audio",
+  volume_down: "volumen sonido altavoz bajar menos audio",
+  mute: "silencio mutear callar sonido apagado",
+  mic: "microfono hablar audio voz micro",
+  mic_off: "microfono mutear silenciar silencio",
+  shield: "seguridad antivirus admin firewall proteccion",
+  zap: "rayo energia rapidez boost turbo electrico",
+  flame: "fuego racha hot boost llamarada",
+  skull: "muerte derrota kill gaming calavera",
+  trophy: "copa premio trofeo logro ganar victoria",
+  star: "estrella favorito destacar rating",
+  heart: "corazon me gusta like love favorito",
+  sparkles: "brillo magico nuevo especial estrellas",
+  record: "grabar rec directo video circulo",
+  screenshot: "captura pantalla foto recorte screen",
+  brush: "pincel color pintar tema diseño arte",
+  pencil: "editar escribir modificar lapiz",
+  clipboard: "portapapeles copiar pegar texto clipboard",
+  download: "descargar bajar recibir guardar",
+  upload: "subir exportar enviar nube",
+  send: "enviar mensaje remitir correo avion",
+};
 
 // Multimedia Preset Actions
 const MEDIA_PRESETS = [
@@ -89,7 +156,7 @@ const MEDIA_PRESETS = [
   { id: "prev", name: "Anterior Pista", icon: "/static/icons/prev.svg", color: "#38bdf8", sub: "Canción anterior", target: "prev" },
   { id: "mute", name: "Mute Master", icon: "/static/icons/mute.svg", color: "#ef4444", sub: "Silenciar ordenador", target: "mute" },
   { id: "volume_up", name: "Subir volumen", icon: "/static/icons/volume_up.svg", color: "#0ea5e9", sub: "Volumen de Windows", target: "volume_up" },
-  { id: "volume_down", name: "Bajar volumen", icon: "/static/icons/mute.svg", color: "#0ea5e9", sub: "Volumen de Windows", target: "volume_down" },
+  { id: "volume_down", name: "Bajar volumen", icon: "/static/icons/volume_down.svg", color: "#0ea5e9", sub: "Volumen de Windows", target: "volume_down" },
 ];
 
 // System gauges offered in the action library. How each one reads is in monitors.js.
@@ -1384,14 +1451,14 @@ function openAppHub(host, app, btn, index, onBack) {
     <div class="apphub-header">
       <img src="${escapeHtml(app.icon || '/static/icons/power.svg')}" class="apphub-icon" alt="">
       <div class="apphub-title-box">
-        <span class="apphub-name">${escapeHtml(app.name)}</span>
+        <span class="apphub-name" title="${escapeHtml(app.name)}">${escapeHtml(app.name)}</span>
         <span class="apphub-cat">${escapeHtml(app.category || 'Aplicación')}</span>
       </div>
     </div>
 
     <div class="apphub-primary-launch" id="apphub-btn-launch" role="button" tabindex="0">
       <div>
-        <strong>🚀 Abrir ${escapeHtml(app.name)}</strong>
+        <strong title="Abrir ${escapeHtml(app.name)}">🚀 Abrir ${escapeHtml(app.name)}</strong>
         <div><span>Lanza o trae al primer plano la aplicación en tu PC</span></div>
       </div>
       <button type="button" class="btn-primary" style="pointer-events: none;">Elegir</button>
@@ -1826,11 +1893,12 @@ function renderTabApps(container, btn, index) {
     card.className = "app-card-item";
     card.setAttribute("role", "button");
     card.setAttribute("tabindex", "0");
+    card.setAttribute("title", app.name);
     card.innerHTML = `
       <div class="app-card-left">
         <img src="${escapeHtml(app.icon || '/static/icons/power.svg')}" class="app-card-icon" alt="">
         <div>
-          <div class="app-card-name">${escapeHtml(app.name)}</div>
+          <div class="app-card-name" title="${escapeHtml(app.name)}">${escapeHtml(app.name)}</div>
           <div class="app-card-cat">${escapeHtml(app.category || 'App')}</div>
         </div>
       </div>
@@ -2438,7 +2506,7 @@ function renderTabDesign(container, btn, index) {
   const swatchesHtml = colorSwatchesHtml(btn.color);
 
   const iconsHtml = SVG_ICONS.map(ic => `
-    <button class="icon-choice-btn ${btn.image === `/static/icons/${ic}.svg` ? 'active' : ''}" data-icon="/static/icons/${ic}.svg" title="${ic}">
+    <button class="icon-choice-btn ${btn.image === `/static/icons/${ic}.svg` ? 'active' : ''}" data-icon="/static/icons/${ic}.svg" data-tags="${escapeHtml(ICON_TAGS[ic] || '')}" title="${ic}">
       <img src="/static/icons/${ic}.svg" alt="${ic}">
     </button>
   `).join("");
@@ -2517,7 +2585,8 @@ function renderTabDesign(container, btn, index) {
     const term = e.target.value.trim().toLowerCase();
     container.querySelectorAll(".icon-choice-btn").forEach(b => {
       const name = (b.dataset.icon || "").toLowerCase();
-      b.style.display = (!term || name.includes(term)) ? "" : "none";
+      const tags = (b.dataset.tags || "").toLowerCase();
+      b.style.display = (!term || name.includes(term) || tags.includes(term)) ? "" : "none";
     });
   });
 

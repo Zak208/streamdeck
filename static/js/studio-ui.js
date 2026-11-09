@@ -939,7 +939,72 @@ window.addEventListener("DOMContentLoaded", () => {
   setTimeout(maybeCheckOnboarding, 700);
 });
 
-// ---------- Right panel width: drag its edge, or use the expand button; the choice is remembered ----------
+// ---------- Left and Right Panels: drag to resize, remembered in localStorage ----------
+
+const SIDEBAR_KEY = "streamdesk_sidebar_width";
+const SIDEBAR_DEFAULT = 272;
+const SIDEBAR_MIN = 220;
+
+function currentSidebarWidth() {
+  return Math.round(document.querySelector("aside")?.getBoundingClientRect().width || SIDEBAR_DEFAULT);
+}
+
+function sidebarLimits() {
+  return { min: SIDEBAR_MIN, max: Math.max(SIDEBAR_MIN, Math.min(560, Math.round(window.innerWidth * 0.45))) };
+}
+
+function setSidebarWidth(width, { save = true } = {}) {
+  const root = document.documentElement;
+  if (width === null) {
+    root.style.removeProperty("--sidebar-width");
+    if (save) { try { localStorage.removeItem(SIDEBAR_KEY); } catch (e) {} }
+  } else {
+    const { min, max } = sidebarLimits();
+    const clamped = Math.max(min, Math.min(max, Math.round(width)));
+    root.style.setProperty("--sidebar-width", `${clamped}px`);
+    if (save) { try { localStorage.setItem(SIDEBAR_KEY, String(clamped)); } catch (e) {} }
+  }
+}
+
+function initSidebarResize() {
+  const handle = document.getElementById("sidebar-resizer");
+  if (!handle) return;
+  try {
+    const saved = Number(localStorage.getItem(SIDEBAR_KEY));
+    if (saved) setSidebarWidth(saved, { save: false });
+  } catch (e) {}
+
+  handle.addEventListener("pointerdown", (event) => {
+    handle.setPointerCapture(event.pointerId);
+    handle.classList.add("dragging");
+    document.body.classList.add("resizing-sidebar");
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (!handle.hasPointerCapture(event.pointerId)) return;
+    setSidebarWidth(event.clientX, { save: false });
+  });
+  const finish = (event) => {
+    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    handle.classList.remove("dragging");
+    document.body.classList.remove("resizing-sidebar");
+    setSidebarWidth(currentSidebarWidth());
+  };
+  handle.addEventListener("pointerup", finish);
+  handle.addEventListener("pointercancel", finish);
+  handle.addEventListener("dblclick", () => setSidebarWidth(null));
+  handle.addEventListener("keydown", (event) => {
+    const step = event.shiftKey ? 80 : 24;
+    if (event.key === "ArrowRight") setSidebarWidth(currentSidebarWidth() + step);
+    else if (event.key === "ArrowLeft") setSidebarWidth(currentSidebarWidth() - step);
+    else if (event.key === "Home") setSidebarWidth(null);
+    else return;
+    event.preventDefault();
+  });
+  window.addEventListener("resize", () => {
+    const { max } = sidebarLimits();
+    if (currentSidebarWidth() > max) setSidebarWidth(max, { save: false });
+  });
+}
 
 const INSPECTOR_KEY = "streamdesk_inspector_width";
 const INSPECTOR_MIN = 340;
@@ -1011,4 +1076,7 @@ function initInspectorResize() {
   });
 }
 
-document.addEventListener("DOMContentLoaded", initInspectorResize);
+document.addEventListener("DOMContentLoaded", () => {
+  initInspectorResize();
+  initSidebarResize();
+});
