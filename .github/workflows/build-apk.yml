@@ -1,12 +1,24 @@
 name: Build Android APK
 
+# The APK is built when android/ changes (to catch a broken build early) and whenever a Release is published,
+# which is when it is attached as StreamDesk.apk: the fixed name the app's download link points to
+# (releases/latest/download/StreamDesk.apk). Run it by hand with a tag to attach it to an older Release.
 on:
   push:
     branches: [main]
     paths:
       - 'android/**'
-      - 'static/**'
+      - '.github/workflows/build-apk.yml'
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to attach the APK to (for example v2.18.0). Leave empty to only build.'
+        required: false
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -15,6 +27,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          # On a Release, build the code of that tag, not whatever main is now.
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.ref }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -24,13 +39,25 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
 
-      - name: Build Debug APK
+      - name: Build signed APK
         working-directory: android
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleRelease --no-daemon
+
+      - name: Name the file
+        run: cp android/app/build/outputs/apk/release/app-release.apk StreamDesk.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: StreamDesk-Android-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: StreamDesk.apk
+
+      - name: Attach the APK to the Release
+        if: github.event_name == 'release' || inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: gh release upload "$TAG" StreamDesk.apk --clobber --repo "$GITHUB_REPOSITORY"

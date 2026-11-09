@@ -5,6 +5,8 @@ import time
 import io
 import base64
 import hashlib
+import hmac
+import re
 import secrets
 import socket
 from typing import Dict, Any, Set
@@ -13,6 +15,7 @@ import qrcode
 from server.paths import CONFIG_DIR
 
 TOKENS_FILE = os.path.join(CONFIG_DIR, "auth_tokens.json")
+SERVER_ID_FILE = os.path.join(CONFIG_DIR, "server_id.txt")
 PIN_TTL_SECONDS = 10 * 60
 # After a rotation the previous PIN still works briefly, so someone who was typing it
 # while Studio refreshed the code is not told they got it wrong.
@@ -33,6 +36,52 @@ class AuthManager:
         self.authorized_tokens: Set[str] = set()
         self.paired_devices: Dict[str, Dict[str, Any]] = {}
         self._load_tokens()
+        self.server_id = self._load_or_create_server_id()
+
+    @staticmethod
+    def _load_or_create_server_id() -> str:
+        """A random id that stays with this PC's profile, whatever IP or Wi-Fi it has today.
+
+        The phone app keeps one pairing per id, so a PC that changes network is still the same PC and no PIN is asked.
+        The id is public (anyone on the network can read it) and grants nothing: only the token does.
+        """
+        try:
+            with open(SERVER_ID_FILE, "r", encoding="utf-8") as handle:
+                existing = handle.read().strip()
+            if len(existing) >= 16 and existing.isalnum():
+                return existing
+        except OSError:
+            pass
+        created = secrets.token_hex(8)
+        try:
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+            temporary = SERVER_ID_FILE + ".tmp"
+            with open(temporary, "w", encoding="utf-8") as handle:
+                handle.write(created)
+            os.replace(temporary, SERVER_ID_FILE)
+        except OSError as e:
+            print(f"[Auth] No se pudo guardar el id del PC: {e}")
+        return created
+
+    def identity(self, port: int, version: str, device: str = "", nonce: str = "") -> Dict[str, Any]:
+        """What the phone app reads to recognise this PC on a network (no secrets).
+
+        The id is public, so anything on the network could claim it. A phone that holds a token proves it is talking
+        to the real PC by sending its device id and a random nonce: only a PC that knows the token can answer with
+        HMAC(token, nonce). The token itself never travels.
+        """
+        data = {
+            "app": "streamdesk",
+            "id": self.server_id,
+            "name": (socket.gethostname() or "PC")[:48],
+            "version": version,
+            "port": port,
+        }
+        if re.fullmatch(r"[0-9a-f]{12}", device or "") and re.fullmatch(r"[0-9a-f]{16,64}", nonce or ""):
+            token = self.token_for_device(device)
+            if token:
+                data["proof"] = hmac.new(token.encode(), nonce.encode(), hashlib.sha256).hexdigest()
+        return data
 
     def _generate_pin(self) -> str:
         return f"{secrets.randbelow(900000) + 100000}"
@@ -157,7 +206,7 @@ class AuthManager:
             # Optional: Rotate PIN after successful pairing for extra security
             self.refresh_pin()
             self.pin_attempts.pop(client_ip or "unknown", None)
-            return {"valid": True, "success": True, "token": new_token}
+            return {"valid": True, "success": True, "token": new_token, "server_id": self.server_id}
         return {"valid": False, "success": False,
                 "error": "PIN incorrecto o caducado. Escribe el que StreamDesk Studio muestra ahora."}
 
@@ -193,8 +242,11 @@ class AuthManager:
     def generate_qr_base64(self, port: int, protocol: str = "http") -> str:
         """Generates a QR code image as Base64 Data URL for instant mobile pairing."""
         ip = self.get_local_ip()
-        url = f"{protocol}://{ip}:{port}/?pin={self.get_current_pin()}"
+        return self.qr_data_url(f"{protocol}://{ip}:{port}/?pin={self.get_current_pin()}")
 
+    @staticmethod
+    def qr_data_url(url: str) -> str:
+        """A QR code for any text, as a PNG data URL."""
         qr = qrcode.QRCode(
             version=1,
             error_correction=qrcode.constants.ERROR_CORRECT_L,

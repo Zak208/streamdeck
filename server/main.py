@@ -56,7 +56,7 @@ from server.settings_store import settings
 from server.system_scanner import system_scanner
 from server.telemetry import Telemetry
 
-from server.paths import BASE_DIR, CONFIG_DIR, FROZEN, PORT, STATIC_DIR, UPLOADS_DIR, VERSION
+from server.paths import ANDROID_APK_URL, BASE_DIR, CONFIG_DIR, FROZEN, PORT, STATIC_DIR, UPLOADS_DIR, VERSION
 from server.ssl_helper import ensure_ssl_certificates, get_ca_certificate_path
 
 MAX_ICON_UPLOAD_BYTES = 2 * 1024 * 1024
@@ -416,6 +416,19 @@ def get_system_info(request: Request, _: None = Depends(require_local_request)):
         "direct_url": f"{scheme}://{ip}:{PORT}",
         "studio_url": f"{scheme}://localhost:{PORT}/studio"
     }
+
+@app.get("/api/identity")
+def get_identity(device: str = Query(default="", max_length=12), nonce: str = Query(default="", max_length=64)):
+    """Who this PC is, readable from the network on purpose: the phone app calls it to find the PC again after
+    changing Wi-Fi. It holds no secret (the id only tells two PCs apart; pairing still needs the PIN)."""
+    return auth_manager.identity(PORT, VERSION, device, nonce)
+
+
+@app.get("/api/app/android")
+def android_app_link(_: None = Depends(require_local_request)):
+    """The download link of the Android app and a QR of it, for Studio to show next to the pairing code."""
+    return {"url": ANDROID_APK_URL, "qr_code": auth_manager.qr_data_url(ANDROID_APK_URL)}
+
 
 @app.get("/api/auth/pin")
 def get_pairing_pin(request: Request, _: None = Depends(require_local_request)):

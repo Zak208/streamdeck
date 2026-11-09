@@ -209,6 +209,11 @@ body.resizing-sidebar, body.resizing-inspector {
 .firewall-note .btn-primary { min-height: 34px; padding: 6px 10px; font-size: 12px; }
 .pin-expiry { color: var(--text-3); font-size: 11px; }
 .info-url { font: 11px var(--mono); color: var(--text-3); overflow-wrap: anywhere; text-align: center; }
+.android-app { width: 100%; font-size: 12px; }
+.android-app summary { cursor: pointer; color: var(--text-2, var(--text-3)); text-align: center; }
+.android-app[open] { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.android-app[open] summary { align-self: stretch; }
+.android-app .panel-hint { margin: 0; text-align: center; }
 
 .drag-palette-box { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: stretch; }
 .palette-item {

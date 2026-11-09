@@ -10,16 +10,28 @@ android {
         applicationId "com.zak208.streamdesk"
         minSdk 24
         targetSdk 34
-        versionCode 21703
-        versionName "2.17.3"
+        versionCode 21800
+        versionName "2.18.0"
+    }
 
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    // One fixed key for every build, so a new APK installs over the old one and keeps the pairing.
+    // It is a sideloading key (the app is not on Google Play): its password is public on purpose.
+    signingConfigs {
+        release {
+            storeFile file('../streamdesk.keystore')
+            storePassword 'streamdesk'
+            keyAlias 'streamdesk'
+            keyPassword 'streamdesk'
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+        }
+        debug {
+            signingConfig signingConfigs.release
         }
     }
     compileOptions {
@@ -31,6 +43,6 @@ android {
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-    implementation 'androidx.webkit:webkit:1.10.0'
+    // QR scanner that works without Google Play Services
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
 }

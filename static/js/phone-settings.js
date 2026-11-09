@@ -3,11 +3,16 @@
 
 const settingsSheet = document.getElementById("settings-sheet");
 
+// Where the Android app is published (kept equal to ANDROID_APK_URL in server/paths.py by a test).
+const ANDROID_APK_URL = "https://github.com/Zak208/streamdeck/releases/latest/download/StreamDesk.apk";
+
 function phoneEnvironment() {
   const agent = navigator.userAgent;
   return {
     ios: /iPhone|iPad|iPod/.test(agent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1),
     android: /Android/.test(agent),
+    // The StreamDesk Android app (a WebView with a bridge), which is already "installed" by definition.
+    app: typeof window.AndroidApp !== "undefined",
     // Opened from the home screen icon rather than from a browser tab.
     standalone: matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches || navigator.standalone === true,
     // Chrome only offers to install, and only allows service workers and wake lock, on https (or localhost).
@@ -114,6 +119,7 @@ function installReportHtml(checks) {
 
 function installSectionHtml() {
   const env = phoneEnvironment();
+  if (env.app) return `<p class="sheet-note ok">Estás usando la app de StreamDesk. Recuerda tu PC: si cambias de Wi-Fi lo busca sola, y si no lo encuentra te deja escanear el QR de Studio o escribir su dirección.</p>`;
   if (env.standalone) return `<p class="sheet-note ok">Estás usando StreamDesk como app instalada.</p>`;
 
   const checkButton = `<button class="btn-secondary sheet-check-button" id="sheet-install-check">Comprobar por qué no se instala</button><div id="sheet-install-report"></div>`;
@@ -133,7 +139,14 @@ function installSectionHtml() {
   }
 
   if (env.android && !env.secure) {
-    return `<p class="sheet-note">Chrome solo deja instalar webs seguras (https). Tu PC ofrece StreamDesk por http dentro de tu red, por eso no aparece «Instalar». Se arregla una vez, en 1 minuto:</p>
+    return `<p class="sheet-note"><strong>Lo más fácil en Android: la app de StreamDesk.</strong> Se acuerda de tu PC, lo vuelve a buscar sola cuando cambias de Wi-Fi y trae su propio escáner de QR (un acceso directo del navegador deja de funcionar al cambiar de red).</p>
+      <a class="btn-primary sheet-download" id="sheet-download-apk" href="${escapeText(ANDROID_APK_URL)}" rel="noopener">Descargar la app (APK)</a>
+      <ol class="sheet-steps">
+        <li>Pulsa <strong>Descargar la app</strong> (hace falta internet en el móvil).</li>
+        <li>Abre el archivo descargado. Si Android avisa de «instalar apps desconocidas», permítelo a Chrome solo para este paso.</li>
+        <li>Abre <strong>StreamDesk</strong> y escanea el QR de Studio.</li>
+      </ol>
+      <p class="sheet-note">Si prefieres no instalar el APK, esta es la alternativa como web (hay que repetirla si cambia la IP del PC). Chrome solo deja instalar webs seguras (https) y tu PC ofrece StreamDesk por http dentro de tu red, por eso no aparece «Instalar». Se arregla una vez, en 1 minuto:</p>
       <ol class="sheet-steps">
         <li>Copia la dirección de esta página:${copyButton("Copiar", location.origin)}</li>
         <li>Abre una pestaña nueva en Chrome, pega esto en la barra de direcciones y ábrelo:${copyButton("Copiar", "chrome://flags/#unsafely-treat-insecure-origin-as-secure")}</li>
@@ -260,8 +273,7 @@ function renderConnection() {
       setTimeout(() => { armed = false; forget.textContent = "Vincular con otro PC"; }, 4000);
       return;
     }
-    try { localStorage.removeItem("streamdesk_token"); } catch (e) { /* private mode */ }
-    token = null;
+    forgetToken();
     try { ws && ws.close(); } catch (e) { /* already closed */ }
     closeSettingsSheet();
     showPinModal(false);

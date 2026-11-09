@@ -315,6 +315,7 @@ header {
 .sheet-checks strong { font-size: 13px; }
 .sheet-checks span { color: var(--text-2); font-size: 12px; word-break: break-word; }
 .sheet .btn-primary, .sheet .btn-secondary, .sheet .btn-danger { width: 100%; min-height: 46px; }
+.sheet a.sheet-download { display: flex; align-items: center; justify-content: center; margin: 0 0 12px; text-decoration: none; box-sizing: border-box; }
 
 /* ---------- Banners and toast ---------- */
 /* Over the deck, not in the flow: a banner that appears and disappears must not move the keys under the finger. */

@@ -207,6 +207,20 @@ async function loadAuthInfo() {
 setInterval(loadAuthInfo, 10000);
 setInterval(renderPinCountdown, 1000);
 
+// The Android app's download QR never changes, so it is read once, when the panel is first opened.
+document.getElementById("android-app")?.addEventListener("toggle", async (event) => {
+  const box = event.currentTarget;
+  if (!box.open || box.dataset.loaded) return;
+  try {
+    const data = await (await fetch("/api/app/android")).json();
+    document.getElementById("android-qr").src = data.qr_code;
+    document.getElementById("android-url").textContent = data.url;
+    box.dataset.loaded = "1";
+  } catch (e) {
+    document.getElementById("android-url").textContent = "No se pudo cargar el enlace.";
+  }
+});
+
 async function regenerateAuthPin() {
   try {
     const res = await fetch("/api/auth/regenerate-pin", { method: "POST" });

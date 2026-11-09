@@ -7,8 +7,10 @@ do this so they never touch the real profile or the paired devices).
 import os
 import sys
 
-VERSION = "2.17.3"
+VERSION = "2.18.0"
 PORT = 48291
+# Where the Android app is published (the file name is fixed by .github/workflows/build-apk.yml).
+ANDROID_APK_URL = "https://github.com/Zak208/streamdeck/releases/latest/download/StreamDesk.apk"
 
 FROZEN = bool(getattr(sys, "frozen", False))
 

@@ -4,69 +4,136 @@
     android:layout_height="match_parent"
     android:background="@color/background">
 
-    <!-- WebView for Fullscreen Controller -->
+    <!-- The deck (the page served by the PC) -->
     <WebView
         android:id="@+id/webView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone" />
 
-    <!-- Setup / Connect UI -->
-    <LinearLayout
+    <!-- Connection screen: shown at start, when the PC does not answer, and on Back -->
+    <ScrollView
         android:id="@+id/connectLayout"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:gravity="center"
-        android:orientation="vertical"
-        android:padding="24dp">
+        android:fillViewport="true">
 
-        <TextView
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="STREAMDESK PRO"
-            android:textColor="@color/accent"
-            android:textSize="28sp"
-            android:textStyle="bold" />
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:padding="24dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/connect_hint"
-            android:textColor="@color/text_secondary"
-            android:textSize="14sp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="STREAMDESK"
+                android:textColor="@color/accent"
+                android:textSize="26sp"
+                android:textStyle="bold" />
 
-        <EditText
-            android:id="@+id/ipInput"
-            android:layout_width="320dp"
-            android:layout_height="52dp"
-            android:layout_marginTop="20dp"
-            android:background="@color/surface"
-            android:hint="192.168.1.50:48291"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:textColor="@color/text_primary"
-            android:textColorHint="@color/text_secondary"
-            android:inputType="textUri" />
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center"
+                android:text="@string/connect_hint"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
 
-        <Button
-            android:id="@+id/btnConnect"
-            android:layout_width="320dp"
-            android:layout_height="52dp"
-            android:layout_marginTop="16dp"
-            android:backgroundTint="@color/accent"
-            android:text="@string/btn_connect"
-            android:textColor="@color/background"
-            android:textStyle="bold" />
+            <ProgressBar
+                android:id="@+id/progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:indeterminate="true"
+                android:visibility="invisible" />
 
-        <TextView
-            android:id="@+id/statusText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp" />
+            <Button
+                android:id="@+id/btnScan"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="14dp"
+                android:backgroundTint="@color/accent"
+                android:text="@string/btn_scan"
+                android:textColor="@color/background"
+                android:textStyle="bold" />
 
-    </LinearLayout>
+            <Button
+                android:id="@+id/btnSearch"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="@color/surface"
+                android:text="@string/btn_search"
+                android:textColor="@color/text_primary" />
+
+            <TextView
+                android:id="@+id/foundTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/found_title"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/foundList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/manual_title"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/ipInput"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:background="@color/surface"
+                    android:hint="192.168.1.50"
+                    android:importantForAutofill="no"
+                    android:inputType="textUri"
+                    android:maxLines="1"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:textColor="@color/text_primary"
+                    android:textColorHint="@color/text_secondary" />
+
+                <Button
+                    android:id="@+id/btnConnect"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="@color/surface"
+                    android:text="@string/btn_connect"
+                    android:textColor="@color/text_primary" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/pin_hint"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </ScrollView>
 
 </FrameLayout>

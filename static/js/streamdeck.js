@@ -1,6 +1,30 @@
 // StreamDesk Mobile Client Pro (6x2 Grid + Multi-Page Swipe + Telemetry Widgets)
 let ws = null;
-let token = localStorage.getItem("streamdesk_token") || null;
+
+// Inside the Android app (a WebView with a bridge called AndroidApp) the pairing is also kept by the app, one per PC.
+// The page's localStorage belongs to one address, so a PC that changes network would otherwise ask for the PIN again.
+const nativeApp = (typeof window.AndroidApp !== "undefined" && typeof window.AndroidApp.scanQr === "function") ? window.AndroidApp : null;
+function nativeCall(name, ...args) {
+  try { return nativeApp && typeof nativeApp[name] === "function" ? nativeApp[name](...args) : undefined; } catch (e) { return undefined; }
+}
+function readStoredToken() {
+  let stored = null;
+  try { stored = localStorage.getItem("streamdesk_token"); } catch (e) { /* private mode */ }
+  if (stored) nativeCall("saveToken", stored); // pairings made before the app existed or by an older version
+  else if (nativeApp) stored = nativeCall("getToken") || null;
+  return stored || null;
+}
+function storeToken(value) {
+  token = value;
+  try { localStorage.setItem("streamdesk_token", value); } catch (e) { /* private mode */ }
+  nativeCall("saveToken", value);
+}
+function forgetToken() {
+  token = null;
+  try { localStorage.removeItem("streamdesk_token"); } catch (e) { /* private mode */ }
+  nativeCall("clearToken");
+}
+let token = readStoredToken();
 let wakeLock = null;
 let currentConfig = null;
 let currentSessions = [];
@@ -190,6 +214,7 @@ let reconnectTimer = null;
 const RECONNECT_WAITS = [300, 1000, 2000, 4000, 8000];
 let reconnectAttempt = 0;
 let everOpened = false;
+let lostReported = false; // the Android app was told once that the PC does not answer
 let lastMessageAt = Date.now();
 
 function scheduleReconnect() {
@@ -270,6 +295,7 @@ function connectWebSocket() {
     statusDot.className = "dot connected";
     statusText.textContent = "Conectado";
     everOpened = true;
+    lostReported = false;
     reconnectAttempt = 0;
     lastMessageAt = Date.now();
     setOffline(false);
@@ -308,11 +334,16 @@ function connectWebSocket() {
     }
     if (event.code === 1008) {
       console.warn("WS 1008: No autorizado");
-      localStorage.removeItem("streamdesk_token");
-      token = null;
+      forgetToken();
       showPinModal(false);
     } else {
       scheduleReconnect();
+      // In the app, a PC that stays unreachable is usually a PC on another network: the app looks for it again
+      // (and offers the QR scanner) instead of leaving this page retrying an address that no longer answers.
+      if (nativeApp && reconnectAttempt >= 5 && !lostReported) {
+        lostReported = true;
+        nativeCall("connectionLost");
+      }
     }
   };
 
@@ -1096,8 +1127,8 @@ function renderRecentIps() {
     if (!recent.length) { container.style.display = "none"; return; }
     container.style.display = "block";
     list.innerHTML = recent.map(host => `
-      <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px; border-radius: 4px;" data-recent-ip="${escapeHtml(host)}">
-        ${escapeHtml(host)}
+      <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px; border-radius: 4px;" data-recent-ip="${escapeAttr(host)}">
+        ${escapeAttr(host)}
       </button>
     `).join("");
     list.querySelectorAll("[data-recent-ip]").forEach(btn => {
@@ -1113,6 +1144,8 @@ function navigateToHost(hostStr, pin) {
   if (!cleanHost.includes(":")) cleanHost += ":48291";
   saveRecentIp(cleanHost);
   const target = pin ? `http://${cleanHost}/?pin=${encodeURIComponent(pin)}` : `http://${cleanHost}/`;
+  // The app opens it itself, so it can tell which PC it is (and hand over that PC's pairing).
+  if (nativeApp) { nativeCall("openUrl", target); return; }
   window.location.href = target;
 }
 
@@ -1185,7 +1218,7 @@ function handleScannedQr(rawText) {
     if (rawText.startsWith("http://") || rawText.startsWith("https://")) {
       const url = new URL(rawText);
       saveRecentIp(url.host);
-      window.location.href = rawText;
+      if (nativeApp) nativeCall("openUrl", rawText); else window.location.href = rawText;
       return;
     }
     if (/^\d{6}$/.test(rawText.trim())) {
@@ -1210,6 +1243,7 @@ function showPinModal(canClose = true) {
     customIpInput.value = window.location.host;
   }
   renderRecentIps();
+  updateScanButton();
   setTimeout(() => {
     document.getElementById("pin-input")?.focus();
   }, 100);
@@ -1251,8 +1285,7 @@ async function autoPairWithPin(pinCode) {
 
     const data = await res.json();
     if (res.ok && (data.success || data.valid) && data.token) {
-      token = data.token;
-      localStorage.setItem("streamdesk_token", token);
+      storeToken(data.token);
       if (pinModal) pinModal.style.display = "none";
       if (pinError) pinError.style.display = "none";
       try {
@@ -1308,8 +1341,7 @@ document.getElementById("btn-verify-pin")?.addEventListener("click", async () =>
 
     const data = await res.json();
     if (res.ok && (data.success || data.valid) && data.token) {
-      token = data.token;
-      localStorage.setItem("streamdesk_token", token);
+      storeToken(data.token);
       if (pinModal) pinModal.style.display = "none";
       if (pinError) pinError.style.display = "none";
       try {
@@ -1347,7 +1379,22 @@ document.getElementById("pin-input")?.addEventListener("keydown", (e) => {
 });
 
 // Event Listeners for QR & IP Switching
-document.getElementById("btn-start-qr")?.addEventListener("click", startQrScanner);
+// The browser only gives a page the camera on https (or localhost), so on the plain-http address of a PC in the
+// network the scanner below can never start: say so instead of showing a button that does nothing. The Android app
+// scans with its own camera screen, which works everywhere.
+function canScanQr() {
+  return Boolean(nativeApp) || Boolean(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+}
+function updateScanButton() {
+  const button = document.getElementById("btn-start-qr");
+  const hint = document.getElementById("scan-hint");
+  const can = canScanQr();
+  if (button) button.style.display = can ? "inline-flex" : "none";
+  if (hint) hint.hidden = can;
+}
+document.getElementById("btn-start-qr")?.addEventListener("click", () => {
+  if (nativeApp) nativeCall("scanQr"); else startQrScanner();
+});
 document.getElementById("btn-cancel-qr")?.addEventListener("click", stopQrScanner);
 
 document.getElementById("btn-toggle-custom-ip")?.addEventListener("click", () => {
@@ -1376,14 +1423,18 @@ document.getElementById("custom-ip-input")?.addEventListener("keydown", (e) => {
   }
 });
 
+// In the app this goes to its own screen (search for the PC, scan the QR, type the address); in a browser, the pairing window.
+function openConnectOptions() {
+  if (nativeApp) { nativeCall("showConnect"); return; }
+  showPinModal(true);
+}
+
 document.getElementById("btn-banner-reconnect")?.addEventListener("click", (e) => {
   e.stopPropagation();
-  showPinModal(true);
+  openConnectOptions();
 });
 
-document.getElementById("reconnect-banner")?.addEventListener("click", () => {
-  showPinModal(true);
-});
+document.getElementById("reconnect-banner")?.addEventListener("click", openConnectOptions);
 
 // Startup Hook: auto-pair if ?pin= is present, else connect
 window.addEventListener("DOMContentLoaded", () => {
