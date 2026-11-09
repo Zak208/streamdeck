@@ -23,3 +23,7 @@ android/build/
 *.apk
 *.aab
 
+
+# Signing keys never go in the repository (the Android key lives in GitHub secrets)
+*.keystore
+*.jks

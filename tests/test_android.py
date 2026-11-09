@@ -63,10 +63,17 @@ class AndroidProjectTests(unittest.TestCase):
         major, minor, patch = (int(part) for part in VERSION.split("."))
         self.assertIn(f"versionCode {major * 10000 + minor * 100 + patch}", gradle)
 
-    def test_the_apk_is_signed_with_the_committed_key_so_updates_install_over_it(self):
-        self.assertTrue(os.path.exists(os.path.join(ANDROID, "streamdesk.keystore")))
+    def test_the_signing_key_comes_from_secrets_and_never_from_the_repository(self):
         gradle = read("android", "app", "build.gradle")
-        self.assertIn("signingConfig signingConfigs.release", gradle)
+        self.assertIn("System.getenv('STREAMDESK_KEYSTORE')", gradle)
+        self.assertIn("System.getenv('STREAMDESK_KEYSTORE_PASSWORD')", gradle)
+        self.assertNotIn("storePassword '", gradle)  # no password written in the file
+        workflow = read(".github", "workflows", "build-apk.yml")
+        for secret in ("ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD"):
+            self.assertIn(f"secrets.{secret}", workflow)
+        self.assertIn("*.keystore", read(".gitignore"))
+        tracked = [f for _, _, files in os.walk(ANDROID) for f in files if f.endswith((".keystore", ".jks"))]
+        self.assertEqual(tracked, [], "a signing key must not sit in the project folder")
 
     def test_download_link_matches_the_file_the_workflow_publishes(self):
         self.assertTrue(ANDROID_APK_URL.endswith("/releases/latest/download/StreamDesk.apk"))

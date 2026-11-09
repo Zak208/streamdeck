@@ -42,8 +42,28 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      # The signing key lives in GitHub secrets (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD).
+      # An APK attached to a Release must carry it: with a different key phones refuse to update over the old app.
+      - name: Restore the signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          IS_RELEASE: ${{ github.event_name == 'release' || inputs.tag != '' }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            if [ "$IS_RELEASE" = "true" ]; then
+              echo "::error::Missing secret ANDROID_KEYSTORE_BASE64: refusing to publish an APK signed with another key."
+              exit 1
+            fi
+            echo "::warning::No signing key secret: building with a throwaway debug key (not publishable)."
+          else
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/streamdesk.keystore"
+            echo "STREAMDESK_KEYSTORE=$RUNNER_TEMP/streamdesk.keystore" >> "$GITHUB_ENV"
+          fi
+
       - name: Build signed APK
         working-directory: android
+        env:
+          STREAMDESK_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: gradle assembleRelease --no-daemon
 
       - name: Name the file

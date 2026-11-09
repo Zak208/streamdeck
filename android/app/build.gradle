@@ -14,24 +14,31 @@ android {
         versionName "2.18.0"
     }
 
-    // One fixed key for every build, so a new APK installs over the old one and keeps the pairing.
-    // It is a sideloading key (the app is not on Google Play): its password is public on purpose.
+    // One fixed key for every release, so a new APK installs over the old one and keeps the pairing.
+    // The key is not in the repository: CI restores it from GitHub secrets and points STREAMDESK_KEYSTORE at it.
+    // Without it (a local build) the APK is signed with Android's own debug key, which is fine to try the app
+    // but cannot update a release build.
+    def keystorePath = System.getenv('STREAMDESK_KEYSTORE')
+    def hasReleaseKey = keystorePath && file(keystorePath).exists()
+
     signingConfigs {
-        release {
-            storeFile file('../streamdesk.keystore')
-            storePassword 'streamdesk'
-            keyAlias 'streamdesk'
-            keyPassword 'streamdesk'
+        if (hasReleaseKey) {
+            release {
+                storeFile file(keystorePath)
+                storePassword System.getenv('STREAMDESK_KEYSTORE_PASSWORD')
+                keyAlias 'streamdesk'
+                keyPassword System.getenv('STREAMDESK_KEYSTORE_PASSWORD')
+            }
         }
     }
 
     buildTypes {
         release {
             minifyEnabled false
-            signingConfig signingConfigs.release
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
         }
         debug {
-            signingConfig signingConfigs.release
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
         }
     }
     compileOptions {
