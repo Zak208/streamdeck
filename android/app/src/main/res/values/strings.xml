@@ -1,10 +1,11 @@
 <resources>
     <string name="app_name">StreamDesk</string>
-    <string name="connect_hint">Escanea el QR que muestra StreamDesk Studio en tu PC, busca tu PC en esta Wi-Fi o escribe su dirección.</string>
+    <string name="connect_title">StreamDesk</string>
+    <string name="connect_hint">Escanea el QR que muestra Studio en tu PC, busca tu PC en esta Wi-Fi o escribe su dirección.</string>
     <string name="btn_scan">Escanear QR de Studio</string>
     <string name="btn_search">Buscar mi PC en esta Wi-Fi</string>
     <string name="found_title">PCs encontrados</string>
     <string name="manual_title">O escribe la dirección del PC</string>
-    <string name="btn_connect">Conectar</string>
+    <string name="btn_connect">Ir</string>
     <string name="pin_hint">Para vincular un PC nuevo hace falta el QR o el PIN de 6 cifras que muestra Studio. Un PC ya vinculado se reconoce solo.</string>
 </resources>

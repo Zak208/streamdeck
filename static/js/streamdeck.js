@@ -51,13 +51,10 @@ const pageDots = document.getElementById("page-dots");
 const btnPrevPage = document.getElementById("btn-prev-page");
 const btnNextPage = document.getElementById("btn-next-page");
 
-// Register Service Worker for PWA. The outcome is kept so Settings can show why installing fails.
-let swState = null;
+// Register Service Worker for PWA (only browsers that allow it on this address do; the rest simply skip it).
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
-      .then(reg => { swState = { ok: true, scope: reg.scope }; })
-      .catch(err => { swState = { ok: false, message: String(err && err.message || err) }; console.error('Error SW:', err); });
+    navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).catch(err => console.error('Error SW:', err));
   });
 }
 
@@ -188,8 +185,17 @@ deckContainer?.addEventListener("touchstart", (e) => {
   }
 }, { passive: true });
 
+// Swiping sideways to change page can be switched off in Settings (default: on).
+function swipeEnabled() {
+  try { return localStorage.getItem("streamdesk_swipe") !== "0"; } catch (e) { return true; }
+}
+
 deckContainer?.addEventListener("touchend", (e) => {
-  if (Object.values(isDraggingMap).some(Boolean)) {
+  if (!swipeEnabled() || Object.values(isDraggingMap).some(Boolean)) {
+    return;
+  }
+  // A deck wider than the screen scrolls sideways: that movement is scrolling, not a page change.
+  if (deckContainer.scrollWidth > deckContainer.clientWidth + 2) {
     return;
   }
   if (e.changedTouches.length === 1) {
@@ -1127,7 +1133,7 @@ function renderRecentIps() {
     if (!recent.length) { container.style.display = "none"; return; }
     container.style.display = "block";
     list.innerHTML = recent.map(host => `
-      <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px; border-radius: 4px;" data-recent-ip="${escapeAttr(host)}">
+      <button type="button" class="pair-chip" data-recent-ip="${escapeAttr(host)}">
         ${escapeAttr(host)}
       </button>
     `).join("");
@@ -1244,6 +1250,8 @@ function showPinModal(canClose = true) {
   }
   renderRecentIps();
   updateScanButton();
+  const hostLine = document.getElementById("pair-host");
+  if (hostLine) hostLine.textContent = `PC: ${window.location.host}`;
   setTimeout(() => {
     document.getElementById("pin-input")?.focus();
   }, 100);
@@ -1251,14 +1259,6 @@ function showPinModal(canClose = true) {
 
 document.getElementById("btn-status-badge")?.addEventListener("click", () => openSettingsSheet());
 document.getElementById("btn-open-settings")?.addEventListener("click", () => openSettingsSheet());
-
-document.getElementById("btn-fullscreen")?.addEventListener("click", () => {
-  if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen().catch(() => {});
-  } else {
-    document.exitFullscreen().catch(() => {});
-  }
-});
 
 btnClosePinModal?.addEventListener("click", () => {
   if (pinModal) pinModal.style.display = "none";
@@ -1366,9 +1366,15 @@ document.getElementById("btn-verify-pin")?.addEventListener("click", async () =>
   } finally {
     if (btnVerify) {
       btnVerify.disabled = false;
-      btnVerify.textContent = "Conectar con PC";
+      btnVerify.textContent = "Vincular";
     }
   }
+});
+
+// The code has exactly 6 digits: link as soon as the last one is typed.
+document.getElementById("pin-input")?.addEventListener("input", (e) => {
+  e.target.value = e.target.value.replace(/\D/g, "").slice(0, 6);
+  if (e.target.value.length === 6) document.getElementById("btn-verify-pin")?.click();
 });
 
 // Enable pressing Enter in PIN input field

@@ -16,8 +16,8 @@
     // Same theme as Studio, remembered from the last connection, applied before first paint.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.18.0">
-  <link rel="stylesheet" href="/static/css/style.css?v=2.18.0">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.18.1">
+  <link rel="stylesheet" href="/static/css/style.css?v=2.18.1">
 </head>
 <body>
   <!-- Top bar -->
@@ -49,9 +49,6 @@
         <img src="/static/icons/gear.svg" alt="Ajustes">
       </button>
 
-      <button class="icon-btn" id="btn-fullscreen" title="Pantalla completa" aria-label="Pantalla completa">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
-      </button>
     </div>
   </header>
 
@@ -69,52 +66,56 @@
     </div>
   </main>
 
-  <!-- PIN Pairing / Settings Modal -->
-  <div class="modal-overlay" id="pin-modal" style="display: none;">
-    <div class="modal-card">
-      <div class="modal-title" id="pin-modal-title">Vincular con tu PC</div>
-      <div class="modal-desc" id="pin-modal-desc">
-        Introduce el <strong>código PIN de 6 dígitos</strong> que aparece en la pantalla de tu PC (Studio), o escanea el código QR.
+  <!-- Pairing screen: shown when this phone is not linked to a PC (or the PC does not answer) -->
+  <div class="modal-overlay pair-overlay" id="pin-modal" style="display: none;">
+    <div class="modal-card pair-card">
+      <img class="pair-logo" src="/static/icons/icon-192.png" alt="" width="64" height="64">
+      <div class="modal-title pair-title" id="pin-modal-title">Vincula tu PC</div>
+      <div class="modal-desc pair-desc" id="pin-modal-desc">
+        Abre StreamDesk en tu PC y mira el panel <strong>Enlazar móvil</strong>: ahí está el PIN de 6 cifras y su código QR.
       </div>
 
-      <!-- Live Camera QR Scanner Box -->
-      <div id="qr-scanner-box" style="display: none; margin: 12px 0; text-align: center; position: relative;">
-        <video id="qr-video" playsinline style="width: 100%; max-height: 200px; border-radius: 8px; background: #000; object-fit: cover;"></video>
-        <p id="qr-scan-status" style="font-size: 12px; color: var(--accent, #f8c700); margin: 6px 0 0;">Apunta con la cámara al código QR de Studio...</p>
-        <button type="button" class="btn-secondary" id="btn-cancel-qr" style="margin-top: 8px;">Cerrar cámara</button>
+      <!-- Live camera QR scanner -->
+      <div id="qr-scanner-box" class="pair-scanner" style="display: none;">
+        <video id="qr-video" playsinline></video>
+        <p id="qr-scan-status">Apunta con la cámara al código QR de Studio...</p>
+        <button type="button" class="btn-secondary" id="btn-cancel-qr">Cerrar cámara</button>
       </div>
 
       <div id="pin-controls-box">
-        <p id="scan-hint" class="sheet-note" hidden style="margin: 0 0 10px; font-size: 12px; color: var(--muted, #888);">Para vincular con el QR, abre la cámara normal del móvil y apunta al código de Studio. También puedes escribir el PIN.</p>
+        <p id="scan-hint" class="pair-hint" hidden>Para usar el QR, abre la cámara normal del móvil y apunta al código de Studio. O escribe el PIN aquí.</p>
         <div class="pin-inputs">
-          <input type="text" id="pin-input" class="pin-input" maxlength="6" pattern="[0-9]*" inputmode="numeric" placeholder="· · · · · ·" autofocus>
+          <input type="text" id="pin-input" class="pin-input" maxlength="6" pattern="[0-9]*" inputmode="numeric" autocomplete="one-time-code" placeholder="······" aria-label="PIN de 6 cifras" autofocus>
         </div>
         <p id="pin-error" class="pin-error" role="alert"></p>
-        <button class="btn-primary" id="btn-verify-pin">Conectar con PC</button>
-        <div style="display: flex; gap: 8px; margin-top: 10px;">
-          <button type="button" class="btn-secondary" id="btn-start-qr" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
-            <span>📷 Escanear QR</span>
+        <button class="btn-primary" id="btn-verify-pin">Vincular</button>
+        <div class="pair-alt">
+          <button type="button" class="btn-secondary" id="btn-start-qr">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M7 12h10"/></svg>
+            Escanear QR
           </button>
-          <button type="button" class="btn-secondary" id="btn-toggle-custom-ip" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
-            <span>⚙️ Cambiar IP</span>
+          <button type="button" class="btn-secondary" id="btn-toggle-custom-ip">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+            Otro PC
           </button>
         </div>
       </div>
 
-      <!-- Manual IP Change Box -->
-      <div id="custom-ip-box" style="display: none; margin-top: 14px; text-align: left; border-top: 1px solid var(--line, #262626); padding-top: 12px;">
-        <label for="custom-ip-input" style="font-size: 12px; color: var(--muted, #888); display: block; margin-bottom: 6px;">Dirección IP del PC:</label>
-        <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-          <input type="text" id="custom-ip-input" class="pin-input" placeholder="Ej: 192.168.1.50:48291" style="flex: 1; font-size: 14px; letter-spacing: normal; text-align: left; padding: 0 12px; height: 42px;">
-          <button type="button" class="btn-primary" id="btn-connect-custom-ip" style="width: auto; padding: 0 16px; min-height: 42px;">Ir</button>
+      <!-- Address of another PC -->
+      <div id="custom-ip-box" class="pair-ip" style="display: none;">
+        <label for="custom-ip-input">Dirección del PC</label>
+        <div class="pair-ip-row">
+          <input type="text" id="custom-ip-input" class="pair-ip-input" placeholder="192.168.1.50" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false">
+          <button type="button" class="btn-primary" id="btn-connect-custom-ip">Ir</button>
         </div>
-        <div id="recent-ips-container" style="display: none; margin-top: 8px;">
-          <span style="font-size: 11px; color: var(--muted, #888); display: block; margin-bottom: 4px;">IPs recientes:</span>
-          <div id="recent-ips-list" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+        <div id="recent-ips-container" style="display: none;">
+          <span>Usadas antes</span>
+          <div id="recent-ips-list"></div>
         </div>
       </div>
 
-      <button class="btn-secondary" id="btn-close-pin-modal" style="display: none; margin-top: 10px;">Cerrar</button>
+      <p class="pair-host" id="pair-host"></p>
+      <button class="btn-secondary pair-close" id="btn-close-pin-modal" style="display: none;">Cerrar</button>
     </div>
   </div>
 
@@ -137,7 +138,7 @@
         <button class="close-btn" id="btn-close-sheet" aria-label="Cerrar">✕</button>
       </div>
       <section class="sheet-section"><h3>Páginas</h3><div id="sheet-pages" class="sheet-pages"></div></section>
-      <section class="sheet-section"><h3>Pantalla</h3><div id="sheet-screen"></div></section>
+      <section class="sheet-section"><h3>Panel</h3><div id="sheet-screen"></div></section>
       <section class="sheet-section"><h3>Instalar como app</h3><div id="sheet-install"></div></section>
       <section class="sheet-section"><h3>Conexión</h3><div id="sheet-connection"></div></section>
     </div>
@@ -159,8 +160,8 @@
   <!-- Action Result & Error Toast -->
   <div id="mobile-toast" class="mobile-toast"></div>
 
-  <script src="/static/js/monitors.js?v=2.18.0"></script>
-  <script src="/static/js/streamdeck.js?v=2.18.0"></script>
-  <script src="/static/js/phone-settings.js?v=2.18.0"></script>
+  <script src="/static/js/monitors.js?v=2.18.1"></script>
+  <script src="/static/js/streamdeck.js?v=2.18.1"></script>
+  <script src="/static/js/phone-settings.js?v=2.18.1"></script>
 </body>
 </html>

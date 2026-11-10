@@ -20,6 +20,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.content.res.Configuration;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -28,6 +29,7 @@ import android.widget.TextView;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.AppCompatButton;
 
 import com.journeyapps.barcodescanner.ScanContract;
 import com.journeyapps.barcodescanner.ScanOptions;
@@ -97,6 +99,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView foundTitle;
     private LinearLayout foundList;
     private ProgressBar progress;
+    private View connectCard;
     private SharedPreferences prefs;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -134,6 +137,8 @@ public class MainActivity extends AppCompatActivity {
         foundTitle = findViewById(R.id.foundTitle);
         foundList = findViewById(R.id.foundList);
         progress = findViewById(R.id.progress);
+        connectCard = findViewById(R.id.connectCard);
+        centerConnectCard();
 
         // Must be registered before the activity starts.
         scanLauncher = registerForActivityResult(new ScanContract(), result -> {
@@ -192,6 +197,23 @@ public class MainActivity extends AppCompatActivity {
         if (hasFocus) {
             applyImmersiveFullscreen();
         }
+    }
+
+    /** On wide screens (tablets, landscape) the card keeps a readable width instead of stretching edge to edge. */
+    private void centerConnectCard() {
+        final float density = getResources().getDisplayMetrics().density;
+        int screen = getResources().getDisplayMetrics().widthPixels;
+        int maxCard = (int) (440 * density);
+        int margin = Math.max((int) (16 * density), (screen - maxCard) / 2);
+        android.view.ViewGroup.MarginLayoutParams params = (android.view.ViewGroup.MarginLayoutParams) connectCard.getLayoutParams();
+        params.setMargins(margin, params.topMargin, margin, params.bottomMargin);
+        connectCard.setLayoutParams(params);
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        centerConnectCard();
     }
 
     private boolean connectVisible() {
@@ -503,9 +525,15 @@ public class MainActivity extends AppCompatActivity {
 
     private void addFound(final Identity found) {
         foundTitle.setVisibility(View.VISIBLE);
-        Button button = new Button(this);
+        AppCompatButton button = new AppCompatButton(this);
         button.setAllCaps(false);
+        button.setBackgroundResource(R.drawable.bg_button_secondary);
+        button.setTextColor(getResources().getColor(R.color.text_primary, getTheme()));
         button.setText(found.name + "   " + found.url.replace("http://", ""));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, (int) (48 * getResources().getDisplayMetrics().density));
+        lp.topMargin = (int) (6 * getResources().getDisplayMetrics().density);
+        button.setLayoutParams(lp);
         button.setOnClickListener(v -> openUrl(found.url));
         foundList.addView(button);
     }

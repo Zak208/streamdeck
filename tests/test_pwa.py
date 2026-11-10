@@ -172,7 +172,7 @@ const cacheName = vm.runInContext("CACHE_NAME", sandbox);
 
 @unittest.skipUnless(NODE, "needs Node to run the browser code")
 class InstallAssistantTests(unittest.TestCase):
-    """Runs the real phone-settings.js in five different phones and reads what the assistant tells them."""
+    """Runs the real phone-settings.js in different phones and reads what the assistant tells them."""
 
     SCRIPT = r"""
 const fs = require("fs"), vm = require("vm");
@@ -181,7 +181,7 @@ const fake = new Proxy(function () {}, {
 const scenario = JSON.parse(process.argv[1]);
 const sandbox = {
   document: fake, console, JSON, Promise, Map, Set, Math, Date, Number, String, Array, Object,
-  window: { isSecureContext: scenario.secure, addEventListener: () => {} },
+  window: { isSecureContext: scenario.secure, addEventListener: () => {}, ...(scenario.androidApp ? { AndroidApp: {} } : {}) },
   navigator: { userAgent: scenario.userAgent, platform: scenario.platform || "Linux armv8l", maxTouchPoints: 5, standalone: scenario.iosStandalone },
   matchMedia: (query) => ({ matches: scenario.standalone && query.includes("standalone") }),
   location: { origin: "http://192.168.2.81:48291", host: "192.168.2.81:48291" },
@@ -205,13 +205,12 @@ process.stdout.write(vm.runInContext("installSectionHtml()", sandbox));
     ANDROID = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36"
     IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1"
 
-    def test_android_on_plain_http_is_told_why_and_given_the_exact_steps(self):
+    def test_android_in_a_browser_is_offered_the_app(self):
         html = self.html(userAgent=self.ANDROID)
-        self.assertIn("https", html)  # the reason it cannot install
-        self.assertIn("chrome://flags/#unsafely-treat-insecure-origin-as-secure", html)
-        self.assertIn("http://192.168.2.81:48291", html)  # the address to paste into the flag
-        self.assertIn("Relaunch", html)
-        self.assertEqual(html.count("data-copy="), 2)
+        self.assertIn("sheet-download-apk", html)
+        self.assertIn("StreamDesk.apk", html)
+        self.assertNotIn("chrome://flags", html)  # the old workaround is gone
+        self.assertNotIn("data-copy", html)
         self.assertNotIn("sheet-install-now", html)
 
     def test_a_browser_that_can_install_gets_the_button(self):
@@ -223,97 +222,14 @@ process.stdout.write(vm.runInContext("installSectionHtml()", sandbox));
         html = self.html(userAgent=self.IPHONE, platform="iPhone")
         self.assertIn("Safari", html)
         self.assertIn("Añadir a pantalla de inicio", html)
-        self.assertNotIn("chrome://flags", html)
         self.assertIn("PIN", html)  # its data is separate from Safari's
 
-    def test_android_over_https_is_just_pointed_to_the_menu(self):
-        html = self.html(userAgent=self.ANDROID, secure=True)
-        self.assertIn("Instalar app", html)
-        self.assertNotIn("chrome://flags", html)
+    def test_an_installed_app_has_nothing_to_install(self):
+        self.assertEqual(self.html(userAgent=self.ANDROID, standalone=True), "")
+        self.assertEqual(self.html(userAgent=self.IPHONE, platform="iPhone", iosStandalone=True), "")
 
-    def test_an_installed_app_says_so_and_offers_nothing_else(self):
-        html = self.html(userAgent=self.ANDROID, standalone=True)
-        self.assertIn("instalada", html)
-        self.assertNotIn("data-copy", html)
-        self.assertNotIn("sheet-install-now", html)
-
-    def test_ios_home_screen_app_counts_as_installed(self):
-        self.assertIn("instalada", self.html(userAgent=self.IPHONE, platform="iPhone", iosStandalone=True))
-
-
-@unittest.skipUnless(NODE, "needs Node to run the browser code")
-class InstallCheckTests(unittest.TestCase):
-    """The "why does it not install" report, run in four phone situations."""
-
-    SCRIPT = r"""
-const fs = require("fs"), vm = require("vm");
-const fake = new Proxy(function () {}, {
-  get: (t, p) => (p === Symbol.toPrimitive ? () => "" : p === "then" ? undefined : fake), apply: () => fake, construct: () => fake });
-const scenario = JSON.parse(process.argv[1]);
-const document = new Proxy(fake, { get: (t, p) => (p === "querySelector" ? () => ({ href: "/manifest.json" }) : fake) });
-const manifest = { name: "StreamDesk", display: "standalone", icons: [{ src: "/a.png" }, { src: "/b.png" }] };
-const sandbox = {
-  document, console, JSON, Promise, Map, Set, Math, Date, Number, String, Array, Object, Error,
-  window: { isSecureContext: scenario.secure, addEventListener: () => {} },
-  navigator: { userAgent: "Mozilla/5.0 (Linux; Android 14) Chrome/120 Mobile", platform: "Linux armv8l", maxTouchPoints: 5,
-    ...(scenario.serviceWorker ? { serviceWorker: { getRegistration: async () => scenario.registration } } : {}) },
-  matchMedia: () => ({ matches: false }),
-  location: { origin: "http://192.168.2.81:48291", host: "192.168.2.81:48291" },
-  localStorage: { getItem: () => null, setItem: () => {} },
-  currentConfig: null, deferredInstallPrompt: scenario.prompt ? {} : null, swState: scenario.swState || null,
-  fetch: async () => { if (scenario.manifestBroken) throw new Error("boom"); return { json: async () => manifest }; },
-  Image: class { set src(value) { setTimeout(() => (value.startsWith("/a") || !scenario.iconBroken ? this.onload() : this.onerror()), 0); } },
-};
-vm.createContext(sandbox);
-vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), sandbox);
-vm.runInContext("runInstallChecks()", sandbox).then((checks) => {
-  sandbox.checks = checks;
-  process.stdout.write(JSON.stringify({ checks, report: vm.runInContext("installReportText(checks)", sandbox), html: vm.runInContext("installReportHtml(checks)", sandbox) }));
-});
-"""
-
-    def checks(self, **scenario):
-        probe = subprocess.run(["node", "-e", self.SCRIPT, json.dumps(scenario), os.path.join(STATIC_DIR, "js", "phone-settings.js")],
-                               capture_output=True, encoding="utf-8", timeout=30)
-        self.assertEqual(probe.returncode, 0, probe.stderr[-500:])
-        result = json.loads(probe.stdout)
-        result["by_label"] = {c["label"]: c for c in result["checks"]}
-        return result
-
-    def test_plain_http_phone_shows_exactly_what_is_missing(self):
-        result = self.checks(secure=False)
-        got = result["by_label"]
-        self.assertFalse(got["Dirección segura"]["ok"])
-        self.assertIn("http", got["Dirección segura"]["detail"])
-        self.assertFalse(got["Service worker"]["ok"])
-        self.assertIn("no lo ofrece", got["Service worker"]["detail"])
-        self.assertTrue(got["Manifiesto"]["ok"])
-        self.assertFalse(got["Chrome ofrece instalar"]["ok"])
-        self.assertIn("FALLA Dirección segura", result["report"])
-        self.assertIn("Android 14", result["report"])  # the browser is in the report, so it can be diagnosed remotely
-
-    def test_an_installable_phone_passes_everything_but_being_open_as_an_app(self):
-        result = self.checks(secure=True, serviceWorker=True, registration={"active": {}}, prompt=True)
-        failed = [c["label"] for c in result["checks"] if not c["ok"]]
-        self.assertEqual(failed, ["Abierta como app"])
-
-    def test_the_reason_a_service_worker_failed_is_reported(self):
-        result = self.checks(secure=True, serviceWorker=True, registration=None,
-                             swState={"ok": False, "message": "SecurityError: certificate"})
-        self.assertIn("SecurityError: certificate", result["by_label"]["Service worker"]["detail"])
-
-    def test_unreadable_manifest_and_missing_icons_are_flagged(self):
-        broken = self.checks(secure=True, manifestBroken=True)
-        self.assertFalse(broken["by_label"]["Manifiesto"]["ok"])
-        self.assertNotIn("Iconos", broken["by_label"])  # nothing to load without a manifest
-        icons = self.checks(secure=True, iconBroken=True)
-        self.assertFalse(icons["by_label"]["Iconos"]["ok"])
-        self.assertEqual(icons["by_label"]["Iconos"]["detail"], "1 de 2 cargan")
-
-    def test_report_markup_escapes_what_it_shows(self):
-        result = self.checks(secure=True, serviceWorker=True, registration=None,
-                             swState={"ok": False, "message": "<img src=x onerror=alert(1)>"})
-        self.assertNotIn("<img src=x", result["html"])
+    def test_the_android_app_has_nothing_to_install(self):
+        self.assertEqual(self.html(userAgent=self.ANDROID, androidApp=True), "")
 
 
 class PhoneLayoutTests(unittest.TestCase):
@@ -335,6 +251,17 @@ class PhoneLayoutTests(unittest.TestCase):
             self.assertIn(f'id="{section}"', html)
         self.assertNotIn("rotate-hint", html + read("css/style.css"))
         self.assertNotIn("ios-install-modal", html)
+
+    def test_swiping_between_pages_can_be_switched_off(self):
+        code = read("js/streamdeck.js")
+        self.assertIn('localStorage.getItem("streamdesk_swipe") !== "0"', code)  # on unless the user turned it off
+        self.assertRegex(code, r'touchend", \(e\) => \{\s*if \(!swipeEnabled\(\)')
+        self.assertIn('id="sheet-swipe"', read("js/phone-settings.js"))
+
+    def test_there_is_no_fullscreen_control(self):
+        everything = read("index.html") + read("js/streamdeck.js") + read("js/phone-settings.js")
+        for gone in ("btn-fullscreen", "requestFullscreen", "streamdesk_fullscreen"):
+            self.assertNotIn(gone, everything)
 
     def test_pull_to_refresh_cannot_hijack_a_fader_drag(self):
         self.assertIn("overscroll-behavior: none", read("css/style.css"))
