@@ -576,6 +576,12 @@ function openSettings() {
         <p>Los últimos botones que se pulsaron: qué móvil, cuál y cuándo. No guarda lo que hace el botón por dentro.</p>
         <div id="settings-audit"><span class="integration-hint">Cargando...</span></div>
       </section>
+      <section class="settings-section" data-tab="general" id="settings-programs">
+        <h3>Programas conectados</h3>
+        <p>OBS, Spotify, Discord y Windows. Configúralos aquí una vez y los botones que los usan funcionan, también los de las páginas de la biblioteca.</p>
+        <div id="settings-connectors"><span class="integration-hint">Comprobando...</span></div>
+        <div class="inline-row"><button class="btn-secondary" type="button" data-connect-apps>Conectar programas</button></div>
+      </section>
       <section class="settings-section" data-tab="general">
         <h3>Apariencia</h3>
         <p>Se aplica también en tu móvil.</p>
@@ -708,6 +714,7 @@ function openSettings() {
         const file = importInput.files[0];
         if (file) { m.close(); loadProfileCopy(file); }
       });
+      renderSettingsConnectors(m.el.querySelector("#settings-connectors"));
       renderSettingsDevices(m.el.querySelector("#settings-devices"));
       renderSettingsDiagnostics(m.el.querySelector("#settings-diagnostics"));
       renderSettingsAudit(m.el.querySelector("#settings-audit"));
@@ -783,6 +790,23 @@ async function wireDesktopSettings(root) {
     if (!confirmed) return;
     try { await postJson("/api/desktop/quit", {}); } catch (err) { /* the app closes before it can answer */ }
   });
+}
+
+// The connected programs with their state, each one opening the "Conectar programas" dialog on its own card.
+async function renderSettingsConnectors(container) {
+  try {
+    const { connectors } = await connectorApi("");
+    connectorCache = connectors;
+    container.innerHTML = connectors.map(c => `
+      <div class="option-row connector-row">
+        <img src="${escapeHtml(c.icon)}" alt="" width="20" height="20">
+        <span>${escapeHtml(c.name)}</span>
+        <span class="status-pill status-${escapeHtml(c.status.state)}">${STATUS_LABELS[c.status.state] || ""}</span>
+        <button class="btn-secondary" type="button" data-connect-apps="${escapeHtml(c.id)}">Configurar</button>
+      </div>`).join("");
+  } catch (err) {
+    container.innerHTML = `<span class="integration-hint">${escapeHtml(err.message)}</span>`;
+  }
 }
 
 async function renderSettingsDevices(container) {
