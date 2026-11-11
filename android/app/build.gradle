@@ -10,8 +10,8 @@ android {
         applicationId "com.zak208.streamdesk"
         minSdk 24
         targetSdk 34
-        versionCode 21901
-        versionName "2.19.1"
+        versionCode 21902
+        versionName "2.19.2"
     }
 
     // One fixed key for every release, so a new APK installs over the old one and keeps the pairing.
