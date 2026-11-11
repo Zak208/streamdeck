@@ -56,6 +56,18 @@ from server.paths import DATA_DIR, CONFIG_DIR, FROZEN, VERSION
 from server.ssl_helper import ensure_ssl_certificates
 import webview
 
+SERVER_ERROR = []  # why the server thread died, if it did, so the window can say so
+
+
+def show_message(text, title="StreamDesk Pro", icon=0x30):
+    """A plain Windows message box (0x30 warning, 0x40 information). Falls back to the console."""
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, text, title, icon)
+    except Exception:
+        print(text)
+
+
 def start_server():
     try:
         use_ssl = os.environ.get("STREAMDESK_HTTPS", "").lower() in ("1", "true", "yes")
@@ -66,7 +78,8 @@ def start_server():
             if cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file):
                 ssl_kwargs = {"ssl_certfile": cert_file, "ssl_keyfile": key_file}
         uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning", **ssl_kwargs)
-    except Exception as e:
+    except BaseException as e:  # SystemExit too: uvicorn exits when it cannot bind the port
+        SERVER_ERROR.append(str(e) or type(e).__name__)
         print(f"Server error: {e}")
 
 def port_owner(port):
@@ -101,6 +114,30 @@ def explain_busy_port():
     except Exception:
         print(text)
     return True
+
+
+def fit_window_size(width, height, min_width, min_height):
+    """The size the window opens at, cut down to the usable part of the screen. pywebview multiplies the size by the
+    display scale, so 780 high at 150% on a 1080p laptop is 1170 pixels: taller than the screen, with the top of the
+    window out of reach. Returns (width, height, min_width, min_height) in the same units it was given."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        try:
+            user32.SetProcessDPIAware()  # the same call pywebview makes: real pixels, not scaled ones
+        except Exception:
+            pass
+        area = wintypes.RECT()
+        if not user32.SystemParametersInfoW(48, 0, ctypes.byref(area), 0):  # SPI_GETWORKAREA
+            return width, height, min_width, min_height
+        scale = max(1.0, user32.GetDpiForSystem() / 96.0)
+        free_w = int((area.right - area.left) / scale) - 24
+        free_h = int((area.bottom - area.top) / scale) - 24
+        width, height = min(width, free_w), min(height, free_h)
+        return width, height, min(min_width, width), min(min_height, height)
+    except Exception:
+        return width, height, min_width, min_height
 
 
 def wait_for_server(port, seconds=20.0):
@@ -141,6 +178,7 @@ class DesktopShell:
         self.icon = None
         self.tray_ok = False
         self.quitting = False
+        self._telling = False
 
     # -- tray --
 
@@ -217,16 +255,30 @@ class DesktopShell:
         return False
 
     def tell_once(self):
-        """The first time the window is hidden, say where it went (otherwise it looks like the app crashed)."""
-        try:
-            from server.settings_store import settings
-            if settings.get("app").get("background_hint_shown"):
-                return
-            settings.update("app", {"background_hint_shown": True})
-            self.notify("StreamDesk Pro", "StreamDesk sigue activo en segundo plano: tu móvil puede seguir usándolo. "
-                        "Para abrirlo, pulsa su icono aquí. Para cerrarlo del todo, elige Salir.")
-        except Exception:
-            pass
+        """The first time the window is hidden, say where it went (otherwise it looks like the app crashed).
+        A Windows notification can be silenced (Do Not Disturb), so this is a message box, and it is only
+        counted as seen once it has been shown."""
+        if self._telling:
+            return
+        self._telling = True
+
+        def tell():
+            try:
+                from server.settings_store import settings
+                if settings.get("app").get("background_hint_shown"):
+                    return
+                show_message(
+                    "StreamDesk sigue activo junto al reloj de Windows (puede estar tras la flecha ^).\n\n"
+                    "Tu móvil puede seguir usándolo. Para abrirlo de nuevo, pulsa su icono.\n"
+                    "Para cerrarlo del todo: clic derecho en el icono y Salir.",
+                    "StreamDesk Pro sigue abierto", 0x40)
+                settings.update("app", {"background_hint_shown": True})
+            except Exception:
+                pass
+            finally:
+                self._telling = False
+
+        threading.Thread(target=tell, daemon=True).start()
 
     def quit(self):
         self.quitting = True
@@ -274,12 +326,20 @@ def main():
     server_thread.start()
 
     # Wait until the server answers (at Windows start-up the PC is busy and it can take a few seconds)
-    wait_for_server(PORT)
+    if not wait_for_server(PORT) and not server_thread.is_alive():
+        show_message(
+            "StreamDesk no pudo arrancar su servidor, así que el móvil no podría conectarse.\n\n"
+            f"Detalle: {SERVER_ERROR[-1] if SERVER_ERROR else 'desconocido'}\n\n"
+            "Cierra otros programas que usen el puerto %d o reinicia el PC, y vuelve a abrir StreamDesk." % PORT,
+            "StreamDesk Pro no puede arrancar")
+        sys.exit(1)
 
     use_ssl = os.environ.get("STREAMDESK_HTTPS", "").lower() in ("1", "true", "yes")
     scheme = "https" if use_ssl else "http"
     studio_url = f"{scheme}://localhost:{PORT}/studio"
     webview.settings["IGNORE_SSL_ERRORS"] = True
+    # pywebview cancels every download by default: "Exportar página" and the profile copies would do nothing.
+    webview.settings["ALLOW_DOWNLOADS"] = True
     icon_path = os.path.join(BASE_DIR, "static", "icons", "icon.ico")
     if not os.path.exists(icon_path):
         icon_path = None
@@ -303,12 +363,13 @@ def main():
     shell.start_tray()
 
     # 2. Open native Windows desktop window (hidden in the tray when Windows started it at sign-in)
+    win_w, win_h, min_w, min_h = fit_window_size(1280, 780, 960, 620)
     window = webview.create_window(
         title="StreamDesk Pro",
         url=studio_url,
-        width=1280,
-        height=780,
-        min_size=(960, 620),
+        width=win_w,
+        height=win_h,
+        min_size=(min_w, min_h),
         resizable=True,
         confirm_close=False,
         background_color="#070a10",
@@ -328,6 +389,20 @@ def main():
         os.makedirs(webview_data_dir, exist_ok=True)
     except Exception:
         pass
+
+    try:
+        from webview.platforms import winforms
+        webview2_missing = winforms.renderer == "mshtml"
+    except Exception:
+        webview2_missing = False
+    if webview2_missing:
+        # Without WebView2 pywebview silently falls back to Internet Explorer's engine and Studio shows broken.
+        show_message(
+            "Falta Microsoft Edge WebView2, el componente de Windows que dibuja la ventana de StreamDesk.\n\n"
+            "Instálalo gratis desde:\nhttps://developer.microsoft.com/microsoft-edge/webview2/\n\n"
+            "Mientras tanto puedes usar StreamDesk desde el navegador: http://localhost:%d/studio" % PORT,
+            "StreamDesk Pro necesita WebView2")
+        sys.exit(1)
 
     webview.start(
         icon=icon_path,

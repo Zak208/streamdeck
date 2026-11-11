@@ -21,9 +21,9 @@ function builtInLibrary() {
   }));
   return [
     { category: "Sistema", items: [
-      { id: "hotkey", label: "Atajo de teclado", sub: "Pulsa una combinación", icon: "/static/icons/keyboard.svg", color: LIBRARY_ACCENT, action_type: "hotkey", target: "CTRL+SHIFT+M", configure: true },
-      { id: "text", label: "Escribir texto", sub: "Teclea un texto por ti", icon: "/static/icons/notes.svg", color: LIBRARY_ACCENT, action_type: "text", target: "Hola", extra: { press_enter: false }, configure: true },
-      { id: "website", label: "Abrir una web", sub: "En tu navegador", icon: "/static/icons/link.svg", color: LIBRARY_ACCENT, action_type: "url", target: "https://www.example.com", configure: true },
+      { id: "hotkey", label: "Atajo de teclado", sub: "Pulsa una combinación", icon: "/static/icons/keyboard.svg", color: LIBRARY_ACCENT, action_type: "hotkey", target: "CTRL+ALT+SHIFT+F24", configure: true },
+      { id: "text", label: "Escribir texto", sub: "Teclea un texto por ti", icon: "/static/icons/notes.svg", color: LIBRARY_ACCENT, action_type: "text", target: "Escribe aquí tu texto", extra: { press_enter: false }, configure: true },
+      { id: "website", label: "Abrir una web", sub: "En tu navegador", icon: "/static/icons/link.svg", color: LIBRARY_ACCENT, action_type: "url", target: "https://www.google.com", configure: true },
       { id: "folder", label: "Abrir una carpeta", sub: "En el Explorador", icon: "/static/icons/folder.svg", color: LIBRARY_ACCENT, action_type: "folder", target: "C:\\Users", configure: true },
       { id: "macro", label: "Multiacción", sub: "Varias acciones en una", icon: "/static/icons/macro.svg", color: "#a855f7", action_type: "multi", target: "macro", extra: { actions: [{ action_type: "sound", target: "beep", delay_ms: 150 }] }, configure: true },
       { id: "taskmgr", label: "Administrador de tareas", sub: "Abrir", icon: "/static/icons/sliders.svg", color: LIBRARY_ACCENT, action_type: "preset_app", target: "taskmgr" },
@@ -248,8 +248,11 @@ const ACTION_EDITORS = {
     input.addEventListener("input", () => { btn.target = input.value.trim(); commitAction(btn); });
     const stop = () => { document.removeEventListener("keydown", onKey, true); record.textContent = "Grabar"; };
     const onKey = (event) => {
+      // The editor was rebuilt (another cell was picked) while recording: stop listening, keep the key.
+      if (!record.isConnected) return stop();
       event.preventDefault();
       event.stopPropagation();
+      if (event.key === "Escape") return stop(); // Esc cancels instead of recording "ESC"
       if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) return; // wait for the real key
       const combo = hotkeyFromEvent(event);
       if (!combo) return showToast("Esa tecla no se puede usar en un atajo");
@@ -376,7 +379,7 @@ const ACTION_EDITORS = {
         html += '</optgroup>';
         if (data.custom && data.custom.length) {
           html += '<optgroup label="Tus sonidos (Soundboard)">';
-          html += data.custom.map(s => `<option value="${escapeHtml(s.id)}" ${s.id === selectedId ? "selected" : ""}>🎵 ${escapeHtml(s.name)}</option>`).join("");
+          html += data.custom.map(s => `<option value="${escapeHtml(s.id)}" ${s.id === selectedId ? "selected" : ""}>${escapeHtml(s.name)}</option>`).join("");
           html += '</optgroup>';
         }
         select.innerHTML = html;
@@ -461,7 +464,7 @@ function renderTabAction(container, btn, index) {
         </button>
       </div>
       <button type="button" class="btn-primary" style="margin-top: 10px; width: 100%; justify-content: center;" data-quick="catalog">
-        🔍 Explorar catálogo completo...
+        Explorar catálogo completo...
       </button>
     </div>`;
 
@@ -775,7 +778,7 @@ function macroStepChoices() {
   const fixed = libraryCategories.flatMap(c => c.items).filter(i => !i.configure && !i.opensTab && !["page", "multi"].includes(i.action_type));
   return [
     { id: "__hotkey", label: "Atajo de teclado", build: () => ({ action_type: "hotkey", target: "CTRL+C", extra: {} }) },
-    { id: "__text", label: "Escribir texto", build: () => ({ action_type: "text", target: "Hola", extra: { press_enter: false } }) },
+    { id: "__text", label: "Escribir texto", build: () => ({ action_type: "text", target: "Escribe aquí tu texto", extra: { press_enter: false } }) },
     { id: "__url", label: "Abrir una web", build: () => ({ action_type: "url", target: "https://www.example.com", extra: {} }) },
     { id: "__folder", label: "Abrir una carpeta", build: () => ({ action_type: "folder", target: "C:\\Users", extra: {} }) },
     { id: "__app", label: "Abrir una aplicación", build: () => ({ action_type: "preset_app", target: (detectedSystemApps[0]?.id || "calc"), extra: {} }) },

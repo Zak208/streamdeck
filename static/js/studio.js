@@ -30,7 +30,7 @@ function newEmptyButton(index) {
 }
 function newMasterFader(col, span = 2) {
   return {
-    index: col, type: "slider", id: `slider_${Date.now()}`, label: "Master", sublabel: "PC", slider_type: "master", target_app: null,
+    index: col, type: "slider", id: `slider_${Date.now()}`, label: "Volumen", sublabel: "PC", slider_type: "master", target_app: null,
     row_span: span, color: "#f8c700", icon: "/static/icons/volume_up.svg", image: "/static/icons/volume_up.svg",
   };
 }
@@ -154,7 +154,7 @@ const MEDIA_PRESETS = [
   { id: "play_pause", name: "Play / Pausa", icon: "/static/icons/play_pause.svg", color: "#22c55e", sub: "Reproducir / Pausar", target: "play_pause" },
   { id: "next", name: "Siguiente Pista", icon: "/static/icons/next.svg", color: "#38bdf8", sub: "Canción siguiente", target: "next" },
   { id: "prev", name: "Anterior Pista", icon: "/static/icons/prev.svg", color: "#38bdf8", sub: "Canción anterior", target: "prev" },
-  { id: "mute", name: "Mute Master", icon: "/static/icons/mute.svg", color: "#ef4444", sub: "Silenciar ordenador", target: "mute" },
+  { id: "mute", name: "Silenciar el PC", icon: "/static/icons/mute.svg", color: "#ef4444", sub: "Silenciar ordenador", target: "mute" },
   { id: "volume_up", name: "Subir volumen", icon: "/static/icons/volume_up.svg", color: "#0ea5e9", sub: "Volumen de Windows", target: "volume_up" },
   { id: "volume_down", name: "Bajar volumen", icon: "/static/icons/volume_down.svg", color: "#0ea5e9", sub: "Volumen de Windows", target: "volume_down" },
 ];
@@ -202,6 +202,8 @@ async function loadAuthInfo() {
     showPairingInfo(await res.json());
   } catch (e) {
     console.error("Error loading PIN", e);
+    const url = document.getElementById("server-url");
+    if (url) url.textContent = "No se puede leer el PIN: ¿sigue abierto StreamDesk?";
   }
 }
 setInterval(loadAuthInfo, 10000);
@@ -434,8 +436,22 @@ async function loadConfig() {
     initUndoBaseline();
   } catch (e) {
     console.error("Error loading config", e);
+    // Say so, with a way out: an empty preview looks like "my buttons are gone".
+    if (!config) {
+      phoneScreen.innerHTML = `<div class="load-error"><strong>No se pudo cargar tu panel.</strong>
+        <span>Comprueba que StreamDesk sigue abierto en este PC.</span>
+        <button type="button" class="btn-secondary" id="btn-retry-config">Reintentar</button></div>`;
+      document.getElementById("btn-retry-config")?.addEventListener("click", loadConfig);
+    }
   }
 }
+
+// With more pages than fit, the mouse wheel moves the strip sideways (its scrollbar is hidden).
+pageTabs.addEventListener("wheel", (event) => {
+  if (pageTabs.scrollWidth <= pageTabs.clientWidth || event.shiftKey || !event.deltaY) return;
+  pageTabs.scrollLeft += event.deltaY;
+  event.preventDefault();
+}, { passive: false });
 
 // Render Page Tabs
 function renderPageTabs() {
@@ -528,7 +544,7 @@ function resetInspectorDrawer() {
         <li><strong>Elige qué hace:</strong> abrir una app, subir el volumen, escribir un texto...</li>
         <li><strong>Pruébalo</strong> con el botón «Probar» y cambia su título, color o icono si quieres.</li>
       </ol>
-      <p class="empty-arrow">← Arrastra un botón o un fader desde «Añadir»</p>
+      <p class="empty-arrow">← Arrastra un botón o un deslizador desde «Añadir»</p>
     </div>
   `;
 }
@@ -536,6 +552,8 @@ function resetInspectorDrawer() {
 // Render the phone screen simulator (the deck, in the size the profile has)
 function renderPhoneScreen() {
   if (!config) return;
+  // The preview is rebuilt on every selection and change: a cell that had the keyboard focus gets it back.
+  const focusedCell = document.activeElement?.classList?.contains("slot-cell") ? document.activeElement.id : "";
   phoneScreen.innerHTML = "";
 
   const pages = config.pages || [];
@@ -617,6 +635,11 @@ function renderPhoneScreen() {
   }
   paintStudioFaders();
   paintStudioMonitors();
+  if (focusedCell) {
+    // The new cells get their role and tabindex from a MutationObserver, which runs after this: do it now so they can take focus.
+    if (typeof makeKeyboardClickable === "function") makeKeyboardClickable(phoneScreen);
+    document.getElementById(focusedCell)?.focus();
+  }
 }
 
 // Fader previews show the real volume of what they control (or "no sound" when the app is silent).
@@ -833,22 +856,14 @@ function undoLastDelete() {
   return true;
 }
 
-// Ctrl+Z brings back the last deleted button or fader, except while typing in a field.
-window.addEventListener("keydown", (e) => {
-  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.key.toLowerCase() !== "z") return;
-  const el = document.activeElement;
-  if (el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable)) return;
-  if (lastDeleted) {
-    e.preventDefault();
-    undoLastDelete();
-  }
-});
+// Ctrl+Z itself is handled once, in the keydown listener at the end of this file: it brings back
+// the last removed button or fader first (undoLastDelete) and otherwise undoes the last change.
 
 function deleteSlotByDrag(index) {
   const slots = config?.pages?.[activePageIndex]?.slots;
   const slot = slots?.[index];
   if (!slot || slot.type === "empty" || slot.type === "occupied_by_slider") return;
-  const name = slot.label || (slot.type === "slider" ? "Fader" : "Botón");
+  const name = slot.label || (slot.type === "slider" ? "Deslizador" : "Botón");
   if (slot.type === "slider") {
     removeFader(slots, index % gridCols());
   } else {
@@ -934,7 +949,7 @@ function resizeFader(col, wanted) {
   for (let k = old; k < span; k++) {
     const cell = slots[col + k * cols];
     if (cell && cell.type !== "empty") {
-      showToast(`Para hacer el fader más alto, libera antes la casilla ${col + k * cols + 1}`);
+      showToast(`Para hacer el deslizador más alto, libera antes la casilla ${col + k * cols + 1}`);
       return false;
     }
   }
@@ -984,7 +999,7 @@ function pasteCopiedSlot(targetIdx) {
     selectSlot(tCol);
     triggerDropBounce(tCol);
     saveConfigToServer();
-    showToast(`Fader pegado en Columna #${tCol + 1} (Ctrl+V)`);
+    showToast(`Deslizador pegado en la columna ${tCol + 1} (Ctrl+V)`);
   } else {
     if (inFaderColumn(currentSlots, targetIdx)) {
       removeFader(currentSlots, tCol);
@@ -1027,7 +1042,7 @@ function createStudioButtonKeycap(btn, index) {
   const badges = [btn.long_press ? "⏱" : "", btn.double_tap ? "×2" : "", btn.toggle ? "⇄" : "", btn.confirm ? "?" : ""].filter(Boolean).join(" ");
   wrap.title = btn.action_type === "none" ? "Sin acción todavía" : describeAction(btn);
   wrap.innerHTML = `
-    ${badges ? `<span class="slot-badges" aria-hidden="true">${badges}</span>` : ""}
+    ${badges ? `<span class="slot-badges" title="Además: ${[btn.long_press ? "pulsación larga" : "", btn.double_tap ? "doble toque" : "", btn.toggle ? "dos estados" : "", btn.confirm ? "pide confirmación" : ""].filter(Boolean).join(", ")}">${badges}</span>` : ""}
     <div class="slot-keycap-inner">
       <div class="slot-accent" style="background: ${btn.color || 'var(--accent)'};"></div>
       <img src="${escapeHtml(iconSrc)}" class="slot-keycap-img" alt="">
@@ -1056,14 +1071,14 @@ function createStudioFaderCard(slider, index) {
   wrap.innerHTML = `
     <div class="slot-fader-head">
       <img src="${escapeHtml(headerIcon)}" alt="">
-      <span>${escapeHtml(slider.label || (isMaster ? 'Master' : 'App'))}</span>
+      <span>${escapeHtml(slider.label || (isMaster ? 'Volumen' : 'App'))}</span>
     </div>
     <div class="slot-fader-track">
       <div class="slot-fader-fill" style="height: 60%; background: ${accentColor};"></div>
     </div>
     <div class="slot-fader-val">60%</div>
-    <div class="fader-resize-handle" role="slider" tabindex="0" title="Arrastra para cambiar el alto del fader"
-         aria-label="Alto del fader en filas" aria-valuemin="1" aria-valuemax="${gridRows()}" aria-valuenow="${faderSpan(slider)}"></div>
+    <div class="fader-resize-handle" role="slider" tabindex="0" title="Arrastra para cambiar el alto del deslizador"
+         aria-label="Alto del deslizador en filas" aria-valuemin="1" aria-valuemax="${gridRows()}" aria-valuenow="${faderSpan(slider)}"></div>
   `;
   wireFaderResize(wrap, slider, index);
 
@@ -1129,7 +1144,7 @@ function handleDropOnSlot(targetIndex) {
     selectSlot(topSlot);
     triggerDropBounce(topSlot);
     saveConfigToServer();
-    showToast(`Fader del volumen de Windows colocado en la columna ${col + 1}`);
+    showToast(`Deslizador del volumen de Windows colocado en la columna ${col + 1}`);
 
   } else if (dragSourceType === "palette_btn") {
     // A key dropped on a fader replaces it (Ctrl+Z brings it back).
@@ -1159,7 +1174,7 @@ function handleDropOnSlot(targetIndex) {
           selectSlot(tCol);
           triggerDropBounce(tCol);
           saveConfigToServer();
-          showToast(`Fader reubicado a Columna #${tCol + 1}`);
+          showToast(`Deslizador movido a la columna ${tCol + 1}`);
         }
       } else {
         const sIdx = draggedSlotIndex;
@@ -1287,6 +1302,10 @@ window.addEventListener("keydown", (e) => {
   }
   // A dialog is on top: the keys belong to it (Delete would empty the cell behind it, the arrows move a hidden selection).
   if (document.querySelector(".modal-overlay")) return;
+  // Focus inside the side panels: arrows and Delete belong to what is focused there (a summary, a button), not to the grid.
+  if ((e.key === "Delete" || e.key.startsWith("Arrow")) && activeEl?.closest?.("#editor-drawer, aside")) return;
+  // Ctrl+C / Ctrl+V with text selected (the PIN, an address) is the browser's copy, not "copy this cell".
+  if ((e.ctrlKey || e.metaKey) && ["c", "v"].includes(e.key.toLowerCase()) && window.getSelection()?.toString()) return;
 
   if (e.key === "Delete") {
     if (selectedSlotIndex !== null) {
@@ -1336,7 +1355,7 @@ function selectSlot(index) {
     inspectorTitle.textContent = `Configurar Botón #${index + 1}`;
     renderButtonInspector(slot, index);
   } else if (slot.type === "slider") {
-    inspectorTitle.textContent = `Configurar Fader (Col #${(index % gridCols()) + 1})`;
+    inspectorTitle.textContent = `Configurar deslizador (columna ${(index % gridCols()) + 1})`;
     renderSliderInspector(slot, index);
   }
 }
@@ -1356,7 +1375,7 @@ function renderEmptySlotInspector(index) {
         <img src="/static/icons/plus.svg" alt=""> Añadir un botón vacío (lo configuro luego)
       </button>
       <button class="btn-secondary" id="btn-create-slider-here">
-        <img src="/static/icons/fader.svg" alt=""> Añadir un fader del volumen de Windows (columna ${col + 1})
+        <img src="/static/icons/fader.svg" alt=""> Añadir un deslizador del volumen de Windows (columna ${col + 1})
       </button>
     </div>
   `;
@@ -1383,7 +1402,7 @@ function renderEmptySlotInspector(index) {
     renderPhoneScreen();
     selectSlot(col);
     saveConfigToServer();
-    showToast("Fader del volumen de Windows colocado");
+    showToast("Deslizador del volumen de Windows colocado");
   });
 }
 
@@ -1510,14 +1529,14 @@ function openAppHub(host, app, btn, index, onBack) {
 
     <div class="apphub-primary-launch" id="apphub-btn-launch" role="button" tabindex="0">
       <div>
-        <strong title="Abrir ${escapeHtml(app.name)}">🚀 Abrir ${escapeHtml(app.name)}</strong>
+        <strong title="Abrir ${escapeHtml(app.name)}">Abrir ${escapeHtml(app.name)}</strong>
         <div><span>Lanza o trae al primer plano la aplicación en tu PC</span></div>
       </div>
       <button type="button" class="btn-primary" style="pointer-events: none;">Elegir</button>
     </div>
 
-    ${connector ? `<div class="picker-category">⚡ Acciones Conectadas de ${escapeHtml(app.name)}</div><div id="apphub-connector-box"></div>` : ""}
-    ${pack ? `<div class="picker-category" style="margin-top: 14px;">⌨️ Atajos de Teclado de ${escapeHtml(app.name)} (${pack.actions.length})</div><div class="picker-items" id="apphub-pack-box"></div>` : ""}
+    ${connector ? `<div class="picker-category">Acciones conectadas de ${escapeHtml(app.name)}</div><div id="apphub-connector-box"></div>` : ""}
+    ${pack ? `<div class="picker-category" style="margin-top: 14px;">Atajos de teclado de ${escapeHtml(app.name)} (${pack.actions.length})</div><div class="picker-items" id="apphub-pack-box"></div>` : ""}
   `;
 
   host.querySelector("#apphub-btn-back").addEventListener("click", onBack);
@@ -1839,7 +1858,7 @@ function renderTabPrograms(host, btn, index, pick) {
         <details class="category-accordion" open>
           <summary class="category-accordion-summary">
             <span class="category-accordion-title">
-              <span class="category-accordion-icon">⚡</span>
+              <span class="category-accordion-icon"><img src="/static/icons/zap.svg" alt="" width="16" height="16"></span>
               <span>Conectados a StreamDesk</span>
               <span class="category-accordion-badge">${connectors.length}</span>
             </span>
@@ -1857,7 +1876,7 @@ function renderTabPrograms(host, btn, index, pick) {
         <details class="category-accordion" ${t || idx < 2 ? "open" : ""}>
           <summary class="category-accordion-summary">
             <span class="category-accordion-title">
-              <span class="category-accordion-icon">📦</span>
+              <span class="category-accordion-icon"><img src="/static/icons/keyboard.svg" alt="" width="16" height="16"></span>
               <span>${escapeHtml(g.category)}</span>
               <span class="category-accordion-badge">${g.items.length}</span>
             </span>
@@ -2015,9 +2034,19 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 }
 
+// A fetch that cannot reach the server rejects with the browser's own English "Failed to fetch".
+// Say what happened and what to do instead.
+async function studioFetch(path, options) {
+  try {
+    return await fetch(path, options);
+  } catch (err) {
+    throw new Error("No se pudo hablar con StreamDesk en este PC. ¿Sigue abierto? Si lo cerraste, ábrelo de nuevo.");
+  }
+}
+
 async function connectorApi(path, body) {
   const options = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
-  const res = await fetch(`/api/connectors${path}`, options);
+  const res = await studioFetch(`/api/connectors${path}`, options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "No se pudo completar la acción");
   return data;
@@ -2105,7 +2134,7 @@ function connectorBodyWindows(c, body, ctx) {
     const select = body.querySelector("#win-app-select");
     const name = select.selectedOptions[0].textContent;
     assignFromTemplate(ctx.btn, ctx.index, {
-      label: `Mute ${name}`, sublabel: "Windows", icon: "/static/icons/mute.svg", color: "#ef4444",
+      label: `Silenciar ${name}`, sublabel: "Windows", icon: "/static/icons/mute.svg", color: "#ef4444",
       action_type: "windows", target: "app_mute", extra: { process: select.value },
     });
   });
@@ -2177,7 +2206,7 @@ function connectorBodyObs(c, body, ctx) {
     row.querySelector("#obs-input-assign").addEventListener("click", () => {
       const source = row.querySelector("#obs-input-select").value;
       assignFromTemplate(ctx.btn, ctx.index, {
-        label: `Mute ${source}`, sublabel: "OBS", icon: "/static/icons/mute.svg", color: "#ef4444",
+        label: `Silenciar ${source}`, sublabel: "OBS", icon: "/static/icons/mute.svg", color: "#ef4444",
         action_type: "obs_action", target: "mute_mic", extra: { source_name: source },
       });
     });
@@ -2186,23 +2215,28 @@ function connectorBodyObs(c, body, ctx) {
 
 function connectorBodySpotify(c, body, ctx) {
   const s = c.settings || {};
+  // Pasting a link works without any account, so it comes first. Connecting the account (a developer app, a
+  // Client ID, a Redirect URI) is optional, and folded away until someone wants playlists listed here.
   const setup = s.connected ? "" : `
-    <ol class="setup-steps">
-      <li>Entra en <code class="copyable">${SPOTIFY_DASHBOARD}</code> y crea una app (el nombre da igual).</li>
-      <li>En <strong>Redirect URIs</strong> añade exactamente: <code class="copyable">${escapeHtml(s.redirect_uri)}</code></li>
-      <li>Pega aquí el <strong>Client ID</strong> de esa app:
-        <input id="sp-client-id" type="text" maxlength="32" value="${escapeHtml(s.client_id || "")}" placeholder="32 caracteres">
-        <button class="btn-secondary" id="sp-save-id">Guardar</button></li>
-      <li>Pulsa conectar y acepta en el navegador. <button class="btn-primary" id="sp-connect" ${s.client_id ? "" : "disabled"}>Conectar cuenta</button>
-        <button class="btn-secondary" id="sp-check">Ya acepté</button></li>
-    </ol>`;
+    <details class="setup-optional" ${s.client_id ? "open" : ""}>
+      <summary>Conectar mi cuenta de Spotify (opcional): para elegir mis playlists de una lista</summary>
+      <ol class="setup-steps">
+        <li>Entra en <code class="copyable">${SPOTIFY_DASHBOARD}</code> y crea una app (el nombre da igual).</li>
+        <li>En <strong>Redirect URIs</strong> añade exactamente: <code class="copyable">${escapeHtml(s.redirect_uri)}</code></li>
+        <li>Pega aquí el <strong>Client ID</strong> de esa app:
+          <input id="sp-client-id" type="text" maxlength="32" value="${escapeHtml(s.client_id || "")}" placeholder="32 caracteres">
+          <button class="btn-secondary" id="sp-save-id">Guardar</button></li>
+        <li>Pulsa conectar y acepta en el navegador. <button class="btn-primary" id="sp-connect" ${s.client_id ? "" : "disabled"}>Conectar cuenta</button>
+          <button class="btn-secondary" id="sp-check">Ya acepté</button></li>
+      </ol>
+    </details>`;
   body.innerHTML = `
     ${statusLine(c)}
-    ${setup}
     ${s.connected ? '<div class="option-list" id="sp-playlists"><span class="integration-hint">Cargando tus playlists...</span></div>' : ""}
-    <label for="spotify-uri-input">O pega el enlace de una playlist, álbum, artista o canción</label>
+    <label for="spotify-uri-input">${s.connected ? "O pega" : "Pega"} el enlace de una playlist, álbum, artista o canción</label>
     <div class="inline-row"><input id="spotify-uri-input" type="url" placeholder="https://open.spotify.com/playlist/..."><button class="btn-secondary" id="sp-link-assign">Asignar</button></div>
-    <p class="integration-hint">Sin cuenta conectada (o sin Premium) el botón abre la lista en la app de Spotify de tu PC y pulsa Reproducir por ti: la app debe estar abierta y a la vista, no minimizada. Una cuenta gratuita reproduce en modo aleatorio y con anuncios, como la propia app. Con Premium y la cuenta conectada se reproduce sin tocar la app.</p>
+    <p class="integration-hint">En Spotify: botón derecho sobre la playlist, Compartir, Copiar enlace. Sin cuenta conectada (o sin Premium) el botón abre la lista en la app de Spotify de tu PC y pulsa Reproducir por ti: la app debe estar abierta y a la vista, no minimizada. Una cuenta gratuita reproduce en modo aleatorio y con anuncios, como la propia app. Con Premium y la cuenta conectada se reproduce sin tocar la app.</p>
+    ${setup}
     ${s.connected ? '<button class="btn-secondary" id="sp-disconnect">Desconectar cuenta</button>' : ""}`;
 
   const spotifyTemplate = (name, uri) => ({
@@ -2578,7 +2612,7 @@ function renderTabDesign(container, btn, index) {
     <div class="form-group">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <label style="margin:0;">Icono (${SVG_ICONS.length})</label>
-        <input type="search" id="icon-filter-input" placeholder="🔍 Filtrar..." style="font-size:11px;padding:3px 8px;width:110px;height:26px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);">
+        <input type="search" id="icon-filter-input" placeholder="Filtrar iconos..." aria-label="Filtrar iconos" style="font-size:11px;padding:3px 8px;width:110px;height:26px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);">
       </div>
       <div class="icon-picker-grid" id="icon-picker-grid">${iconsHtml}</div>
     </div>
@@ -2702,7 +2736,7 @@ function renderSliderInspector(slider, index) {
   inspectorContent.innerHTML = `
     <div class="inspector-preview-card">
       <div class="fader-preview">
-        <strong>${escapeHtml(slider.label || 'Fader')}</strong>
+        <strong>${escapeHtml(slider.label || 'Deslizador')}</strong>
         <div class="slot-fader-track"><div class="slot-fader-fill" style="height: 65%; background: ${escapeHtml(slider.color || '#f8c700')};"></div></div>
         <span class="slot-fader-val">65%</span>
       </div>
@@ -2724,18 +2758,18 @@ function renderSliderInspector(slider, index) {
     ` : ''}
 
     <div class="form-group">
-      <label for="fader-span-value">Alto del fader</label>
+      <label for="fader-span-value">Alto del deslizador</label>
       <div class="stepper">
-        <button type="button" id="fader-shorter" aria-label="Fader más bajo" ${faderSpan(slider) <= 1 ? "disabled" : ""}>−</button>
+        <button type="button" id="fader-shorter" aria-label="Deslizador más bajo" ${faderSpan(slider) <= 1 ? "disabled" : ""}>−</button>
         <strong id="fader-span-value">${faderSpan(slider)} ${faderSpan(slider) === 1 ? "fila" : "filas"}</strong>
-        <button type="button" id="fader-taller" aria-label="Fader más alto" ${faderSpan(slider) >= gridRows() ? "disabled" : ""}>+</button>
+        <button type="button" id="fader-taller" aria-label="Deslizador más alto" ${faderSpan(slider) >= gridRows() ? "disabled" : ""}>+</button>
       </div>
-      <p class="integration-hint">Más alto da más recorrido para ajustar el volumen. También puedes arrastrar el borde inferior del fader en la vista previa. Para crecer necesita libres las casillas de debajo.</p>
+      <p class="integration-hint">Más alto da más recorrido para ajustar el volumen. También puedes arrastrar el borde inferior del deslizador en la vista previa. Para crecer necesita libres las casillas de debajo.</p>
     </div>
 
     <div class="form-group">
       <label for="edit-slider-label">Título</label>
-      <input type="text" id="edit-slider-label" maxlength="32" value="${escapeHtml(slider.label || '')}" placeholder="Ej. Master o Spotify">
+      <input type="text" id="edit-slider-label" maxlength="32" value="${escapeHtml(slider.label || '')}" placeholder="Ej. Volumen o Spotify">
     </div>
 
     <div class="form-group">
@@ -2744,14 +2778,14 @@ function renderSliderInspector(slider, index) {
     </div>
 
     <button class="btn-danger" id="btn-delete-slider">
-      <img src="/static/icons/trash.svg" alt=""> Quitar el fader de la columna ${col + 1}
+      <img src="/static/icons/trash.svg" alt=""> Quitar el deslizador de la columna ${col + 1}
     </button>
   `;
 
   document.getElementById("btn-set-master")?.addEventListener("click", () => {
     slider.slider_type = "master";
     slider.target_app = null;
-    slider.label = "Master";
+    slider.label = "Volumen";
     slider.sublabel = "PC";
     slider.image = "/static/icons/volume_up.svg";
     slider.icon = "/static/icons/volume_up.svg";
@@ -2784,7 +2818,7 @@ function renderSliderInspector(slider, index) {
       renderPhoneScreen();
       renderSliderInspector(slider, index);
       saveConfigToServer();
-      showToast(`Fader vinculado a ${item.dataset.name}`);
+      showToast(`Deslizador vinculado a ${item.dataset.name}`);
     });
   });
 
@@ -2812,7 +2846,7 @@ function renderSliderInspector(slider, index) {
     renderPhoneScreen();
     selectSlot(col);
     saveConfigToServer();
-    showUndoToast(`Fader quitado de la columna ${col + 1}`);
+    showUndoToast(`Deslizador quitado de la columna ${col + 1}`);
   });
 }
 
@@ -3011,9 +3045,10 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-undo")?.addEventListener("click", performUndo);
   document.addEventListener("keydown", (event) => {
     const tag = (event.target?.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "textarea") return;
+    if (tag === "input" || tag === "textarea" || tag === "select" || event.target?.isContentEditable) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !event.shiftKey) {
       event.preventDefault();
+      if (lastDeleted && undoLastDelete()) return;
       performUndo();
     }
   });

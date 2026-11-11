@@ -26,6 +26,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.appcompat.app.AppCompatActivity;
@@ -120,7 +121,6 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(R.layout.activity_main);
         applyImmersiveFullscreen();
 
@@ -149,6 +149,10 @@ public class MainActivity extends AppCompatActivity {
 
         setupWebView();
 
+        ipInput.setOnEditorActionListener((v, actionId, event) -> {
+            btnConnect.performClick(); // "Ir" on the keyboard does what the Ir button does
+            return true;
+        });
         btnScan.setOnClickListener(v -> startScan());
         btnSearch.setOnClickListener(v -> startSearch(lastServer()));
         btnConnect.setOnClickListener(v -> {
@@ -226,6 +230,8 @@ public class MainActivity extends AppCompatActivity {
 
     /** Shows the connection screen. The page behind it is emptied so it stops reconnecting to an old address. */
     private void showConnect(String message) {
+        // The screen only has to stay on while the deck is in use, not while searching for the PC.
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setStatus(message);
         if (webView.getVisibility() == View.VISIBLE) {
             webView.setVisibility(View.GONE);
@@ -235,7 +241,17 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** Shows the deck and cancels every search. */
+    /** The executor is shut down in onDestroy: a late call from the page's bridge must not crash the app. */
+    private void runIo(Runnable work) {
+        try {
+            io.execute(work);
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // the activity is gone
+        }
+    }
+
     private void showDeck() {
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         generation++;
         ui.removeCallbacksAndMessages(null);
         progress.setVisibility(View.INVISIBLE);
@@ -243,9 +259,18 @@ public class MainActivity extends AppCompatActivity {
         webView.setVisibility(View.VISIBLE);
     }
 
+    private long lastBackAt = 0;
+
     @Override
     public void onBackPressed() {
         if (webView.getVisibility() == View.VISIBLE) {
+            // A stray Back gesture in the middle of a stream must not drop the panel: the second one within 2 s does.
+            long now = System.currentTimeMillis();
+            if (now - lastBackAt > 2000) {
+                lastBackAt = now;
+                Toast.makeText(this, R.string.press_back_again, Toast.LENGTH_SHORT).show();
+                return;
+            }
             generation++;
             showConnect("Has salido del panel. Toca Buscar mi PC para volver, o escanea otro QR.");
             progress.setVisibility(View.INVISIBLE);
@@ -288,6 +313,16 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 showDeck();
+            }
+
+            @Override
+            public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                // The page's process died (usually low memory). Returning false would take the whole app down.
+                ui.post(() -> {
+                    Toast.makeText(MainActivity.this, R.string.panel_closed, Toast.LENGTH_LONG).show();
+                    recreate();
+                });
+                return true;
             }
 
             @Override
@@ -357,10 +392,11 @@ public class MainActivity extends AppCompatActivity {
         }
         final String pinToUse = pin;
         final int my = ++generation;
+        ui.removeCallbacksAndMessages(null); // a pending automatic search would bump `generation` and drop this answer
         connectLayout.setVisibility(View.VISIBLE);
         progress.setVisibility(View.VISIBLE);
         setStatus("Comprobando " + base + "...");
-        io.execute(() -> {
+        runIo(() -> {
             Identity found = probeKnown(base, 2500, 3000);
             ui.post(() -> {
                 if (my != generation) {
@@ -368,7 +404,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 if (found == null) {
                     progress.setVisibility(View.INVISIBLE);
-                    setStatus("No encuentro StreamDesk en " + base + ". Si es un QR, comprueba que es el de Studio; si es una IP, que StreamDesk está abierto y que estáis en la misma Wi-Fi.");
+                    setStatus("No encuentro StreamDesk en " + base + ". Si es un QR, comprueba que es el de Studio; si es una IP, que StreamDesk está abierto y que estáis en la misma Wi-Fi. Si todo parece bien, en el PC abre Studio > Ajustes > Conexión del móvil > Comprobar la conexión: la causa más habitual es el cortafuegos de Windows.");
                     return;
                 }
                 Server s = remember(found);
@@ -433,7 +469,7 @@ public class MainActivity extends AppCompatActivity {
         progress.setVisibility(View.VISIBLE);
         setStatus(wanted != null ? "Buscando " + wanted.name + " en esta red..." : "Buscando PCs con StreamDesk en esta Wi-Fi...");
 
-        io.execute(() -> {
+        runIo(() -> {
             // 1. Where it was.
             if (wanted != null) {
                 Identity same = probeKnown(wanted.url, 1500, 1500);
@@ -512,11 +548,11 @@ public class MainActivity extends AppCompatActivity {
         } else if (wanted != null) {
             setStatus(foundAny
                     ? "No encuentro " + wanted.name + " en esta red, pero hay otros StreamDesk abajo."
-                    : "No encuentro " + wanted.name + " en esta red. ¿Está encendido y con StreamDesk abierto? Vuelvo a mirar cada pocos segundos; también puedes escanear el QR o escribir su IP.");
+                    : "No encuentro " + wanted.name + " en esta red. ¿Está el PC encendido y StreamDesk en marcha (icono junto al reloj)? Vuelvo a mirar cada pocos segundos; también puedes escanear el QR o escribir su IP. Si todo parece bien, en el PC abre Studio > Ajustes > Conexión del móvil > Comprobar la conexión: la causa más habitual es el cortafuegos de Windows.");
         } else {
             setStatus(foundAny
                     ? "Elige tu PC de la lista, o escanea el QR de Studio."
-                    : "No he encontrado ningún StreamDesk en esta Wi-Fi. Escanea el QR de Studio o escribe la IP del PC.");
+                    : "No he encontrado ningún StreamDesk en esta Wi-Fi. Escanea el QR de Studio o escribe la IP del PC. Si todo parece bien, en el PC abre Studio > Ajustes > Conexión del móvil > Comprobar la conexión: la causa más habitual es el cortafuegos de Windows.");
         }
         if (wanted != null) {
             scheduleRetry();
@@ -726,6 +762,7 @@ public class MainActivity extends AppCompatActivity {
     // ------------------------------------------------------------------ QR
 
     private void startScan() {
+        ui.removeCallbacksAndMessages(null); // no automatic search behind the camera
         ScanOptions options = new ScanOptions();
         options.setDesiredBarcodeFormats(ScanOptions.QR_CODE);
         options.setPrompt("Apunta al QR que muestra StreamDesk Studio en tu PC");
@@ -818,7 +855,7 @@ public class MainActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 final Server s = serverById(currentId);
                 final int my = ++generation;
-                io.execute(() -> {
+                runIo(() -> {
                     // A short outage is the page's own business: if the PC answers where it was, leave it be.
                     Identity same = s == null ? null : fetchIdentity(s.url, 1500, 1500, null);
                     if (same != null && same.id.equals(s.id)) {

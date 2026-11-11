@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- On a phone with a notch the panel also uses the strip beside it when held sideways, instead of black bars. -->
+    <style name="Theme.StreamDesk" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:statusBarColor">@color/background</item>
+        <item name="android:navigationBarColor">@color/background</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="colorPrimary">@color/accent</item>
+    </style>
+</resources>

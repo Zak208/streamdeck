@@ -102,7 +102,8 @@ function renderPanelOptions() {
       <div class="sheet-segment">
         ${levels.map(([value, label]) => `<button type="button" class="sheet-haptic-btn ${hapticLevel === value ? "active" : ""}" data-haptic="${value}">${label}</button>`).join("")}
       </div>
-    </div>`;
+    </div>
+    <p class="sheet-note">Los botones con dos puntitos arriba a la derecha hacen otra cosa si los mantienes pulsados o los tocas dos veces.</p>`;
   container.querySelector("#sheet-swipe").addEventListener("change", (event) => {
     try { localStorage.setItem("streamdesk_swipe", event.target.checked ? "1" : "0"); } catch (e) { /* private mode */ }
     if (typeof showMobileToast === "function") showMobileToast(event.target.checked ? "Deslizar para cambiar de página: activado" : "Deslizar para cambiar de página: desactivado");
