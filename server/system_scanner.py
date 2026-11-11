@@ -566,9 +566,14 @@ class SystemScanner:
             return apps
 
     @classmethod
-    def warm_up(cls) -> None:
-        """Scan in the background at startup, so the list is ready when the apps tab is first opened."""
-        threading.Thread(target=cls.get_detected_apps, name="app-scan", daemon=True).start()
+    def warm_up(cls, delay: float = 0.0) -> None:
+        """Scan in the background at startup, so the list is ready when the apps tab is first opened.
+        `delay` waits first: right after Windows starts the PC is busy, and the scan is not urgent."""
+        def scan():
+            if delay > 0:
+                time.sleep(delay)
+            cls.get_detected_apps()
+        threading.Thread(target=scan, name="app-scan", daemon=True).start()
 
     @classmethod
     def public_apps(cls, force_refresh: bool = False) -> List[Dict[str, Any]]:

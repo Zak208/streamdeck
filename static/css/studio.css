@@ -619,6 +619,10 @@ code.copyable { display: block; margin: 4px 0; padding: 7px 9px; background: var
 .settings-section { padding: 16px 0; border-top: 1px solid var(--line); }
 .settings-section:first-of-type { border-top: 0; padding-top: 0; }
 .settings-section h3 { margin: 0 0 4px; font-size: 14px; }
+.inline-row > [hidden] { display: none !important; }
+.settings-section .settings-sub { margin: 14px 0 4px; font-size: 12px; font-weight: 600; color: var(--text-2, inherit); }
+.device-row.check-fail strong { color: var(--danger, #ef4444); }
+.device-row.check-warn strong { color: var(--warning, #f59e0b); }
 .settings-section p { margin: 0 0 12px; color: var(--text-3); font-size: 12px; }
 .device-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; margin-bottom: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .device-row strong { display: block; font-size: 13px; }

@@ -9,7 +9,7 @@ import hmac
 import re
 import secrets
 import socket
-from typing import Dict, Any, Set
+from typing import Callable, Dict, Any, Optional, Set
 import qrcode
 
 from server.paths import CONFIG_DIR
@@ -20,6 +20,9 @@ PIN_TTL_SECONDS = 10 * 60
 # After a rotation the previous PIN still works briefly, so someone who was typing it
 # while Studio refreshed the code is not told they got it wrong.
 PIN_GRACE_SECONDS = 60
+# A phone that has not connected for this long is unpaired (a lost or sold phone does not stay trusted forever).
+TOKEN_IDLE_DAYS = 90
+SECONDS_PER_DAY = 24 * 3600
 MAX_PIN_ATTEMPTS = 5
 PIN_ATTEMPT_WINDOW_SECONDS = 10 * 60
 
@@ -35,6 +38,7 @@ class AuthManager:
         self.pin_attempts: Dict[str, list[float]] = {}
         self.authorized_tokens: Set[str] = set()
         self.paired_devices: Dict[str, Dict[str, Any]] = {}
+        self.on_paired: Optional[Callable[[str], None]] = None  # told the phone's name when one pairs
         self._load_tokens()
         self.server_id = self._load_or_create_server_id()
 
@@ -137,6 +141,12 @@ class AuthManager:
                     tokens_list = data.get("authorized_tokens", [])
                     self.authorized_tokens = set(tokens_list)
                     self.paired_devices = data.get("paired_devices", {})
+                # Phones paired before this existed start their idle clock now, not at their pairing date.
+                missing = [info for info in self.paired_devices.values() if isinstance(info, dict) and "last_seen" not in info]
+                for info in missing:
+                    info["last_seen"] = time.time()
+                if missing:
+                    self._save_tokens()
         except Exception as e:
             print(f"[Auth] Error loading persisted auth tokens: {e}")
 
@@ -200,12 +210,18 @@ class AuthManager:
             self.paired_devices[new_token] = {
                 "name": str(device_name).strip()[:48] or "Dispositivo móvil",
                 "token_preview": new_token[:6] + "...",
-                "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
+                "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "last_seen": time.time(),
             }
             self._save_tokens()
             # Optional: Rotate PIN after successful pairing for extra security
             self.refresh_pin()
             self.pin_attempts.pop(client_ip or "unknown", None)
+            if self.on_paired:
+                try:
+                    self.on_paired(self.paired_devices[new_token]["name"])
+                except Exception:
+                    pass  # a notification that fails must not undo a pairing
             return {"valid": True, "success": True, "token": new_token, "server_id": self.server_id}
         return {"valid": False, "success": False,
                 "error": "PIN incorrecto o caducado. Escribe el que StreamDesk Studio muestra ahora."}
@@ -213,7 +229,36 @@ class AuthManager:
     def is_token_authorized(self, token: str) -> bool:
         if not token or not isinstance(token, str):
             return False
-        return token.strip() in self.authorized_tokens
+        clean = token.strip()
+        if clean not in self.authorized_tokens:
+            return False
+        last_seen = (self.paired_devices.get(clean) or {}).get("last_seen")
+        if isinstance(last_seen, (int, float)) and time.time() - last_seen > TOKEN_IDLE_DAYS * SECONDS_PER_DAY:
+            self.revoke_token(clean)
+            return False
+        return True
+
+    def touch(self, token: str) -> None:
+        """Note that this phone connected. Saved at most once a day: it only has to tell months apart."""
+        info = self.paired_devices.get((token or "").strip())
+        if isinstance(info, dict) and time.time() - float(info.get("last_seen") or 0) > SECONDS_PER_DAY:
+            info["last_seen"] = time.time()
+            self._save_tokens()
+
+    def is_restricted(self, token: str) -> bool:
+        """A limited phone cannot shut the PC down or run console commands, whatever its buttons say."""
+        return bool((self.paired_devices.get((token or "").strip()) or {}).get("restricted"))
+
+    def device_name(self, token: str) -> str:
+        return str((self.paired_devices.get((token or "").strip()) or {}).get("name") or "Navegador del PC")
+
+    def set_restricted(self, device_id: str, restricted: bool) -> bool:
+        token = self.token_for_device(device_id)
+        if not token or token not in self.paired_devices:
+            return False
+        self.paired_devices[token]["restricted"] = bool(restricted)
+        self._save_tokens()
+        return True
 
     def revoke_token(self, token: str) -> bool:
         clean = (token or "").strip()
@@ -231,7 +276,8 @@ class AuthManager:
 
     def list_devices(self) -> list:
         devices = [
-            {"id": self.device_id(token), "name": info.get("name", "Dispositivo móvil"), "created_at": info.get("created_at", "")}
+            {"id": self.device_id(token), "name": info.get("name", "Dispositivo móvil"), "created_at": info.get("created_at", ""),
+             "restricted": bool(info.get("restricted")), "last_seen": time.strftime("%Y-%m-%d", time.localtime(info["last_seen"])) if info.get("last_seen") else ""}
             for token, info in self.paired_devices.items() if token in self.authorized_tokens
         ]
         return sorted(devices, key=lambda d: d["created_at"], reverse=True)

@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import json
 import itertools
@@ -7,6 +8,7 @@ import time
 from typing import Dict, Any, List
 from server.action_catalog import validate_deck_config
 from server.paths import CONFIG_DIR
+from server.settings_store import settings
 
 CONFIG_FILE = os.path.join(CONFIG_DIR, "deck_config.json")
 _BACKUP_COUNTER = itertools.count()  # the clock ticks every ~15 ms on Windows: names must not depend on it alone
@@ -141,11 +143,32 @@ class ConfigManager:
             os.replace(temporary, CONFIG_FILE)
             self.config = new_config
             self.last_error = ""
+            self._mirror()
             return True
         except Exception as e:
             print(f"Error saving config: {e}")
             self.last_error = str(e)
             return False
+
+    MIRROR_DAILY_KEPT = 7
+
+    def _mirror(self) -> None:
+        """Copy the saved profile to the folder the user chose (OneDrive, a USB drive): the latest one, plus one
+        per day for a week. The profile has layouts only, no passwords. A folder that is offline is skipped."""
+        try:
+            folder = settings.get("app").get("backup_dir")
+            if not folder or not os.path.isdir(folder):
+                return
+            latest = os.path.join(folder, "streamdesk-perfil.json")
+            shutil.copyfile(CONFIG_FILE, latest + ".tmp")
+            os.replace(latest + ".tmp", latest)
+            daily = os.path.join(folder, f"streamdesk-perfil-{time.strftime('%Y%m%d')}.json")
+            shutil.copyfile(CONFIG_FILE, daily)
+            copies = sorted(f for f in os.listdir(folder) if re.fullmatch(r"streamdesk-perfil-\d{8}\.json", f))
+            for old in copies[: max(0, len(copies) - self.MIRROR_DAILY_KEPT)]:
+                os.remove(os.path.join(folder, old))
+        except OSError:
+            pass  # an unplugged drive must never stop the save
 
     AUTO_BACKUP_EVERY = 1800  # seconds between automatic copies of the profile
     AUTO_BACKUPS_KEPT = 10

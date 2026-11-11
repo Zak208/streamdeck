@@ -1,6 +1,8 @@
+import base64
 import copy
 import ctypes
 import faulthandler
+import hashlib
 import os
 import sys
 import shutil
@@ -19,6 +21,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Quer
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 
 # Safe stdout/stderr handling for GUI windowed mode
 if sys.stdout is None:
@@ -48,7 +51,7 @@ from server.audio_controller import audio_controller
 from server.com_worker import com_worker
 from server.actions import execute_action
 from server.auth import auth_manager
-from server import app_icons, diagnostics, discord_ui, firewall, layouts, live_buttons, page_library, program_packs, shell_actions, steam, templates, updater, webhooks
+from server import app_icons, audit, desktop, diagnostics, discord_ui, firewall, layouts, live_buttons, page_library, permissions, program_packs, shell_actions, steam, templates, updater, webhooks
 from server.action_catalog import GESTURES, validate_deck_config
 from server.config_manager import CONFIG_FILE, config_manager
 from server.connectors import discord as discord_connector, spotify, windows
@@ -107,6 +110,10 @@ class ConnectionManager:
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
 
+    def phone_count(self) -> int:
+        """Phones connected (Studio's own window, on this PC, does not count)."""
+        return sum(1 for c in list(self.active_connections) if c.client and not _is_loopback(c.client.host))
+
     async def broadcast(self, message: Dict[str, Any], exclude: Optional[WebSocket] = None):
         targets = [c for c in list(self.active_connections) if not (exclude and c == exclude)]
         if not targets:
@@ -124,6 +131,10 @@ class ConnectionManager:
                 self.disconnect(d)
 
 ws_manager = ConnectionManager()
+desktop.controller.phones = ws_manager.phone_count
+auth_manager.on_paired = lambda name: desktop.controller.tell(
+    "Móvil emparejado",
+    f"«{name}» ya puede controlar este PC. Si no fuiste tú, quítalo en Ajustes > Móviles emparejados.")
 
 # Buttons whose action is still running, so a second tap does not queue a duplicate.
 _running_actions: Set[str] = set()
@@ -195,6 +206,17 @@ async def audio_sync_loop():
             pass
         # Four checks a second keep a volume moved on the PC and on the phone within half a second.
         await asyncio.sleep(0.4)
+
+async def awake_loop():
+    """While a phone is connected and the user asked for it, keep Windows from going to sleep under it."""
+    while True:
+        try:
+            if desktop.keep_awake() and ws_manager.phone_count():
+                desktop.hold_awake()
+        except Exception:
+            pass
+        await asyncio.sleep(desktop.AWAKE_EVERY)
+
 
 telemetry = Telemetry(auth_manager.get_local_ip)
 
@@ -279,11 +301,15 @@ async def smart_page_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    system_scanner.warm_up()  # the list of installed apps, ready before the apps tab is opened
+    # The list of installed apps, ready before the apps tab is opened. After Windows starts the app by itself the PC
+    # is busy, so the scan waits (app_desktop sets the delay).
+    system_scanner.warm_up(float(os.environ.get("STREAMDESK_SCAN_DELAY") or 0))
+    awake_task = asyncio.create_task(awake_loop())
     sync_task = asyncio.create_task(audio_sync_loop())
     telemetry_task = asyncio.create_task(telemetry_sync_loop())
     smart_task = asyncio.create_task(smart_page_loop())
     yield
+    awake_task.cancel()
     sync_task.cancel()
     telemetry_task.cancel()
     smart_task.cancel()
@@ -302,6 +328,39 @@ app.add_middleware(
 )
 
 
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+HTML_PAGES = {"/": "index.html", "/studio": "studio.html", "/library": "library.html"}
+
+
+def content_security_policy(page_file: str) -> str:
+    """What a page may load. Scripts: only our own files plus this page's own inline script, allowed by its hash
+    (so an injected script cannot run). Nothing may frame the page or send a form elsewhere."""
+    hashes = []
+    try:
+        with open(os.path.join(STATIC_DIR, page_file), "r", encoding="utf-8") as handle:
+            text = handle.read()
+        for body in re.findall(r"<script>(.*?)</script>", text, re.S):
+            hashes.append("'sha256-" + base64.b64encode(hashlib.sha256(body.encode("utf-8")).digest()).decode() + "'")
+    except OSError:
+        pass
+    return "; ".join([
+        "default-src 'self'",
+        "script-src 'self' " + " ".join(hashes),
+        "style-src 'self' 'unsafe-inline'",  # the pages set colours and sizes through style attributes
+        "img-src 'self' data: blob: https:",  # https: for album covers
+        "media-src 'self' blob: data:",
+        "font-src 'self' data:",
+        "connect-src 'self' ws: wss:",
+        "worker-src 'self'",
+        "manifest-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ])
+
+
 @app.middleware("http")
 async def revalidate_app_files(request: Request, call_next):
     """Make the browser check for new Studio/PWA files on every load.
@@ -311,6 +370,11 @@ async def revalidate_app_files(request: Request, call_next):
     """
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"  # an uploaded file is never "sniffed" into a page
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    page_file = HTML_PAGES.get(request.url.path)
+    if page_file:
+        response.headers["Content-Security-Policy"] = content_security_policy(page_file)
     if request.url.path.startswith(("/static/", "/studio", "/library")) or request.url.path == "/":
         response.headers["Cache-Control"] = "no-cache"
     return response
@@ -524,6 +588,42 @@ async def set_ui_settings(values: Dict[str, Any] = Body(...), _: None = Depends(
     return {"theme": theme}
 
 
+@app.post("/api/auth/devices/restrict")
+def restrict_paired_device(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    """Limit a phone (it can no longer shut the PC down or run console commands) or lift the limit."""
+    device_id, restricted = values.get("id"), values.get("restricted")
+    if not isinstance(device_id, str) or not isinstance(restricted, bool):
+        raise HTTPException(status_code=422, detail="Hace falta «id» y «restricted» (verdadero o falso)")
+    if not auth_manager.set_restricted(device_id, restricted):
+        raise HTTPException(status_code=404, detail="Ese móvil ya no está emparejado")
+    return {"devices": auth_manager.list_devices()}
+
+
+@app.get("/api/audit")
+def recent_button_presses(_: None = Depends(require_local_request)):
+    return {"entries": audit.recent(40)}
+
+
+@app.get("/api/system/connection-check")
+def connection_check(_: None = Depends(require_local_request)):
+    """Why a phone may not connect, as a short list of checks with what to do about each."""
+    return {"checks": firewall.connection_checks(auth_manager.get_local_ip(), PORT, diagnostics.phone_reached())}
+
+
+@app.get("/api/diagnostics/report")
+def diagnostics_report(_: None = Depends(require_local_request)):
+    """One text to paste when asking for help. No PIN, token, password or button content."""
+    facts = {
+        "Dirección del PC": f"{auth_manager.get_local_ip()}:{PORT}",
+        "Regla del cortafuegos": "sí" if firewall.rule_exists() else "no",
+        "Móviles emparejados": len(auth_manager.list_devices()),
+        "Móviles conectados ahora": ws_manager.phone_count(),
+        "Instalada (no código fuente)": "sí" if FROZEN else "no",
+    }
+    paths = {"Registro": os.path.join(CONFIG_DIR, "streamdesk.log"), "Cierres inesperados": os.path.join(CONFIG_DIR, "crash.log")}
+    return {"report": diagnostics.build_report(VERSION, facts, paths)}
+
+
 @app.get("/api/auth/devices")
 def list_paired_devices(_: None = Depends(require_local_request)):
     return {"devices": auth_manager.list_devices()}
@@ -623,6 +723,75 @@ async def set_power_settings(values: Dict[str, Any] = Body(...), _: None = Depen
     windows.set_power_enabled(enabled)
     diagnostics.record("info", "Apagar y reiniciar el PC " + ("activados" if enabled else "desactivados") + " desde Studio")
     return {"enabled": windows.power_enabled()}
+
+
+def desktop_settings() -> Dict[str, Any]:
+    return {
+        "window": desktop.controller.attached,  # False when the server runs without the desktop window
+        "keep_running": desktop.keep_running(),
+        "keep_awake": desktop.keep_awake(),
+        "backup_dir": desktop.backup_dir(),
+        "can_pick_folder": desktop.controller.pick_folder is not None,
+        "autostart": desktop.autostart_enabled(),
+        "autostart_supported": desktop.autostart_supported(),
+    }
+
+
+@app.get("/api/settings/desktop")
+def get_desktop_settings(_: None = Depends(require_local_request)):
+    return desktop_settings()
+
+
+@app.post("/api/settings/desktop")
+def set_desktop_settings(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
+    """Keep running in the tray when the window is closed, and start with Windows. Both can be turned off."""
+    for name in ("keep_running", "keep_awake", "autostart"):
+        if name in values and not isinstance(values[name], bool):
+            raise HTTPException(status_code=422, detail=f"«{name}» debe ser verdadero o falso")
+    if "backup_dir" in values:
+        if not isinstance(values["backup_dir"], str):
+            raise HTTPException(status_code=422, detail="«backup_dir» debe ser una ruta")
+        try:
+            desktop.set_backup_dir(values["backup_dir"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        config_manager.save_config(config_manager.get_config())  # first copy now, not at the next change
+    if "keep_running" in values:
+        desktop.set_keep_running(values["keep_running"])
+    if "keep_awake" in values:
+        desktop.set_keep_awake(values["keep_awake"])
+    if "autostart" in values:
+        try:
+            desktop.set_autostart(values["autostart"])
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"Windows no dejó cambiar el inicio automático: {exc}")
+    return desktop_settings()
+
+
+@app.post("/api/desktop/pick-folder")
+def pick_backup_folder(_: None = Depends(require_local_request)):
+    """Open Windows' folder chooser on the PC and return what the user picked ("" if they cancelled)."""
+    if desktop.controller.pick_folder is None:
+        raise HTTPException(status_code=409, detail="El selector de carpetas solo está en la app de escritorio. Escribe la ruta a mano.")
+    return {"path": desktop.controller.pick_folder()}
+
+
+@app.post("/api/desktop/show")
+def show_desktop_window(_: None = Depends(require_local_request)):
+    """A second copy of the app asks the running one to bring its window forward."""
+    if not desktop.controller.attached:
+        return {"shown": False}
+    desktop.controller.show()
+    return {"shown": True}
+
+
+@app.post("/api/desktop/quit")
+def quit_desktop_app(_: None = Depends(require_local_request)):
+    """Close StreamDesk for real (the window's X only hides it). The phone stops working until it is opened again."""
+    if not desktop.controller.attached:
+        return {"quitting": False}
+    desktop.controller.quit()
+    return {"quitting": True}
 
 
 @app.get("/api/settings/webhooks")
@@ -1096,22 +1265,22 @@ def get_version_changelog(version: str) -> Dict[str, Any]:
         "title": f"Novedades de StreamDesk v{version}",
         "steps": [
             {
-                "title": "«Abrir una app» vuelve a mostrar tus apps",
-                "tag": "Arreglo",
-                "icon": "grid",
-                "description": "La lista de apps se veía vacía por un fallo de diseño. Ahora aparecen todas las de tu PC (programas, apps de la Tienda y juegos de Steam), ordenadas por temas y con buscador. Cada botón lleva el icono real de la app.",
-            },
-            {
-                "title": "Más fácil para empezar",
-                "tag": "Facilidad",
+                "title": "StreamDesk sigue activo con la ventana cerrada",
+                "tag": "Novedad",
                 "icon": "phone",
-                "description": "Pulsa una casilla vacía y elige qué hace con un solo paso. Los textos están en lenguaje llano y el nuevo botón «Probar aquí en el PC» te deja comprobar un botón sin coger el móvil.",
+                "description": "Al cerrar la ventana, StreamDesk se queda junto al reloj y el móvil sigue funcionando. Puede abrirse solo al iniciar Windows, sin ventana. El icono tiene un menú para ver los móviles conectados, copiar la dirección o mostrar el QR. Se cambia en Ajustes > Segundo plano y arranque.",
             },
             {
-                "title": "Guía de bienvenida renovada",
-                "tag": "Primeros pasos",
+                "title": "Más control sobre tus móviles",
+                "tag": "Seguridad",
                 "icon": "shield",
-                "description": "La bienvenida explica en tres pasos cómo conectar el móvil (misma wifi, QR y PIN), cómo empezar con una página hecha y cómo cambiar un botón. Todo se puede deshacer con Ctrl+Z.",
+                "description": "Puedes limitar un móvil para que no apague el PC ni lance comandos, ver qué botones se pulsaron y desde dónde, y recibes un aviso de Windows cuando se empareja uno nuevo. Un móvil que no se usa en 90 días se desempareja, y las contraseñas se guardan cifradas. Apagar el PC desde el móvil siempre pide confirmación.",
+            },
+            {
+                "title": "Si el móvil no conecta, ahora se ve por qué",
+                "tag": "Facilidad",
+                "icon": "grid",
+                "description": "En Ajustes > Conexión del móvil, «Comprobar la conexión» revisa la red y el cortafuegos y te dice qué hacer, y «Copiar el diagnóstico» junta todo para pedir ayuda. Si otro programa ocupa el puerto, StreamDesk lo dice en lugar de abrir una ventana en blanco. También puedes guardar una copia de tu perfil en OneDrive o en un USB.",
             },
         ],
     }
@@ -1276,8 +1445,12 @@ async def run_button_action(websocket: WebSocket, slot: Dict[str, Any], gesture:
     """Execute a button off the event loop and tell every phone how it went."""
     btn_id = slot.get("id")
     try:
+        token = getattr(websocket.state, "token", None)
         try:
-            if slot.get("action_type") == "page":
+            if auth_manager.is_restricted(token) and permissions.is_dangerous(
+                    slot.get("action_type"), slot.get("target"), slot.get("extra")):
+                result = {"success": False, "error": permissions.LIMITED_MESSAGE}
+            elif slot.get("action_type") == "page":
                 result = await navigate_pages(str(slot.get("target", "")))
             elif slot.get("action_type") == "counter":
                 value = await asyncio.to_thread(
@@ -1294,6 +1467,7 @@ async def run_button_action(websocket: WebSocket, slot: Dict[str, Any], gesture:
             result = {"success": False, "error": str(exc)}
 
         success = bool(result.get("success"))
+        audit.record(auth_manager.device_name(token), slot.get("label") or btn_id, slot.get("action_type"), success, gesture)
         payload: Dict[str, Any] = {
             "type": "action_result",
             "id": btn_id,
@@ -1344,6 +1518,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
     await ws_manager.connect(websocket)
     websocket.state.token = token
     if not is_localhost:
+        auth_manager.touch(token)
         diagnostics.record("ok", "Móvil conectado", client_ip, user_agent)
 
     try:

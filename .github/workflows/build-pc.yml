@@ -1,0 +1,91 @@
+name: Build Windows installer
+
+# When a Release is published, build the PC app and its installer and attach them to that Release, with the SHA-256 the
+# in-app updater checks. Run it by hand with a tag to attach them to an older Release.
+# If the secrets WINDOWS_CERT_BASE64 (a .pfx code-signing certificate, base64) and WINDOWS_CERT_PASSWORD exist, the app and
+# the installer are signed, which removes the SmartScreen warning and lets Windows show the publisher. Without them the
+# installer is built unsigned, as before.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to attach the installer to (for example v2.19.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build installer
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      CERT_B64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+      CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+    steps:
+      - name: Checkout the code of the Release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Check the tag matches the version in the code
+        shell: pwsh
+        run: |
+          $code = (Select-String -Path server/paths.py -Pattern '^VERSION = "([^"]+)"').Matches[0].Groups[1].Value
+          if ("v$code" -ne $env:TAG -and $code -ne $env:TAG) {
+            Write-Error "The tag is $env:TAG but server/paths.py says $code. Fix the version and publish again."
+            exit 1
+          }
+
+      - name: Install the dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build the app
+        run: python -m PyInstaller StreamDesk.spec --noconfirm
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Find signtool and restore the certificate
+        if: ${{ env.CERT_B64 != '' }}
+        shell: pwsh
+        run: |
+          $tool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
+          "SIGNTOOL=$($tool.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $pfx = Join-Path $env:RUNNER_TEMP "certificate.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT_B64))
+          "PFX=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Sign the app
+        if: ${{ env.CERT_B64 != '' }}
+        shell: pwsh
+        run: '& $env:SIGNTOOL sign /f $env:PFX /p $env:CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 dist\StreamDesk\StreamDesk.exe'
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          & $iscc.FullName installer\setup.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Sign the installer
+        if: ${{ env.CERT_B64 != '' }}
+        shell: pwsh
+        run: '& $env:SIGNTOOL sign /f $env:PFX /p $env:CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 instalador_streamdeck.exe'
+
+      - name: Attach the installer and its SHA-256 to the Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $hash = (Get-FileHash instalador_streamdeck.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash *instalador_streamdeck.exe" | Out-File -FilePath instalador_streamdeck.exe.sha256 -Encoding ascii
+          gh release upload $env:TAG instalador_streamdeck.exe instalador_streamdeck.exe.sha256 --clobber

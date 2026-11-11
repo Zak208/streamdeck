@@ -1,6 +1,6 @@
 ; Script de Instalación para StreamDesk Pro (Aplicación de Escritorio Nativa)
 #define MyAppName "StreamDesk Pro"
-#define MyAppVersion "2.18.1"
+#define MyAppVersion "2.19.0"
 #define MyAppPublisher "Zak208"
 #define MyAppURL "https://github.com/Zak208/streamdeck"
 #define MyAppExeName "StreamDesk.exe"
@@ -44,5 +44,30 @@ Source: "{#DistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs cr
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; AppUserModelID: "Zak208.StreamDesk.Pro"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; AppUserModelID: "Zak208.StreamDesk.Pro"; Tasks: desktopicon
 
+[Registry]
+; "Iniciar con Windows" is switched on and off by the app itself (Ajustes, or the tray icon); this only cleans it up on uninstall.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "{#MyAppName}"; ValueType: none; Flags: dontcreatekey uninsdeletevalue
+
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall
+
+[Code]
+// The app keeps running in the tray with no window, so the installer cannot ask it to close the usual way.
+procedure StopRunningApp();
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  StopRunningApp();
+  Result := '';
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+    StopRunningApp();
+end;

@@ -530,6 +530,22 @@ function openSettings() {
             </button>`).join("")}
         </div>
       </section>
+      <section class="settings-section" id="settings-desktop" hidden>
+        <h3>Segundo plano y arranque</h3>
+        <p>El móvil usa el StreamDesk que está abierto en este PC. Con esto puedes quitar la ventana y seguir usándolo.</p>
+        <label class="check-row"><input type="checkbox" id="desktop-keep-running"> Al cerrar la ventana, seguir activo en segundo plano (icono junto al reloj)</label>
+        <label class="check-row"><input type="checkbox" id="desktop-autostart"> Abrir StreamDesk al iniciar sesión en Windows (arranca sin ventana)</label>
+        <label class="check-row"><input type="checkbox" id="desktop-keep-awake"> Evitar que el PC se suspenda mientras haya un móvil conectado</label>
+        <h4 class="settings-sub">Copia del perfil fuera de este PC</h4>
+        <p class="integration-hint" id="desktop-backup-state"></p>
+        <div class="inline-row">
+          <button class="btn-secondary" id="desktop-backup-pick" type="button">Elegir carpeta</button>
+          <button class="btn-secondary" id="desktop-backup-clear" type="button" hidden>Quitar</button>
+        </div>
+        <div class="inline-row">
+          <button class="btn-secondary" id="desktop-quit" type="button">Cerrar StreamDesk del todo</button>
+        </div>
+      </section>
       <section class="settings-section">
         <h3>Cuadrícula de todas las páginas</h3>
         <p>Cuántos botones caben en cada página, en el móvil y aquí. Al cambiarla se convierten todas tus páginas: los botones que caben se quedan donde están y los faders conservan su alto desde la primera fila de su columna.</p>
@@ -565,6 +581,11 @@ function openSettings() {
         <div id="settings-devices"><span class="integration-hint">Cargando...</span></div>
       </section>
       <section class="settings-section">
+        <h3>Botones pulsados desde los móviles</h3>
+        <p>Los últimos botones que se pulsaron: qué móvil, cuál y cuándo. No guarda lo que hace el botón por dentro.</p>
+        <div id="settings-audit"><span class="integration-hint">Cargando...</span></div>
+      </section>
+      <section class="settings-section">
         <h3>Perfil</h3>
         <p>Guarda una copia de todas tus páginas y botones, o carga una en este u otro PC. No incluye contraseñas ni móviles emparejados, ni las imágenes que hayas subido.</p>
         <div class="inline-row">
@@ -577,6 +598,11 @@ function openSettings() {
         <h3>Conexión del móvil</h3>
         <p>Lo último que ha intentado un móvil. Si algo falla, aquí se ve en qué punto.</p>
         <div id="settings-diagnostics"><span class="integration-hint">Cargando...</span></div>
+        <div class="inline-row">
+          <button class="btn-secondary" id="settings-check-connection" type="button">Comprobar la conexión</button>
+          <button class="btn-secondary" id="settings-copy-report" type="button">Copiar el diagnóstico</button>
+        </div>
+        <div id="settings-connection-checks"></div>
       </section>
       <section class="settings-section">
         <h3>Versión</h3>
@@ -601,6 +627,7 @@ function openSettings() {
         m.el.querySelectorAll("[data-theme-id]").forEach(o => o.classList.toggle("active", o === option));
         try { await postJson("/api/ui", { theme: option.dataset.themeId }); } catch (err) { showToast(err.message); }
       }));
+      wireDesktopSettings(m.el);
       wireGridControls(m.el);
       wireCommandsSwitch(m.el);
       wirePowerSwitch(m.el);
@@ -637,9 +664,79 @@ function openSettings() {
       });
       renderSettingsDevices(m.el.querySelector("#settings-devices"));
       renderSettingsDiagnostics(m.el.querySelector("#settings-diagnostics"));
+      renderSettingsAudit(m.el.querySelector("#settings-audit"));
+      wireConnectionChecks(m.el);
     },
   });
   return modal;
+}
+
+async function wireDesktopSettings(root) {
+  const section = root.querySelector("#settings-desktop");
+  const keep = root.querySelector("#desktop-keep-running");
+  const autostart = root.querySelector("#desktop-autostart");
+  let state;
+  try {
+    state = await apiJson("/api/settings/desktop");
+  } catch (err) {
+    return; // no desktop settings here (older PC app): leave the section hidden
+  }
+  if (!state.window) return; // Studio opened in a browser, with no desktop app behind it
+  const awake = root.querySelector("#desktop-keep-awake");
+  keep.checked = state.keep_running;
+  awake.checked = state.keep_awake;
+  autostart.checked = state.autostart;
+  autostart.disabled = !state.autostart_supported;
+  section.hidden = false;
+  const save = (box, name, message) => box.addEventListener("change", async () => {
+    try {
+      const result = await postJson("/api/settings/desktop", { [name]: box.checked });
+      box.checked = Boolean(result[name]);
+      showToast(message(box.checked));
+    } catch (err) {
+      box.checked = !box.checked;
+      showToast(err.message);
+    }
+  });
+  save(keep, "keep_running", on => on ? "Seguirá activo en segundo plano al cerrar la ventana" : "Al cerrar la ventana, StreamDesk se cerrará del todo");
+  save(autostart, "autostart", on => on ? "StreamDesk se abrirá al iniciar sesión" : "StreamDesk ya no se abre solo");
+  save(awake, "keep_awake", on => on ? "El PC no se suspenderá mientras haya un móvil conectado" : "El PC se suspenderá como siempre");
+  const backupState = root.querySelector("#desktop-backup-state");
+  const pickButton = root.querySelector("#desktop-backup-pick");
+  const clearButton = root.querySelector("#desktop-backup-clear");
+  const showBackup = (dir) => {
+    backupState.textContent = dir
+      ? `Cada vez que guardas, se copia a: ${dir} (la última, y una por día durante una semana). No lleva contraseñas.`
+      : "Sin copia externa. Elige una carpeta de OneDrive o de un USB para tener otra copia lejos de este PC.";
+    clearButton.hidden = !dir;
+  };
+  showBackup(state.backup_dir);
+  pickButton.hidden = !state.can_pick_folder;
+  pickButton.addEventListener("click", async () => {
+    try {
+      const { path } = await postJson("/api/desktop/pick-folder", {});
+      if (!path) return;
+      const result = await postJson("/api/settings/desktop", { backup_dir: path });
+      showBackup(result.backup_dir);
+      showToast("Copia del perfil activada");
+    } catch (err) { showToast(err.message); }
+  });
+  clearButton.addEventListener("click", async () => {
+    try {
+      const result = await postJson("/api/settings/desktop", { backup_dir: "" });
+      showBackup(result.backup_dir);
+      showToast("Copia externa desactivada");
+    } catch (err) { showToast(err.message); }
+  });
+  root.querySelector("#desktop-quit").addEventListener("click", async () => {
+    const confirmed = await askConfirm({
+      title: "Cerrar StreamDesk del todo",
+      message: "El móvil dejará de funcionar hasta que vuelvas a abrir StreamDesk en este PC.",
+      confirmLabel: "Cerrar del todo", danger: true,
+    });
+    if (!confirmed) return;
+    try { await postJson("/api/desktop/quit", {}); } catch (err) { /* the app closes before it can answer */ }
+  });
 }
 
 async function renderSettingsDevices(container) {
@@ -651,9 +748,18 @@ async function renderSettingsDevices(container) {
     }
     container.innerHTML = devices.map(d => `
       <div class="device-row">
-        <div><strong>${escapeHtml(d.name)}</strong><span>Emparejado el ${escapeHtml(d.created_at)}</span></div>
-        <button class="btn-secondary" data-revoke="${escapeHtml(d.id)}">Quitar</button>
+        <div><strong>${escapeHtml(d.name)}${d.restricted ? " (limitado)" : ""}</strong><span>Emparejado el ${escapeHtml(d.created_at)}${d.last_seen ? ` · último uso ${escapeHtml(d.last_seen)}` : ""}${d.restricted ? " · no puede apagar el PC ni lanzar comandos" : ""}</span></div>
+        <div class="inline-row">
+          <button class="btn-secondary" data-restrict="${escapeHtml(d.id)}" data-on="${d.restricted ? "false" : "true"}" title="Un móvil limitado no puede apagar el PC ni lanzar comandos de consola">${d.restricted ? "Quitar límite" : "Limitar"}</button>
+          <button class="btn-secondary" data-revoke="${escapeHtml(d.id)}">Quitar</button>
+        </div>
       </div>`).join("");
+    container.querySelectorAll("[data-restrict]").forEach(button => button.addEventListener("click", async () => {
+      try {
+        await postJson("/api/auth/devices/restrict", { id: button.dataset.restrict, restricted: button.dataset.on === "true" });
+        renderSettingsDevices(container);
+      } catch (err) { showToast(err.message); }
+    }));
     container.querySelectorAll("[data-revoke]").forEach(button => button.addEventListener("click", async () => {
       const device = devices.find(d => d.id === button.dataset.revoke);
       const confirmed = await askConfirm({
@@ -673,6 +779,54 @@ async function renderSettingsDevices(container) {
   } catch (err) {
     container.innerHTML = `<span class="integration-hint">${escapeHtml(err.message)}</span>`;
   }
+}
+
+async function renderSettingsAudit(container) {
+  try {
+    const { entries } = await apiJson("/api/audit");
+    if (!entries.length) {
+      container.innerHTML = `<span class="integration-hint">Todavía no se ha pulsado ningún botón desde un móvil.</span>`;
+      return;
+    }
+    container.innerHTML = entries.slice(0, 10).map(e => `
+      <div class="device-row">
+        <div><strong>${escapeHtml(e.button || "Botón")}${e.ok ? "" : " (falló)"}</strong><span>${escapeHtml(e.time)} · ${escapeHtml(e.device)}</span></div>
+      </div>`).join("");
+  } catch (err) {
+    container.innerHTML = `<span class="integration-hint">${escapeHtml(err.message)}</span>`;
+  }
+}
+
+function wireConnectionChecks(root) {
+  const list = root.querySelector("#settings-connection-checks");
+  const mark = { ok: "✓", warn: "!", fail: "✕" };
+  const run = async () => {
+    list.innerHTML = `<span class="integration-hint">Comprobando...</span>`;
+    try {
+      const { checks } = await apiJson("/api/system/connection-check");
+      list.innerHTML = checks.map(c => `
+        <div class="device-row check-${escapeHtml(c.status)}">
+          <div><strong>${mark[c.status] || "?"} ${escapeHtml(c.title)}</strong><span>${escapeHtml(c.detail)}</span></div>
+          ${c.action === "firewall" ? `<button class="btn-primary" data-fix-firewall>Permitir conexión del móvil</button>` : ""}
+        </div>`).join("");
+      list.querySelector("[data-fix-firewall]")?.addEventListener("click", async () => {
+        try {
+          const result = await postJson("/api/system/firewall/allow", {});
+          showToast(result.error || (result.already ? "Ya estaba permitido" : "Acepta el aviso de Windows y vuelve a comprobar"));
+        } catch (err) { showToast(err.message); }
+      });
+    } catch (err) {
+      list.innerHTML = `<span class="integration-hint">${escapeHtml(err.message)}</span>`;
+    }
+  };
+  root.querySelector("#settings-check-connection").addEventListener("click", run);
+  root.querySelector("#settings-copy-report").addEventListener("click", async () => {
+    try {
+      const { report } = await apiJson("/api/diagnostics/report");
+      await navigator.clipboard.writeText(report);
+      showToast("Diagnóstico copiado: pégalo donde pidas ayuda");
+    } catch (err) { showToast("No se pudo copiar el diagnóstico"); }
+  });
 }
 
 async function renderSettingsDiagnostics(container) {

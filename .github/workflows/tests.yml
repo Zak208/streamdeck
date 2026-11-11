@@ -24,3 +24,7 @@ jobs:
         run: for f in static/js/*.js; do node --check "$f"; done
       - name: Run the test suite
         run: python -m unittest discover -s tests -v
+      - name: Check the desktop app end to end (hidden start, the X button, second launch)
+        # Needs a desktop session and WebView2: informative only, a failure here does not fail the build.
+        continue-on-error: true
+        run: python scripts/check_desktop.py

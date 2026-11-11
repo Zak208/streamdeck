@@ -665,6 +665,16 @@ function escapeAttr(value) {
 const LONG_PRESS_MS = 500;
 const DOUBLE_TAP_MS = 280;
 
+// Shutting the PC down and console commands always ask first, even if the button was not set to (a stray tap on a
+// phone in a pocket must not switch the PC off). Cancelling a shutdown does not ask. Mirrors server/permissions.py.
+function isDangerousAction(action) {
+  const type = String(action?.action_type || "").toLowerCase().trim();
+  if (type === "command") return true;
+  if (type === "windows" && String(action?.target || "").toLowerCase().trim() === "power") return action?.extra?.mode !== "cancel";
+  if (type === "multi") return Array.isArray(action?.extra?.actions) && action.extra.actions.some(isDangerousAction);
+  return false;
+}
+
 // A small yes/no sheet. Resolves true when the user confirms.
 function askConfirm(message) {
   return new Promise((resolve) => {
@@ -742,7 +752,11 @@ function createButtonElement(btn) {
   const doubleAction = !!btn.double_tap;
   const fire = async (gesture) => {
     if (btn.disabled) return showMobileToast("Este botón está desactivado", true);
-    if (btn.confirm && !(await askConfirm(`¿Ejecutar «${btn.label || "este botón"}»?`))) return;
+    const action = gesture === "tap" ? btn : (btn[gesture] || btn);
+    const risky = isDangerousAction(action);
+    if ((btn.confirm || risky) && !(await askConfirm(risky && !btn.confirm
+      ? `«${btn.label || "Este botón"}» apaga el PC o lanza un comando. ¿Seguro?`
+      : `¿Ejecutar «${btn.label || "este botón"}»?`))) return;
     sendWS(gesture === "tap" ? { type: "trigger_button", id: btn.id } : { type: "trigger_button", id: btn.id, gesture });
   };
   if (btn.disabled) keycap.classList.add("is-disabled");

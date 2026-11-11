@@ -13,6 +13,7 @@ a = Analysis(
         'uvicorn.protocols.ssl', 'uvicorn.protocols.ssl.auto',
         'uvicorn.lifespans', 'uvicorn.lifespans.on',
         'server.ssl_helper', 'cryptography',
+        'pystray', 'pystray._win32',
     ],
     hookspath=[],
     hooksconfig={},
