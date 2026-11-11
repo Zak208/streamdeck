@@ -1032,3 +1032,10 @@ a.template-card { text-decoration: none; color: inherit; }
 /* One scroll in the action picker: the list inside it grows to its content and .picker-body is the only thing that scrolls
    (the comment above .picker-body says so, but the lists inside kept their own max-height and scrollbar). */
 .picker-body .option-list, .picker-body .dc-servers, .picker-body .apps-cards-grid { max-height: none; overflow: visible; }
+
+/* ---------- Connecting programs ---------- */
+.btn-connect-apps { margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; }
+.connector-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; margin-bottom: 12px; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius-md); color: var(--text); font-size: 13px; line-height: 1.45; }
+.connector-banner .btn-primary { flex: none; }
+.connector-row { align-items: center; }
+.connector-row > span:nth-of-type(1) { flex: 1; }

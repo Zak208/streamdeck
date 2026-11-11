@@ -545,6 +545,7 @@ function resetInspectorDrawer() {
         <li><strong>Pruébalo</strong> con el botón «Probar» y cambia su título, color o icono si quieres.</li>
       </ol>
       <p class="empty-arrow">← Arrastra un botón o un deslizador desde «Añadir»</p>
+      <button type="button" class="btn-secondary btn-connect-apps" data-connect-apps><img src="/static/icons/link.svg" alt=""> Conectar programas (OBS, Spotify, Discord)</button>
     </div>
   `;
 }
@@ -1427,6 +1428,7 @@ function renderButtonInspector(btn, index) {
   if (activeInspectorTab !== "action") activeInspectorTab = "action";
 
   inspectorContent.innerHTML = `
+    <div id="connector-banner"></div>
     <div class="inspector-summary">
       <div class="inspector-preview-card">
         <div class="preview-btn-mock">
@@ -1486,6 +1488,8 @@ function renderButtonInspector(btn, index) {
   if (statesBox) renderToggleSection(statesBox, btn, index);
 
   document.getElementById("btn-choose-action")?.addEventListener("click", () => openActionPicker(btn, index));
+  const bannerSlot = document.getElementById("connector-banner");
+  if (bannerSlot) { bannerSlot._btn = btn; refreshConnectorBanner(); }
   document.getElementById("btn-test-action")?.addEventListener("click", () => withToast(async () => {
     const result = await postJson("/api/actions/test", { action_type: btn.action_type, target: btn.target, extra: btn.extra || {} });
     if (!result.success) throw new Error(result.error || "No se pudo probar. Revisa que el programa esté instalado.");
@@ -2114,6 +2118,10 @@ async function withToast(work, success) {
 }
 
 function connectorBodyWindows(c, body, ctx) {
+  if (ctx.setupOnly) {
+    body.innerHTML = `${statusLine(c)}<p class="integration-hint">Windows no necesita conectarse: sus acciones (micrófono, volumen, energía, pantallas) funcionan siempre.</p>`;
+    return;
+  }
   const sessions = [...new Map((audioSessions || []).map(s => [s.process_name, s])).values()]
     .filter(s => s.process_name && s.process_name !== "System Sounds");
   body.innerHTML = `
@@ -2169,9 +2177,9 @@ function connectorBodyObs(c, body, ctx) {
     <label for="obs-port">Puerto</label>
     <input id="obs-port" type="number" min="1024" max="65535" value="${Number(s.port) || 4455}">
     <button class="btn-primary" id="obs-save">Guardar y probar</button>
-    ${actionTilesHtml(c.actions)}
+    ${ctx.setupOnly ? "" : actionTilesHtml(c.actions)}
     <div id="obs-live"></div>`;
-  wireTiles(body, c.actions, ctx);
+  if (!ctx.setupOnly) wireTiles(body, c.actions, ctx);
 
   body.querySelector("#obs-save").addEventListener("click", () => withToast(async () => {
     const values = { port: Number(body.querySelector("#obs-port").value) };
@@ -2186,6 +2194,10 @@ function connectorBodyObs(c, body, ctx) {
     live.innerHTML = `<p class="integration-hint">Para ver tus escenas y fuentes, abre OBS y activa Herramientas &gt; Ajustes del servidor WebSocket.</p>
       <button class="btn-secondary" id="obs-retry">Volver a comprobar</button>`;
     live.querySelector("#obs-retry").addEventListener("click", () => ctx.refresh());
+    return;
+  }
+  if (ctx.setupOnly) {
+    live.innerHTML = '<p class="integration-hint">OBS está conectado: los botones de OBS ya funcionan.</p>';
     return;
   }
   live.innerHTML = '<label>Cambiar a una escena</label><div class="chip-list" id="obs-scenes"></div><label>Silenciar un micrófono de OBS</label><div class="inline-row" id="obs-inputs"></div>';
@@ -2232,10 +2244,10 @@ function connectorBodySpotify(c, body, ctx) {
     </details>`;
   body.innerHTML = `
     ${statusLine(c)}
-    ${s.connected ? '<div class="option-list" id="sp-playlists"><span class="integration-hint">Cargando tus playlists...</span></div>' : ""}
-    <label for="spotify-uri-input">${s.connected ? "O pega" : "Pega"} el enlace de una playlist, álbum, artista o canción</label>
-    <div class="inline-row"><input id="spotify-uri-input" type="url" placeholder="https://open.spotify.com/playlist/..."><button class="btn-secondary" id="sp-link-assign">Asignar</button></div>
-    <p class="integration-hint">En Spotify: botón derecho sobre la playlist, Compartir, Copiar enlace. Sin cuenta conectada (o sin Premium) el botón abre la lista en la app de Spotify de tu PC y pulsa Reproducir por ti: la app debe estar abierta y a la vista, no minimizada. Una cuenta gratuita reproduce en modo aleatorio y con anuncios, como la propia app. Con Premium y la cuenta conectada se reproduce sin tocar la app.</p>
+    ${s.connected && !ctx.setupOnly ? '<div class="option-list" id="sp-playlists"><span class="integration-hint">Cargando tus playlists...</span></div>' : ""}
+    ${ctx.setupOnly ? "" : `<label for="spotify-uri-input">${s.connected ? "O pega" : "Pega"} el enlace de una playlist, álbum, artista o canción</label>
+    <div class="inline-row"><input id="spotify-uri-input" type="url" placeholder="https://open.spotify.com/playlist/..."><button class="btn-secondary" id="sp-link-assign">Asignar</button></div>`}
+    <p class="integration-hint">${ctx.setupOnly ? "Sin conectar la cuenta, los botones de Spotify funcionan igualmente: abren la lista en la app de Spotify y pulsan Reproducir. Conecta la cuenta solo si tienes Premium, para reproducir sin abrir la app." : "En Spotify: botón derecho sobre la playlist, Compartir, Copiar enlace. Sin cuenta conectada (o sin Premium) el botón abre la lista en la app de Spotify de tu PC y pulsa Reproducir por ti: la app debe estar abierta y a la vista, no minimizada. Una cuenta gratuita reproduce en modo aleatorio y con anuncios, como la propia app. Con Premium y la cuenta conectada se reproduce sin tocar la app."}</p>
     ${setup}
     ${s.connected ? '<button class="btn-secondary" id="sp-disconnect">Desconectar cuenta</button>' : ""}`;
 
@@ -2253,7 +2265,7 @@ function connectorBodySpotify(c, body, ctx) {
     await connectorApi("/spotify/disconnect", {});
     await ctx.refresh();
   }, "Cuenta de Spotify desconectada"));
-  body.querySelector("#sp-link-assign").addEventListener("click", () => {
+  body.querySelector("#sp-link-assign")?.addEventListener("click", () => {
     const raw = body.querySelector("#spotify-uri-input").value.trim();
     const match = raw.match(/^spotify:(playlist|album|artist|track):([A-Za-z0-9]{10,64})$/)
       || raw.match(/^https:\/\/(?:www\.)?open\.spotify\.com\/(playlist|album|artist|track)\/([A-Za-z0-9]{10,64})/);
@@ -2262,7 +2274,7 @@ function connectorBodySpotify(c, body, ctx) {
     assignFromTemplate(ctx.btn, ctx.index, spotifyTemplate(kinds[match[1]], `spotify:${match[1]}:${match[2]}`));
   });
 
-  if (s.connected) {
+  if (s.connected && !ctx.setupOnly) {
     connectorApi("/spotify/options/playlists").then(({ options }) => {
       const list = body.querySelector("#sp-playlists");
       if (!list) return;
@@ -2442,7 +2454,7 @@ function connectorBodyDiscord(c, body, ctx) {
     <p class="integration-hint" id="dc-method-hint">${method === "button"
       ? "No hay que configurar nada, y la tecla se ilumina cuando estás silenciado. Discord tiene que estar abierto y a la vista (puede quedar detrás de otras ventanas, pero no minimizado)."
       : "Funciona con Discord minimizado, pero tienes que crear en Discord un atajo para cada acción (pasos abajo)."}</p>
-    ${actionTilesHtml(c.actions)}
+    ${ctx.setupOnly ? "" : actionTilesHtml(c.actions)}
     <div id="dc-hotkeys" ${method === "hotkey" ? "" : "hidden"}>
       <label for="dc-mute">Atajo para silenciar</label>
       <input id="dc-mute" type="text" maxlength="40" value="${escapeHtml(s.mute_hotkey)}">
@@ -2454,13 +2466,13 @@ function connectorBodyDiscord(c, body, ctx) {
         <li>Elige la acción "Alternar silenciar" (o "Alternar ensordecer") y pulsa la misma combinación que guardaste arriba.</li>
       </ol>
     </div>
-    <span class="section-label">Soundboard de tus servidores</span>
+    ${ctx.setupOnly ? "" : `<span class="section-label">Soundboard de tus servidores</span>
     <p class="integration-hint">StreamDesk lee el panel de sonidos de tu Discord y pulsa el sonido que elijas, como harías tú con el ratón. Por eso Discord debe estar abierto, sin minimizar, y tú dentro de un canal de voz: Discord solo ofrece ese panel en una llamada, y no permite reproducir sonidos desde fuera. Después de leerlos una vez, los sonidos quedan guardados y los puedes elegir sin estar en voz.</p>
     <p class="integration-hint"><strong>Sin abrir el panel:</strong> si en Discord (Ajustes &gt; Atajos de teclado) puedes asignar un atajo a un sonido, pégalo en el botón del sonido («Atajo de este sonido»): se reproducirá pulsando solo esa tecla, con Discord en segundo plano.</p>
     <p class="integration-hint" id="dc-voice">Mirando en qué canal de voz estás...</p>
     <button class="btn-primary" id="dc-scan">${discordSounds && !discordSounds.some(x => x.cached) ? "Actualizar mis sonidos" : "Leer mis sonidos desde Discord"}</button>
-    <div id="dc-sounds-area"></div>`;
-  wireTiles(body, c.actions, ctx);
+    <div id="dc-sounds-area"></div>`}`;
+  if (!ctx.setupOnly) wireTiles(body, c.actions, ctx);
   body.querySelectorAll('input[name="dc-method"]').forEach(radio => radio.addEventListener("change", () => withToast(async () => {
     await connectorApi("/discord/configure", { method: radio.value });
     body.querySelector("#dc-hotkeys").hidden = radio.value !== "hotkey";
@@ -2474,6 +2486,8 @@ function connectorBodyDiscord(c, body, ctx) {
     });
     await ctx.refresh();
   }, "Atajos guardados"));
+
+  if (ctx.setupOnly) return; // the sounds are chosen when a button is made, not here
 
   connectorApi("/discord/options/voice").then(({ options }) => {
     const line = body.querySelector("#dc-voice");
@@ -2518,9 +2532,10 @@ function connectorScope(btn) {
   return null; // an empty or generic button: every connector
 }
 
-function renderTabConnectors(container, btn, index, pick = false, forceConnectorId = null) {
-  const ctx = { btn, index, refresh: null, pick };
-  const scope = forceConnectorId ? { connector: forceConnectorId, app: forceConnectorId } : connectorScope(btn);
+function renderTabConnectors(container, btn, index, pick = false, forceConnectorId = null, setupOnly = false) {
+  // setupOnly: the "Conectar programas" dialog. Only the connection itself (status, password, account), no actions to assign.
+  const ctx = { btn, index, refresh: null, pick, setupOnly };
+  const scope = setupOnly ? null : (forceConnectorId ? { connector: forceConnectorId, app: forceConnectorId } : connectorScope(btn));
   let showAll = !scope;
   if (forceConnectorId) openConnectorId = forceConnectorId;
   else if (scope?.connector) openConnectorId = scope.connector;
@@ -2533,10 +2548,10 @@ function renderTabConnectors(container, btn, index, pick = false, forceConnector
       : `${scope.connector ? "" : `<p class="integration-hint">${escapeHtml(scope.app)}: esta aplicación no tiene acciones propias en StreamDesk. Solo se puede abrir (pestaña Apps).</p>`}
          <button class="btn-secondary" id="conn-show-all">Ver todos los conectores</button>`;
     container.innerHTML = `
-      <div class="integration-intro">
+      ${setupOnly ? "" : `<div class="integration-intro">
         <strong>${scope && !showAll ? "Acciones de esta app" : "Conecta tus apps"}</strong>
         <span>Elige un servicio, configúralo una vez y asigna sus acciones a esta casilla con un clic.</span>
-      </div>
+      </div>`}
       ${scopeNote}
       ${connectors.map(c => `
         <section class="connector-card ${c.id === openConnectorId ? "open" : ""}">
@@ -2570,6 +2585,52 @@ function renderTabConnectors(container, btn, index, pick = false, forceConnector
   ctx.refresh().catch(() => {
     if (!connectorCache) container.innerHTML = '<p class="integration-hint" style="padding:12px">No se pudo cargar la lista de conectores.</p>';
   });
+}
+
+// ---------- "Conectar programas": set up OBS, Spotify, Discord and Windows without making a button first ----------
+// Until now a program was connected from inside the action dialog of a button, so a page taken from the library
+// (OBS, say) had to be undone and rebuilt to get to the connection. This dialog is reachable from the right panel,
+// from Ajustes and from the buttons themselves.
+function openConnectApps(focusId = null) {
+  if (typeof openModal !== "function") return;
+  const modal = openModal({
+    title: "Conectar programas",
+    description: "OBS, Spotify, Discord y Windows. Se configuran una vez aquí, y los botones que los usan (por ejemplo los de una página de la biblioteca) empiezan a funcionar sin volver a crearlos.",
+    body: '<div id="connect-apps-host"></div>',
+    actions: [{ label: "Listo", kind: "primary" }],
+    onMount: (m) => {
+      m.el.querySelector(".modal-card").style.width = "min(100%, 640px)";
+      openConnectorId = focusId; // the one asked for opens first; null leaves the four cards closed
+      renderTabConnectors(m.el.querySelector("#connect-apps-host"), { action_type: "none" }, null, false, null, true);
+    },
+  });
+  modal.onClose = () => { try { refreshConnectorBanner(); } catch (e) { /* the inspector may be showing something else */ } };
+  return modal;
+}
+
+document.addEventListener("click", (event) => {
+  const opener = event.target.closest?.("[data-connect-apps]");
+  if (opener) openConnectApps(opener.dataset.connectApps || null);
+});
+
+// A button that controls OBS while OBS does not answer: say so on the button, with the way to fix it.
+// (Spotify works without an account and Discord only needs to be open, so they do not get this notice.)
+async function refreshConnectorBanner() {
+  const slot = document.getElementById("connector-banner");
+  if (!slot) return;
+  const btn = slot._btn;
+  if (!btn || btn.action_type !== "obs_action") { slot.innerHTML = ""; return; }
+  let obs;
+  try {
+    obs = ((await connectorApi("")).connectors || []).find(c => c.id === "obs");
+  } catch (err) { return; }
+  if (!document.body.contains(slot)) return;
+  slot.innerHTML = obs && obs.status.state !== "ready"
+    ? `<div class="connector-banner" role="status">
+         <span><strong>OBS no está conectado.</strong> Este botón no funcionará hasta entonces. ${escapeHtml(obs.status.detail || "OBS no responde")}</span>
+         <button type="button" class="btn-primary" data-connect-apps="obs">Conectar OBS</button>
+       </div>`
+    : "";
 }
 
 // The colour palette as labelled rows, the current colour marked.
