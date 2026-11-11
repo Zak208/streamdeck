@@ -40,7 +40,7 @@
         Instalar app
       </button>
 
-      <div class="status-badge" id="btn-status-badge" title="Toca para ver estado de enlace">
+      <div class="status-badge" id="btn-status-badge" title="Estado de la conexión: toca para ver detalles" role="button" tabindex="0" aria-label="Estado de la conexión">
         <div class="dot connecting" id="status-dot"></div>
         <span id="status-text">Conectando...</span>
       </div>
@@ -56,11 +56,12 @@
   <div id="reconnect-banner" class="reconnect-banner" style="display: none; cursor: pointer;">
     <span class="reconnect-dot-pulse"></span>
     <span data-banner-text>Reconectando con tu PC... Comprueba que estás en la misma red Wi-Fi</span>
-    <button type="button" class="btn-banner-action" id="btn-banner-reconnect" style="margin-left: 8px; padding: 4px 8px; font-size: 11px; border-radius: 6px; background: rgba(248, 199, 0, 0.2); border: 1px solid var(--accent, #f8c700); color: var(--accent, #f8c700); cursor: pointer; white-space: nowrap;">Escanear QR / IP</button>
+    <button type="button" class="btn-banner-action" id="btn-banner-reconnect" style="margin-left: 8px; padding: 4px 8px; font-size: 11px; border-radius: 6px; background: var(--accent-soft); border: 1px solid var(--accent, #f8c700); color: var(--accent, #f8c700); cursor: pointer; white-space: nowrap;">Cambiar de PC</button>
   </div>
 
   <!-- Main Container: 6x2 Grid (Supports Touch Swipe) -->
   <main id="deck-container">
+    <div id="deck-loading" class="deck-loading show" role="status">Conectando con tu PC...</div>
     <div id="deck-grid">
       <!-- Rendered dynamically by streamdeck.js (12 slots, 2-height vertical faders) -->
     </div>
@@ -68,7 +69,7 @@
 
   <!-- Pairing screen: shown when this phone is not linked to a PC (or the PC does not answer) -->
   <div class="modal-overlay pair-overlay" id="pin-modal" style="display: none;">
-    <div class="modal-card pair-card">
+    <div class="modal-card pair-card" role="dialog" aria-modal="true" aria-labelledby="pin-modal-title">
       <img class="pair-logo" src="/static/icons/icon-192.png" alt="" width="64" height="64">
       <div class="modal-title pair-title" id="pin-modal-title">Vincula tu PC</div>
       <div class="modal-desc pair-desc" id="pin-modal-desc">
@@ -148,8 +149,8 @@
   <div class="app-modal" id="app-modal">
     <div class="app-modal-card">
       <div class="app-modal-header">
-        <h3>Seleccionar Aplicación de Sonido</h3>
-        <button class="close-btn" id="close-app-modal">✕</button>
+        <h3>Elige la aplicación de sonido</h3>
+        <button class="close-btn" id="close-app-modal" aria-label="Cerrar">✕</button>
       </div>
       <div class="app-list" id="app-list-items">
         <!-- Audio sessions populated dynamically -->
@@ -158,7 +159,7 @@
   </div>
 
   <!-- Action Result & Error Toast -->
-  <div id="mobile-toast" class="mobile-toast"></div>
+  <div id="mobile-toast" class="mobile-toast" role="status" aria-live="polite"></div>
 
   <script src="/static/js/monitors.js?v=2.19.0"></script>
   <script src="/static/js/streamdeck.js?v=2.19.0"></script>

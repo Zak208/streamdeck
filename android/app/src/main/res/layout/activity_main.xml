@@ -38,6 +38,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
+                android:accessibilityHeading="true"
                 android:text="@string/connect_title"
                 android:textColor="@color/text_primary"
                 android:textSize="22sp"
@@ -45,6 +46,7 @@
 
             <TextView
                 android:id="@+id/statusText"
+                android:accessibilityLiveRegion="polite"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
@@ -57,6 +59,7 @@
             <ProgressBar
                 android:id="@+id/progress"
                 style="?android:attr/progressBarStyleHorizontal"
+                android:contentDescription="@string/searching"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
@@ -124,13 +127,14 @@
                     android:layout_weight="1"
                     android:background="@drawable/bg_input"
                     android:hint="192.168.1.50"
+                    android:imeOptions="actionGo"
                     android:importantForAutofill="no"
                     android:inputType="textUri"
                     android:maxLines="1"
                     android:paddingStart="14dp"
                     android:paddingEnd="14dp"
                     android:textColor="@color/text_primary"
-                    android:textColorHint="#555555"
+                    android:textColorHint="@color/text_hint"
                     android:textSize="15sp" />
 
                 <androidx.appcompat.widget.AppCompatButton
@@ -153,7 +157,7 @@
                 android:gravity="center"
                 android:text="@string/pin_hint"
                 android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
+                android:textSize="13sp" />
         </LinearLayout>
     </ScrollView>
 

@@ -13,6 +13,12 @@ const THEMES = [
 
 // ---------- Modal helpers ----------
 
+// While a dialog is open the page behind it cannot take focus (Tab used to wander off to hidden buttons).
+function syncModalInert() {
+  const open = document.querySelector(".modal-overlay") !== null;
+  document.querySelectorAll(".studio-topbar, .studio-shell").forEach(el => el.toggleAttribute("inert", open));
+}
+
 function openModal({ title, description = "", body = "", actions = [], dismissable = true, onMount }) {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
@@ -28,10 +34,23 @@ function openModal({ title, description = "", body = "", actions = [], dismissab
   const close = (result) => {
     document.removeEventListener("keydown", onKey);
     overlay.remove();
+    syncModalInert();
     previousFocus?.focus?.();
     modal.onClose?.(result);
   };
-  const onKey = (event) => { if (event.key === "Escape" && dismissable) close(undefined); };
+  const isTop = () => [...document.querySelectorAll(".modal-overlay")].pop() === overlay;
+  const onKey = (event) => {
+    if (!isTop()) return; // with dialogs stacked, Esc and Tab belong to the one on top only
+    if (event.key === "Escape" && dismissable) return close(undefined);
+    if (event.key === "Tab") {
+      const focusable = [...overlay.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])')]
+        .filter(el => el.offsetParent !== null);
+      if (!focusable.length) return event.preventDefault();
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !overlay.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || !overlay.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
+    }
+  };
   const modal = { el: overlay, close, onClose: null };
 
   const actionsEl = overlay.querySelector(".modal-actions");
@@ -49,6 +68,7 @@ function openModal({ title, description = "", body = "", actions = [], dismissab
   if (dismissable) overlay.addEventListener("mousedown", (event) => { if (event.target === overlay) close(undefined); });
   document.addEventListener("keydown", onKey);
   document.body.appendChild(overlay);
+  syncModalInert();
   onMount?.(modal);
   (overlay.querySelector("input, .btn-primary, button") || overlay.querySelector(".modal-card")).focus?.();
   return modal;
@@ -69,7 +89,7 @@ function askConfirm({ title, message, confirmLabel = "Aceptar", danger = false }
 }
 
 async function apiJson(path, options) {
-  const res = await fetch(path, options);
+  const res = await studioFetch(path, options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "No se pudo completar la acción");
   return data;
@@ -251,6 +271,16 @@ function openPageSettings() {
             showToast("El archivo no contiene botones válidos");
             return;
           }
+          // It replaces every button on this page: say so, and warn about actions that act on the PC.
+          const risky = riskyActionsIn({ pages: [{ slots: importedSlots }] });
+          const confirmed = await askConfirm({
+            title: "¿Cargar este archivo en la página?",
+            message: `Los botones de «${page.name || `Página ${activePageIndex + 1}`}» se reemplazarán por los de «${file.name}». Podrás volver atrás con Ctrl+Z.`
+              + (risky ? ` El archivo trae ${risky} ${risky === 1 ? "acción que actúa" : "acciones que actúan"} sobre tu PC (atajos, texto, carpetas, webs o comandos): impórtalo solo si confías en quien te lo dio.` : ""),
+            confirmLabel: "Cargar",
+            danger: risky > 0,
+          });
+          if (!confirmed) return;
           if (typeof pushUndoState === "function") pushUndoState();
           page.slots = importedSlots;
           if (importedName) {
@@ -402,7 +432,7 @@ async function changeGridLayout(spec, restore, pageIndex = null) {
   if (wanted === current) return restore?.();
   const confirmed = await askConfirm({
     title: pageIndex === null ? "Cambiar la cuadrícula de todas las páginas" : "Cambiar el tamaño de esta página",
-    message: "Cada botón conserva su fila y columna si existen en la nueva cuadrícula; si no, pasa a la primera casilla libre. Los faders conservan su alto, y si pierden su columna pasan a las de más a la derecha. Se guarda una copia del perfil anterior.",
+    message: "Cada botón conserva su fila y columna si existen en la nueva cuadrícula; si no, pasa a la primera casilla libre. Los deslizadores conservan su alto, y si pierden su columna pasan a las de más a la derecha. Se guarda una copia del perfil anterior.",
     confirmLabel: "Cambiar",
   });
   if (!confirmed) return restore?.();
@@ -514,12 +544,39 @@ updateGridChip();
 
 // ---------- Settings ----------
 
+let settingsTab = "mobile"; // the tab Ajustes opens on; it remembers the last one used
+
 function openSettings() {
   const currentTheme = document.documentElement.dataset.theme;
   const modal = openModal({
     title: "Ajustes",
     body: `
-      <section class="settings-section">
+      <div class="settings-tabs" role="tablist">
+        <button type="button" class="settings-tab" role="tab" data-tab-btn="mobile">Móvil</button>
+        <button type="button" class="settings-tab" role="tab" data-tab-btn="general">General</button>
+        <button type="button" class="settings-tab" role="tab" data-tab-btn="advanced">Avanzado</button>
+      </div>
+      <section class="settings-section" data-tab="mobile">
+        <h3>Conexión del móvil</h3>
+        <p>Lo último que ha intentado un móvil. Si algo falla, aquí se ve en qué punto.</p>
+        <div id="settings-diagnostics"><span class="integration-hint">Cargando...</span></div>
+        <div class="inline-row">
+          <button class="btn-secondary" id="settings-check-connection" type="button">Comprobar la conexión</button>
+          <button class="btn-secondary" id="settings-copy-report" type="button">Copiar el diagnóstico</button>
+        </div>
+        <div id="settings-connection-checks"></div>
+      </section>
+      <section class="settings-section" data-tab="mobile">
+        <h3>Móviles emparejados</h3>
+        <p>Cada móvil que introdujo tu PIN queda aquí. Quita los que ya no uses.</p>
+        <div id="settings-devices"><span class="integration-hint">Cargando...</span></div>
+      </section>
+      <section class="settings-section" data-tab="mobile">
+        <h3>Botones pulsados desde los móviles</h3>
+        <p>Los últimos botones que se pulsaron: qué móvil, cuál y cuándo. No guarda lo que hace el botón por dentro.</p>
+        <div id="settings-audit"><span class="integration-hint">Cargando...</span></div>
+      </section>
+      <section class="settings-section" data-tab="general">
         <h3>Apariencia</h3>
         <p>Se aplica también en tu móvil.</p>
         <div class="theme-options">
@@ -530,7 +587,7 @@ function openSettings() {
             </button>`).join("")}
         </div>
       </section>
-      <section class="settings-section" id="settings-desktop" hidden>
+      <section class="settings-section" data-tab="general" id="settings-desktop" hidden>
         <h3>Segundo plano y arranque</h3>
         <p>El móvil usa el StreamDesk que está abierto en este PC. Con esto puedes quitar la ventana y seguir usándolo.</p>
         <label class="check-row"><input type="checkbox" id="desktop-keep-running"> Al cerrar la ventana, seguir activo en segundo plano (icono junto al reloj)</label>
@@ -546,9 +603,9 @@ function openSettings() {
           <button class="btn-secondary" id="desktop-quit" type="button">Cerrar StreamDesk del todo</button>
         </div>
       </section>
-      <section class="settings-section">
+      <section class="settings-section" data-tab="general">
         <h3>Cuadrícula de todas las páginas</h3>
-        <p>Cuántos botones caben en cada página, en el móvil y aquí. Al cambiarla se convierten todas tus páginas: los botones que caben se quedan donde están y los faders conservan su alto desde la primera fila de su columna.</p>
+        <p>Cuántos botones caben en cada página, en el móvil y aquí. Al cambiarla se convierten todas tus páginas: los botones que caben se quedan donde están y los deslizadores conservan su alto desde la primera fila de su columna.</p>
         <select id="settings-grid" aria-label="Tamaño de la cuadrícula">
           ${GRID_PRESETS.map(p => `<option value="${p.id}" ${p.id === `${gridCols()}x${gridRows()}` ? "selected" : ""}>${gridPresetLabel(p)}</option>`).join("")}
           <option value="custom">Personalizada</option>
@@ -560,32 +617,7 @@ function openSettings() {
         </div>
         <p class="integration-hint" id="grid-hint"></p>
       </section>
-      <section class="settings-section">
-        <h3>Comandos de consola</h3>
-        <p>Los botones de PowerShell o cmd solo funcionan si lo permites aquí. Está desactivado por defecto.</p>
-        ${commandsSwitchHtml("settings")}
-      </section>
-      <section class="settings-section">
-        <h3>Apagar y reiniciar el PC</h3>
-        <p>Los botones de apagar, reiniciar, suspender y cerrar sesión solo funcionan si lo permites aquí. Está desactivado por defecto.</p>
-        ${powerSwitchHtml()}
-      </section>
-      <section class="settings-section">
-        <h3>Webhooks permitidos</h3>
-        <p>Un botón de webhook solo puede llamar a los destinos de esta lista (por ejemplo <code>192.168.1.20:8123</code>). Está vacía por defecto, porque un perfil que te pase otra persona podría llamar a lo que quisiera.</p>
-        <div id="webhook-hosts"><span class="integration-hint">Cargando...</span></div>
-      </section>
-      <section class="settings-section">
-        <h3>Móviles emparejados</h3>
-        <p>Cada móvil que introdujo tu PIN queda aquí. Quita los que ya no uses.</p>
-        <div id="settings-devices"><span class="integration-hint">Cargando...</span></div>
-      </section>
-      <section class="settings-section">
-        <h3>Botones pulsados desde los móviles</h3>
-        <p>Los últimos botones que se pulsaron: qué móvil, cuál y cuándo. No guarda lo que hace el botón por dentro.</p>
-        <div id="settings-audit"><span class="integration-hint">Cargando...</span></div>
-      </section>
-      <section class="settings-section">
+      <section class="settings-section" data-tab="general">
         <h3>Perfil</h3>
         <p>Guarda una copia de todas tus páginas y botones, o carga una en este u otro PC. No incluye contraseñas ni móviles emparejados, ni las imágenes que hayas subido.</p>
         <div class="inline-row">
@@ -594,17 +626,7 @@ function openSettings() {
         </div>
         <input type="file" id="settings-import-file" accept="application/json,.json" hidden>
       </section>
-      <section class="settings-section">
-        <h3>Conexión del móvil</h3>
-        <p>Lo último que ha intentado un móvil. Si algo falla, aquí se ve en qué punto.</p>
-        <div id="settings-diagnostics"><span class="integration-hint">Cargando...</span></div>
-        <div class="inline-row">
-          <button class="btn-secondary" id="settings-check-connection" type="button">Comprobar la conexión</button>
-          <button class="btn-secondary" id="settings-copy-report" type="button">Copiar el diagnóstico</button>
-        </div>
-        <div id="settings-connection-checks"></div>
-      </section>
-      <section class="settings-section">
+      <section class="settings-section" data-tab="general">
         <h3>Versión</h3>
         <p id="settings-version">Comprobando...</p>
         <div class="inline-row">
@@ -612,16 +634,40 @@ function openSettings() {
           <button class="btn-primary" id="settings-apply-update" hidden>Actualizar</button>
         </div>
       </section>
-      <section class="settings-section">
+      <section class="settings-section" data-tab="general">
         <h3>Primeros pasos y Novedades</h3>
         <p>¿Quieres volver a ver la guía de bienvenida o las novedades de esta versión?</p>
         <div class="inline-row">
           <button class="btn-secondary" id="settings-welcome">Guía de bienvenida</button>
           <button class="btn-secondary" id="settings-tour">Novedades de la versión</button>
         </div>
+      </section>
+      <section class="settings-section" data-tab="advanced">
+        <h3>Comandos de consola</h3>
+        <p>Los botones de PowerShell o cmd solo funcionan si lo permites aquí. Está desactivado por defecto.</p>
+        ${commandsSwitchHtml("settings")}
+      </section>
+      <section class="settings-section" data-tab="advanced">
+        <h3>Apagar y reiniciar el PC</h3>
+        <p>Los botones de apagar, reiniciar, suspender y cerrar sesión solo funcionan si lo permites aquí. Está desactivado por defecto.</p>
+        ${powerSwitchHtml()}
+      </section>
+      <section class="settings-section" data-tab="advanced">
+        <h3>Webhooks permitidos</h3>
+        <p>Un botón de webhook solo puede llamar a los destinos de esta lista (por ejemplo <code>192.168.1.20:8123</code>). Está vacía por defecto, porque un perfil que te pase otra persona podría llamar a lo que quisiera.</p>
+        <div id="webhook-hosts"><span class="integration-hint">Cargando...</span></div>
       </section>`,
     actions: [{ label: "Cerrar", kind: "primary" }],
     onMount: (m) => {
+      // 12 sections in one scroll hid the one people open Ajustes for (the phone connection) at the very bottom:
+      // three tabs, phone first.
+      const showTab = (tab) => {
+        settingsTab = tab;
+        m.el.querySelectorAll("[data-tab-btn]").forEach(b => { b.classList.toggle("active", b.dataset.tabBtn === tab); b.setAttribute("aria-selected", String(b.dataset.tabBtn === tab)); });
+        m.el.querySelectorAll("section[data-tab]").forEach(sec => sec.classList.toggle("tab-off", sec.dataset.tab !== tab));
+      };
+      m.el.querySelectorAll("[data-tab-btn]").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tabBtn)));
+      showTab(settingsTab);
       m.el.querySelectorAll("[data-theme-id]").forEach(option => option.addEventListener("click", async () => {
         applyTheme(option.dataset.themeId);
         m.el.querySelectorAll("[data-theme-id]").forEach(o => o.classList.toggle("active", o === option));
@@ -861,7 +907,7 @@ function openWelcome() {
     description: "Tu móvil se convierte en un mando para tu PC: cada botón abre una app, sube el volumen, pone música... Lo que tú quieras.",
     body: `
       <ol class="steps-list">
-        <li><strong>Conecta tu móvil.</strong> Pon el móvil en la misma wifi que este PC, abre la cámara y apunta al código QR de la columna izquierda. Después escribe el PIN que aparece al lado.</li>
+        <li><strong>Conecta tu móvil.</strong> Pon el móvil en la misma wifi que este PC, abre la cámara y apunta al código QR de la columna izquierda (si no la ves, pulsa «Enlazar móvil» arriba). Después escribe el PIN que aparece al lado.</li>
         <li><strong>Empieza con algo hecho.</strong> «Abrir la biblioteca» tiene páginas ya montadas (para directos, música, trabajo...). Con un clic las añades y ya funcionan.</li>
         <li><strong>Cambia lo que quieras.</strong> Pulsa una casilla de la pantalla, elige «Elegir qué hace» y busca tu app (Chrome, Spotify, Word...). Con «Probar» ves al momento si funciona.</li>
       </ol>
@@ -1087,6 +1133,19 @@ async function collapsePairingWhenDone() {
 window.addEventListener("DOMContentLoaded", () => {
   loadTheme();
   document.getElementById("btn-settings")?.addEventListener("click", openSettings);
+  // Narrow window: the side panel is hidden, and this button shows it over the editor (and any click away or Esc hides it).
+  const pairButton = document.getElementById("btn-pair-narrow");
+  const closePairPanel = () => document.body.classList.remove("pair-open");
+  pairButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const pairing = document.getElementById("pairing-panel");
+    if (pairing) pairing.open = true;
+    document.body.classList.toggle("pair-open");
+  });
+  document.addEventListener("click", (event) => {
+    if (document.body.classList.contains("pair-open") && !event.target.closest("aside") && !event.target.closest("#btn-pair-narrow")) closePairPanel();
+  });
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePairPanel(); });
   document.getElementById("btn-page-settings")?.addEventListener("click", openPageSettings);
   document.getElementById("btn-allow-firewall")?.addEventListener("click", allowPhoneThroughFirewall);
   refreshFirewall().then(collapsePairingWhenDone);
@@ -1234,4 +1293,36 @@ function initInspectorResize() {
 document.addEventListener("DOMContentLoaded", () => {
   initInspectorResize();
   initSidebarResize();
+});
+
+// ---------- Keyboard and screen readers ----------
+// Many things in Studio are clickable <div>s: the cells of the preview, the action cards, the playlists, the apps of a
+// fader. Give them a role and a place in the Tab order, and let Enter or Space press them like a button.
+const KEYBOARD_CLICKABLE = ".slot-cell, .quick-action-card, .playlist-row, .app-card-item[data-proc], .app-card-item[data-connector], .app-card-item[data-pack], #trash-dropzone";
+
+function makeKeyboardClickable(root) {
+  const items = root.nodeType === 1 && root.matches?.(KEYBOARD_CLICKABLE) ? [root] : [];
+  items.push(...(root.querySelectorAll ? root.querySelectorAll(KEYBOARD_CLICKABLE) : []));
+  items.forEach((el) => {
+    if (!el.hasAttribute("role")) el.setAttribute("role", "button");
+    if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "0");
+    if (el.classList.contains("slot-cell") && !el.hasAttribute("aria-label")) {
+      const name = el.querySelector(".slot-keycap-title, .slot-fader-head span, .slot-monitor-name")?.textContent?.trim();
+      const empty = el.classList.contains("empty") || el.querySelector(".slot-empty, .empty-slot-plus");
+      el.setAttribute("aria-label", name ? `Casilla ${name}` : (empty ? "Casilla vacía" : "Casilla"));
+    }
+  });
+}
+
+new MutationObserver((mutations) => {
+  for (const mutation of mutations) mutation.addedNodes.forEach(node => { if (node.nodeType === 1) makeKeyboardClickable(node); });
+}).observe(document.body, { childList: true, subtree: true });
+makeKeyboardClickable(document.body);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const el = event.target;
+  if (!(el instanceof Element) || !el.matches(KEYBOARD_CLICKABLE)) return;
+  event.preventDefault();
+  el.click();
 });

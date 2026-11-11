@@ -7,5 +7,8 @@
     <string name="found_title">PCs encontrados</string>
     <string name="manual_title">O escribe la dirección del PC</string>
     <string name="btn_connect">Ir</string>
+    <string name="searching">Buscando</string>
+    <string name="press_back_again">Pulsa Atrás otra vez para salir del panel</string>
+    <string name="panel_closed">El panel se cerró por falta de memoria. Toca Buscar mi PC para volver.</string>
     <string name="pin_hint">Para vincular un PC nuevo hace falta el QR o el PIN de 6 cifras que muestra Studio. Un PC ya vinculado se reconoce solo.</string>
 </resources>

@@ -107,18 +107,41 @@ function showMobileToast(msg, isError = false) {
   if (!t) return;
   t.textContent = msg;
   t.className = isError ? "mobile-toast error show" : "mobile-toast show";
-  setTimeout(() => {
+  clearTimeout(showMobileToast.timer); // a second message must not be cut short by the first one's timer
+  showMobileToast.timer = setTimeout(() => {
     t.classList.remove("show");
   }, 2600);
 }
 
 function haptic(ms = 25) {
-  const pref = localStorage.getItem("streamdesk_haptic") || "medium";
+  let pref = "medium";
+  try { pref = localStorage.getItem("streamdesk_haptic") || "medium"; } catch (e) {} // blocked storage must not stop a key press
   if (pref === "off") return;
-  const duration = pref === "soft" ? 12 : (pref === "strong" ? 45 : (typeof ms === "number" ? ms : 25));
-  if (navigator.vibrate) {
-    try { navigator.vibrate(duration); } catch (e) {}
+  let pattern;
+  if (Array.isArray(ms)) {
+    // Error and long-press patterns are several pulses: keep them as pulses, scaled by the preference.
+    const scale = pref === "soft" ? 0.5 : (pref === "strong" ? 1.5 : 1);
+    pattern = ms.map(value => Math.max(1, Math.round(value * scale)));
+  } else {
+    pattern = pref === "soft" ? 12 : (pref === "strong" ? 45 : (typeof ms === "number" ? ms : 25));
   }
+  if (navigator.vibrate) {
+    try { navigator.vibrate(pattern); } catch (e) {}
+  }
+}
+
+// Runs `action` when the finger lifts on the control without having travelled: a swipe that starts on a
+// mute button, an app selector or a monitor (to change page, say) must not press it.
+function onTap(el, action) {
+  let startX = 0, startY = 0, down = false;
+  el.addEventListener("pointerdown", (event) => { down = true; startX = event.clientX; startY = event.clientY; });
+  el.addEventListener("pointercancel", () => { down = false; });
+  el.addEventListener("pointerleave", () => { down = false; });
+  el.addEventListener("pointerup", (event) => {
+    const tapped = down && Math.hypot(event.clientX - startX, event.clientY - startY) < 12;
+    down = false;
+    if (tapped) action(event);
+  });
 }
 
 // Multi-Page Navigation Handlers
@@ -334,14 +357,20 @@ function connectWebSocket() {
       // Never connected since the page opened and still failing: say what can be wrong instead of "reconnecting" forever.
       const text = banner.querySelector("[data-banner-text]");
       if (text) {
-        text.textContent = !everOpened && reconnectAttempt >= 3
-          ? "No se puede conectar con tu PC. Comprueba que StreamDesk está abierto y que estás en la misma Wi-Fi. Si cambió la IP del PC, vincula de nuevo desde Ajustes."
+        // Said once it has failed a few times, whether or not it ever connected: "reconnecting" forever helps nobody.
+        text.textContent = reconnectAttempt >= (everOpened ? 5 : 3)
+          ? "No se puede conectar con tu PC. Comprueba que está encendido, que StreamDesk sigue abierto (icono junto al reloj) y que estás en la misma Wi-Fi. Si es la primera vez, en el PC abre Studio > Ajustes > Conexión del móvil > Comprobar la conexión. Si cambió la IP del PC, pulsa «Cambiar de PC»."
           : "Reconectando con tu PC... Comprueba que estás en la misma red Wi-Fi";
       }
     }
     if (event.code === 1008) {
       console.warn("WS 1008: No autorizado");
       forgetToken();
+      const pinErr = document.getElementById("pin-error");
+      if (pinErr) {
+        pinErr.textContent = "Este móvil ya no está vinculado con el PC. Escribe el PIN nuevo que muestra Studio.";
+        pinErr.style.display = "block";
+      }
       showPinModal(false);
     } else {
       scheduleReconnect();
@@ -482,10 +511,28 @@ function updateTelemetryWidgets(data) {
 }
 
 // Render the deck in the size the profile has (6 x 2 by default), with 2-height vertical faders
+// The two dots on a key mean it also reacts to a long press or a double tap. Nothing says so: tell the user once.
+function hintGestures() {
+  try {
+    if (localStorage.getItem("streamdesk_gesture_hint")) return;
+    if (!document.querySelector(".deck-btn.has-gestures")) return;
+    localStorage.setItem("streamdesk_gesture_hint", "1");
+  } catch (e) { return; }
+  showMobileToast("Los botones con dos puntitos hacen otra cosa si los mantienes pulsados o los tocas dos veces");
+}
+
 function renderDeck(config) {
   if (!config) return;
+  const deckLoading = document.getElementById("deck-loading");
+  if (deckLoading) {
+    // A panel with nothing on it tells the user where to build one; otherwise the placeholder goes away.
+    const empty = !(config.slots || []).some(slot => slot && slot.type !== "empty");
+    deckLoading.textContent = "Este panel está vacío. Añade botones desde StreamDesk Studio, en el PC.";
+    deckLoading.classList.toggle("show", empty);
+  }
   deckGrid.innerHTML = "";
   masterSliderIds = new Set();
+  setTimeout(hintGestures, 900); // after this render has put the keys on the screen
 
   const slots = config.slots || [];
   const columns = config.layout?.columns || 6;
@@ -499,6 +546,7 @@ function renderDeck(config) {
   deckGrid.style.setProperty("--pcols", columns);
   deckGrid.style.setProperty("--prows", rows);
   deckGrid.toggleAttribute("data-custom", !isDefault);
+  deckGrid.toggleAttribute("data-wide", columns > 4); // upright on a phone, five or more columns reflow (see style.css)
   // A big deck (many columns or rows) keeps usable cells and scrolls when they do not fit the screen.
   deckGrid.toggleAttribute("data-big", columns > 6 || rows > 4);
   // Up to 8 columns the cells shrink to fit a 390 px screen; only 9 or 10 columns scroll sideways.
@@ -648,7 +696,7 @@ detailSheet?.addEventListener("click", (event) => { if (event.target === detailS
 
 function createMonitorElement(btn, keycap) {
   keycap.classList.add("deck-monitor");
-  keycap.addEventListener("pointerdown", () => { haptic(15); openSystemDetail(); });
+  onTap(keycap, () => { haptic(15); openSystemDetail(); });
   keycap.dataset.monitor = btn.target;
   keycap.innerHTML = `<div class="deck-btn-inner"><div class="deck-btn-accent"></div>${monitorInnerHtml("deck-monitor", btn.target)}</div>`;
   keycap.querySelector(".deck-btn-accent").style.background = btn.color || "var(--accent)";
@@ -773,7 +821,7 @@ function createButtonElement(btn) {
   const img = document.createElement("img");
   img.src = iconSrc;
   img.className = "deck-btn-img";
-  img.alt = btn.label || "";
+  img.alt = ""; // decorative: the key itself is named below
   iconWrap.appendChild(img);
   inner.appendChild(iconWrap);
 
@@ -846,6 +894,14 @@ function createButtonElement(btn) {
     }
   });
   keycap.addEventListener("contextmenu", (event) => event.preventDefault()); // no image menu competing with a long press
+  // Screen readers (TalkBack, VoiceOver) name the key and press it with a plain click, without pointer events.
+  keycap.setAttribute("role", "button");
+  keycap.setAttribute("aria-label", [title.textContent, sub.textContent].filter(Boolean).join(", ") + (btn.disabled ? " (desactivado)" : ""));
+  let lastPointerUpAt = 0;
+  keycap.addEventListener("pointerup", () => { lastPointerUpAt = Date.now(); }, true);
+  keycap.addEventListener("click", () => {
+    if (btn.action_type !== "none" && Date.now() - lastPointerUpAt > 500) fire("tap"); // a click with no touch before it
+  });
   keycap.addEventListener("pointerup", () => {
     clearTimeout(holdTimer);
     if (plain) {
@@ -901,7 +957,7 @@ function createFaderElement(slider) {
     <div class="fader-header">
       <div class="fader-header-title">
         ${headerIcon}
-        <span>${escapeAttr(slider.label || (isMaster ? "Master" : "App"))}</span>
+        <span>${escapeAttr(slider.label || (isMaster ? "Volumen" : "App"))}</span>
       </div>
       ${!isMaster ? `<button class="app-select-btn" id="select-app-${slider.id}">${cleanAppName(targetProcess)}</button>` : ''}
     </div>
@@ -913,8 +969,8 @@ function createFaderElement(slider) {
     <div class="fader-footer">
       ${!isMaster ? '<div class="fader-idle-note">Sin sonido</div>' : ''}
       <div class="fader-val" id="val-${slider.id}">50%</div>
-      <button class="mute-btn" id="mute-${slider.id}">
-        <img src="/static/icons/volume_up.svg" class="mute-svg-icon" alt="Vol">
+      <button class="mute-btn" id="mute-${slider.id}" aria-label="Silenciar o activar el sonido" aria-pressed="false">
+        <img src="/static/icons/volume_up.svg" class="mute-svg-icon" alt="">
       </button>
     </div>
   `;
@@ -923,7 +979,7 @@ function createFaderElement(slider) {
   attachFaderDrag(track, slider.id, isMaster);
 
   const muteBtn = card.querySelector(`#mute-${slider.id}`);
-  muteBtn.addEventListener("pointerdown", () => {
+  onTap(muteBtn, () => {
     haptic(20);
     if (isMaster) {
       sendWS({ type: "toggle_master_mute" });
@@ -935,9 +991,7 @@ function createFaderElement(slider) {
 
   if (!isMaster) {
     const appBtn = card.querySelector(`#select-app-${slider.id}`);
-    appBtn?.addEventListener("pointerdown", () => {
-      openAppModal(slider.id);
-    });
+    if (appBtn) onTap(appBtn, () => openAppModal(slider.id));
   }
 
   return card;
@@ -955,8 +1009,9 @@ String.prototype.capitalizeFirst = function() {
 function setMuteBtnVisual(muteBtn, isMuted) {
   if (!muteBtn) return;
   const iconSrc = isMuted ? '/static/icons/mute.svg' : '/static/icons/volume_up.svg';
-  muteBtn.innerHTML = `<img src="${iconSrc}" class="mute-svg-icon" alt="Mute">`;
+  muteBtn.innerHTML = `<img src="${iconSrc}" class="mute-svg-icon" alt="">`;
   muteBtn.classList.toggle("active", Boolean(isMuted));
+  muteBtn.setAttribute("aria-pressed", String(Boolean(isMuted)));
 }
 
 // Robust Fader Drag (Never jumps to 0 on fast swipes!)
@@ -1317,7 +1372,15 @@ function showPinModal(canClose = true) {
   }, 100);
 }
 
-document.getElementById("btn-status-badge")?.addEventListener("click", () => openSettingsSheet());
+{
+  const badge = document.getElementById("btn-status-badge");
+  badge?.addEventListener("click", () => openSettingsSheet("connection"));
+  badge?.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openSettingsSheet("connection"); } });
+  // The words are hidden on a narrow phone: keep the state available to screen readers and long presses.
+  const syncBadge = () => badge?.setAttribute("aria-label", `Estado de la conexión: ${statusText.textContent}`);
+  new MutationObserver(syncBadge).observe(statusText, { childList: true, characterData: true, subtree: true });
+  syncBadge();
+}
 document.getElementById("btn-open-settings")?.addEventListener("click", () => openSettingsSheet());
 
 btnClosePinModal?.addEventListener("click", () => {
@@ -1325,10 +1388,28 @@ btnClosePinModal?.addEventListener("click", () => {
 });
 
 // Automatic 1-touch pairing when opening URL via QR Code (?pin=XXXXXX)
+let autoPairing = false;
+
+// An old ?pin= must neither be sent twice at once (the page-show and visibility events re-enter connectWebSocket)
+// nor stay in the address after it failed: every return to the app would spend one of the 5 attempts again.
+function dropPinFromUrl() {
+  try { window.history.replaceState({}, document.title, window.location.pathname); } catch (e) {}
+}
+
 async function autoPairWithPin(pinCode) {
+  if (autoPairing) return false;
+  autoPairing = true;
+  try {
+    return await autoPairWithPinNow(pinCode);
+  } finally {
+    autoPairing = false;
+  }
+}
+
+async function autoPairWithPinNow(pinCode) {
   const pinInput = document.getElementById("pin-input");
   const pinError = document.getElementById("pin-error");
-  if (pinInput) pinInput.value = pinCode;
+  if (pinInput && !pinInput.value) pinInput.value = pinCode;
 
   statusDot.className = "dot connecting";
   statusText.textContent = "Emparejando...";
@@ -1358,11 +1439,17 @@ async function autoPairWithPin(pinCode) {
         pinError.textContent = data.detail || data.error || "El PIN del enlace ha expirado o no coincide";
         pinError.style.display = "block";
       }
+      dropPinFromUrl();
       showPinModal(false);
       return false;
     }
   } catch (err) {
     console.error("Auto pair error:", err);
+    if (pinError) {
+      pinError.textContent = "No se pudo hablar con el PC. Comprueba que StreamDesk está abierto y que estás en la misma Wi-Fi.";
+      pinError.style.display = "block";
+    }
+    dropPinFromUrl();
     showPinModal(false);
     return false;
   }
@@ -1374,7 +1461,7 @@ document.getElementById("btn-verify-pin")?.addEventListener("click", async () =>
   const pinError = document.getElementById("pin-error");
   const enteredPin = (pinInput?.value || "").trim();
 
-  if (enteredPin.length < 4) {
+  if (enteredPin.length < 6) {
     if (pinError) {
       pinError.textContent = "Escribe el PIN de 6 dígitos que muestra StreamDesk Studio.";
       pinError.style.display = "block";

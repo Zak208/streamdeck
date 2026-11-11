@@ -25,7 +25,12 @@ function toast(message) {
 
 async function api(path, body) {
   const options = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
-  const response = await fetch(path, options);
+  let response;
+  try {
+    response = await fetch(path, options);
+  } catch (err) {
+    throw new Error("No se pudo hablar con StreamDesk en este PC. ¿Sigue abierto? Si lo cerraste, ábrelo de nuevo.");
+  }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "No se pudo completar la acción");
   return data;

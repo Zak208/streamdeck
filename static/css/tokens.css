@@ -13,7 +13,7 @@
   --line-strong: #555555;
   --text: #ffffff;
   --text-2: #c4c4c4;
-  --text-3: #8c8c8c;
+  --text-3: #929292;
   --accent: #f8c700;
   --accent-hover: #ffd633;
   --accent-ink: #0a0a0a;
@@ -32,7 +32,7 @@
   --line-strong: #41536a;
   --text: #f4f7fb;
   --text-2: #aebaca;
-  --text-3: #7b899a;
+  --text-3: #8e9aa9;
   --accent: #38bdf8;
   --accent-hover: #7dd3fc;
   --accent-ink: #04121c;
@@ -52,7 +52,7 @@
   --line-strong: #4f4478;
   --text: #f6f3ff;
   --text-2: #bdb4d8;
-  --text-3: #887fa5;
+  --text-3: #958cae;
   --accent: #a78bfa;
   --accent-hover: #c4b5fd;
   --accent-ink: #120a24;
@@ -71,7 +71,7 @@
   --line-strong: #3f6652;
   --text: #f1faf5;
   --text-2: #a9c4b6;
-  --text-3: #75917f;
+  --text-3: #8ca394;
   --accent: #22c55e;
   --accent-hover: #4ade80;
   --accent-ink: #04150b;
@@ -90,7 +90,7 @@
   --line-strong: #6e3a3a;
   --text: #fdf3f3;
   --text-2: #d0a9a9;
-  --text-3: #9e7b7b;
+  --text-3: #a88888;
   --accent: #ef4444;
   --accent-hover: #f87171;
   --accent-ink: #1a0505;
@@ -109,7 +109,7 @@
   --line-strong: #744478;
   --text: #fff3fb;
   --text-2: #d6aacb;
-  --text-3: #9f7b9c;
+  --text-3: #ac8da9;
   --accent: #ec4899;
   --accent-hover: #f472b6;
   --accent-ink: #1f0615;
@@ -128,7 +128,7 @@
   --line-strong: #6e4d2a;
   --text: #fff7ee;
   --text-2: #d4b898;
-  --text-3: #9c8268;
+  --text-3: #ab957f;
   --accent: #f97316;
   --accent-hover: #fb923c;
   --accent-ink: #1f0c02;
@@ -144,9 +144,17 @@
   --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
   --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 10px 30px rgba(0, 0, 0, 0.5);
   --icon-filter: brightness(0) invert(1);
+  --t-fast: 0.12s;
+  --bg-hover: var(--surface-3);
+  /* Fallbacks the phone used without ever defining them: a key with no colour followed the theme's accent only by luck. */
+  --accent-blue: var(--accent);
+  --accent-purple: var(--accent-hover);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
+/* A class that sets `display` (like .btn-primary) must not beat the hidden attribute. */
+[hidden] { display: none !important; }
+
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--font); -webkit-font-smoothing: antialiased; }
 button, input, select { font: inherit; color: inherit; }
@@ -180,8 +188,8 @@ img[src^="/static/icons/"]:not([src*="/discord."]):not([src*="/spotify."]):not([
 .btn-primary:hover { background: var(--accent-hover); }
 .btn-secondary { background: var(--surface-2); border-color: var(--line); color: var(--text); }
 .btn-secondary:hover { border-color: var(--line-strong); background: var(--surface-3); }
-.btn-danger { background: transparent; border-color: var(--line-strong); color: var(--danger); --icon-filter: none; }
-.btn-danger:hover { background: rgba(255, 97, 89, 0.1); border-color: var(--danger); }
+.btn-danger { background: transparent; border-color: var(--line-strong); color: var(--danger); }
+.btn-danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); border-color: var(--danger); }
 .btn-primary:active, .btn-secondary:active, .btn-danger:active { transform: translateY(1px); }
 .btn-primary:disabled, .btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
 
@@ -194,7 +202,7 @@ input[type="text"], input[type="url"], input[type="password"], input[type="numbe
   min-height: 38px;
   padding: 8px 12px;
   background: var(--bg);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   color: var(--text);
   outline: none;
