@@ -1280,7 +1280,7 @@ def get_version_changelog(version: str) -> Dict[str, Any]:
                 "title": "Si el móvil no conecta, ahora se ve por qué",
                 "tag": "Facilidad",
                 "icon": "grid",
-                "description": "En Ajustes > Conexión del móvil, «Comprobar la conexión» revisa la red y el cortafuegos y te dice qué hacer, y «Copiar el diagnóstico» junta todo para pedir ayuda. Si otro programa ocupa el puerto, StreamDesk lo dice en lugar de abrir una ventana en blanco. También puedes guardar una copia de tu perfil en OneDrive o en un USB.",
+                "description": "En Ajustes > Conexión del móvil, «Comprobar la conexión» revisa la red y el cortafuegos y te dice qué hacer, y «Copiar el diagnóstico» junta todo para pedir ayuda. Si otro programa ocupa el puerto, StreamDesk lo dice en lugar de abrir una ventana en blanco. También puedes guardar una copia de tu perfil en OneDrive o en un USB. Y si la app de Android de tu móvil es más antigua que tu PC, te lo dice y te deja descargar la nueva.",
             },
         ],
     }

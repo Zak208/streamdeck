@@ -782,6 +782,17 @@ public class MainActivity extends AppCompatActivity {
             currentVerified = false;
         }
 
+        /** This app's version (for example "2.19.0"): the page compares it with the PC's to offer a newer app. */
+        @JavascriptInterface
+        public String getVersion() {
+            try {
+                String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+                return version == null ? "" : version;
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
         @JavascriptInterface
         public void scanQr() {
             runOnUiThread(MainActivity.this::startScan);

@@ -310,6 +310,7 @@ function connectWebSocket() {
     if (banner) banner.style.display = "none";
     if (pinModal) pinModal.style.display = "none";
     initWakeLock();
+    setTimeout(checkAppUpdate, 1500);
   };
 
   socket.onmessage = (event) => {
@@ -665,6 +666,49 @@ function escapeAttr(value) {
 const LONG_PRESS_MS = 500;
 const DOUBLE_TAP_MS = 280;
 
+// --- app update check ---
+// Inside the Android app, offer the newer app when this PC is newer than the one on the phone. The page is the PC's, so
+// this also reaches apps installed before it existed: they have no getVersion() on their bridge, which already says
+// they are older than any PC that serves this page. Newer apps answer with their exact version.
+let appUpdateChecked = false;
+
+function parseVersion(text) {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(text || "").trim());
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+function isOlderVersion(a, b) {
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] < b[i];
+  return false;
+}
+
+async function checkAppUpdate() {
+  if (appUpdateChecked || !nativeApp) return;
+  appUpdateChecked = true;
+  try {
+    const pc = parseVersion((await (await fetch("/api/identity", { cache: "no-store" })).json()).version);
+    if (!pc) return;
+    const own = typeof nativeApp.getVersion === "function" ? parseVersion(nativeApp.getVersion()) : null;
+    if (own && !isOlderVersion(own, pc)) return;
+    const pcText = pc.join(".");
+    let dismissed = "";
+    try { dismissed = localStorage.getItem("streamdesk_app_update_dismissed") || ""; } catch (e) { /* no storage */ }
+    if (dismissed === pcText || document.querySelector(".confirm-overlay")) return; // "later" lasts until the PC updates again
+    const yourApp = own ? own.join(".") : "anterior a la 2.19";
+    const download = await askConfirm(
+      `Hay una app de StreamDesk más nueva (la ${pcText}), y la de tu móvil es la ${yourApp}. ¿Descargarla ahora?`,
+      { yes: "Descargar", no: "Más tarde" });
+    if (download) {
+      window.location.href = ANDROID_APK_URL; // the app hands links to other sites to the browser, which downloads it
+    } else {
+      try { localStorage.setItem("streamdesk_app_update_dismissed", pcText); } catch (e) { /* no storage */ }
+    }
+  } catch (e) {
+    // no answer from the PC: nothing to compare, and nothing to say
+  }
+}
+// --- end app update check ---
+
 // Shutting the PC down and console commands always ask first, even if the button was not set to (a stray tap on a
 // phone in a pocket must not switch the PC off). Cancelling a shutdown does not ask. Mirrors server/permissions.py.
 function isDangerousAction(action) {
@@ -676,7 +720,7 @@ function isDangerousAction(action) {
 }
 
 // A small yes/no sheet. Resolves true when the user confirms.
-function askConfirm(message) {
+function askConfirm(message, labels = {}) {
   return new Promise((resolve) => {
     if (document.querySelector(".confirm-overlay")) return resolve(false); // one question at a time
     const overlay = document.createElement("div");
@@ -685,11 +729,13 @@ function askConfirm(message) {
       <div class="modal-card" role="dialog" aria-modal="true">
         <p class="modal-title"></p>
         <div class="modal-actions">
-          <button class="btn-secondary" data-answer="no">Cancelar</button>
-          <button class="btn-primary" data-answer="yes">Ejecutar</button>
+          <button class="btn-secondary" data-answer="no"></button>
+          <button class="btn-primary" data-answer="yes"></button>
         </div>
       </div>`;
     overlay.querySelector(".modal-title").textContent = message;
+    overlay.querySelector("[data-answer=no]").textContent = labels.no || "Cancelar";
+    overlay.querySelector("[data-answer=yes]").textContent = labels.yes || "Ejecutar";
     const shownAt = Date.now();
     overlay.addEventListener("click", (event) => {
       const answer = event.target.closest("[data-answer]")?.dataset.answer;

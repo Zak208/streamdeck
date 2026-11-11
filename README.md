@@ -72,7 +72,7 @@ Más detalle y los límites conocidos en [Seguridad](docs/seguridad.md).
 
 ## Actualizaciones
 
-Studio y Windows avisan cuando hay una versión nueva. Al pulsar **Actualizar**, StreamDesk descarga el instalador de la Release, comprueba su huella SHA-256, se instala encima y se reinicia solo. Tu perfil, tus ajustes y tus móviles emparejados no se tocan. Cómo se publican las versiones está en [Actualizaciones y publicación](docs/actualizaciones-y-publicacion.md).
+Studio y Windows avisan cuando hay una versión nueva. Al pulsar **Actualizar**, StreamDesk descarga el instalador de la Release, comprueba su huella SHA-256, se instala encima y se reinicia solo. Tu perfil, tus ajustes y tus móviles emparejados no se tocan. La **app de Android** también avisa: si es más antigua que tu PC, te lo dice al conectarse y te deja descargar la nueva. Cómo se publican las versiones está en [Actualizaciones y publicación](docs/actualizaciones-y-publicacion.md).
 
 ## Documentación
 

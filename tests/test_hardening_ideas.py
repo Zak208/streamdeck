@@ -234,6 +234,7 @@ class PageAndApiTests(unittest.TestCase):
                 inline = re.findall(r"<script>(.*?)</script>", body.decode("utf-8"), re.S)
                 for script in inline:  # the page's own inline script must be allowed by its hash
                     import base64, hashlib
+                    script = script.replace("\r\n", "\n")  # the HTML parser turns CRLF into LF before the browser hashes it
                     digest = base64.b64encode(hashlib.sha256(script.encode("utf-8")).digest()).decode()
                     self.assertIn(f"'sha256-{digest}'", policy)
                 self.assertEqual(headers["X-Frame-Options"], "DENY")
@@ -322,6 +323,91 @@ class PageAndApiTests(unittest.TestCase):
         self.assertEqual(request(self.url("/api/settings/desktop"), {"backup_dir": os.path.join(folder, "nope")})[0], 422)
         self.assertEqual(request(self.url("/api/settings/desktop"), {"backup_dir": ""})[0], 200)
         self.assertEqual(request(self.url("/api/desktop/pick-folder"), {})[0], 409)  # no window in the tests
+
+
+class AppUpdateCheckTests(unittest.TestCase):
+    """The phone page offers a newer Android app. The JavaScript is run by Node in eleven situations."""
+
+    HARNESS = r"""
+const vm = require("vm"), fs = require("fs");
+const source = fs.readFileSync(process.argv[2], "utf8");
+const block = source.split("// --- app update check ---")[1].split("// --- end app update check ---")[0];
+const APK = "https://example.test/StreamDesk.apk";
+
+async function run({ app, pc, stored = "", answer = true, overlay = false, failFetch = false }) {
+  const out = { asked: false, message: "", labels: null, navigated: "", stored: stored, fetched: false };
+  const storage = { v: stored };
+  const context = vm.createContext({
+    nativeApp: app === null ? null : (app === "old" ? {} : { getVersion: () => app }),
+    ANDROID_APK_URL: APK,
+    window: { location: {} },
+    document: { querySelector: () => (overlay ? {} : null) },
+    localStorage: { getItem: () => storage.v, setItem: (k, v) => { storage.v = v; } },
+    fetch: async () => { out.fetched = true; if (failFetch) throw new Error("offline"); return { json: async () => ({ version: pc }) }; },
+    askConfirm: async (message, labels) => { out.asked = true; out.message = message; out.labels = labels; return answer; },
+    console,
+  });
+  vm.runInContext(block, context);
+  await vm.runInContext("checkAppUpdate()", context);
+  out.navigated = context.window.location.href || "";
+  out.stored = storage.v;
+  return out;
+}
+
+(async () => {
+  const cases = [
+    { app: "old", pc: "2.19.0" },
+    { app: "2.19.0", pc: "2.19.0" },
+    { app: "2.18.1", pc: "2.19.0", answer: false },
+    { app: "2.18.1", pc: "2.19.0", stored: "2.19.0" },
+    { app: "2.18.1", pc: "2.19.1", stored: "2.19.0" },
+    { app: "2.19.1", pc: "2.19.0" },
+    { app: null, pc: "2.19.0" },
+    { app: "old", pc: "2.19.0", failFetch: true },
+    { app: "2.9.0", pc: "2.10.0" },
+    { app: "old", pc: "dev" },
+    { app: "old", pc: "2.19.0", overlay: true },
+  ];
+  console.log(JSON.stringify(await Promise.all(cases.map(run))));
+})();
+"""
+
+    def test_it_offers_the_newer_app_only_when_the_phone_app_is_older(self):
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node is not installed")
+        folder = tempfile.mkdtemp(prefix="sd-appupdate-")
+        harness = os.path.join(folder, "harness.js")
+        with open(harness, "w", encoding="utf-8") as handle:
+            handle.write(self.HARNESS)
+        script = os.path.join(BASE_DIR, "static", "js", "streamdeck.js")
+        result = subprocess.run([node, harness, script], capture_output=True, encoding="utf-8", timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        old, same, older, dismissed, new_pc, newer_app, browser, offline, numeric, junk, busy = json.loads(result.stdout)
+        self.assertTrue(old["asked"])  # an app before 2.19 has no getVersion(): older than this PC by definition
+        self.assertEqual(old["labels"], {"yes": "Descargar", "no": "Más tarde"})
+        self.assertIn("2.19.0", old["message"])
+        self.assertEqual(old["navigated"], "https://example.test/StreamDesk.apk")  # "Descargar" opens the download
+        self.assertFalse(same["asked"])
+        self.assertTrue(older["asked"])
+        self.assertEqual((older["navigated"], older["stored"]), ("", "2.19.0"))  # "Más tarde" is remembered for this PC version
+        self.assertFalse(dismissed["asked"])
+        self.assertTrue(new_pc["asked"])  # asks again once the PC has moved on
+        self.assertFalse(newer_app["asked"])
+        self.assertFalse(browser["fetched"])  # outside the app there is nothing to offer, and nothing is requested
+        self.assertFalse(offline["asked"])
+        self.assertTrue(numeric["asked"])  # 2.9.0 is older than 2.10.0: compared as numbers, not as text
+        self.assertFalse(junk["asked"])
+        self.assertFalse(busy["asked"])  # another question is open: do not stack one on top
+
+    def test_the_android_app_exposes_its_version_to_the_page(self):
+        with open(os.path.join(BASE_DIR, "android", "app", "src", "main", "java", "com", "zak208", "streamdesk", "MainActivity.java"),
+                  encoding="utf-8") as handle:
+            java = handle.read()
+        self.assertRegex(java, r"@JavascriptInterface\s+public String getVersion\(\)")
+        self.assertIn("getPackageInfo(getPackageName(), 0).versionName", java)
 
 
 class VersionConsistencyTests(unittest.TestCase):
