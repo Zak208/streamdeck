@@ -2170,18 +2170,30 @@ function connectorBodyWindows(c, body, ctx) {
 
 function connectorBodyObs(c, body, ctx) {
   const s = c.settings || {};
+  const isReady = c.status.state === "ready";
+  const settingsHtml = `
+    <details class="setup-optional" ${ctx.setupOnly || !isReady ? "open" : ""}>
+      <summary>${isReady ? "Ajustes de conexión WebSocket (puerto y contraseña)" : "Configuración WebSocket de OBS"}</summary>
+      <div style="margin-top: 10px;">
+        <label for="obs-password">Contraseña del servidor WebSocket</label>
+        <input id="obs-password" type="password" autocomplete="off" placeholder="${s.password_set ? "Guardada (escribe para cambiarla)" : "Vacío si OBS no pide contraseña"}">
+        <label for="obs-port">Puerto</label>
+        <input id="obs-port" type="number" min="1024" max="65535" value="${Number(s.port) || 4455}">
+        <button class="btn-primary" id="obs-save">Guardar y probar</button>
+      </div>
+    </details>`;
+
   body.innerHTML = `
     ${statusLine(c)}
-    <label for="obs-password">Contraseña del servidor WebSocket</label>
-    <input id="obs-password" type="password" autocomplete="off" placeholder="${s.password_set ? "Guardada (escribe para cambiarla)" : "Vacío si OBS no pide contraseña"}">
-    <label for="obs-port">Puerto</label>
-    <input id="obs-port" type="number" min="1024" max="65535" value="${Number(s.port) || 4455}">
-    <button class="btn-primary" id="obs-save">Guardar y probar</button>
-    ${ctx.setupOnly ? "" : actionTilesHtml(c.actions)}
-    <div id="obs-live"></div>`;
+    ${ctx.setupOnly ? settingsHtml : `
+      <div id="obs-live"></div>
+      <label style="margin-top: 10px; display: block;">Acciones de OBS</label>
+      ${actionTilesHtml(c.actions)}
+      ${settingsHtml}
+    `}`;
   if (!ctx.setupOnly) wireTiles(body, c.actions, ctx);
 
-  body.querySelector("#obs-save").addEventListener("click", () => withToast(async () => {
+  body.querySelector("#obs-save")?.addEventListener("click", () => withToast(async () => {
     const values = { port: Number(body.querySelector("#obs-port").value) };
     const password = body.querySelector("#obs-password").value;
     if (password) values.password = password;
@@ -2190,38 +2202,116 @@ function connectorBodyObs(c, body, ctx) {
   }, "Ajustes de OBS guardados"));
 
   const live = body.querySelector("#obs-live");
+  if (!live) return;
   if (c.status.state !== "ready") {
-    live.innerHTML = `<p class="integration-hint">Para ver tus escenas y fuentes, abre OBS y activa Herramientas &gt; Ajustes del servidor WebSocket.</p>
-      <button class="btn-secondary" id="obs-retry">Volver a comprobar</button>`;
-    live.querySelector("#obs-retry").addEventListener("click", () => ctx.refresh());
+    live.innerHTML = `<p class="integration-hint">Para cambiar de escena o silenciar fuentes con un clic, abre OBS y activa Herramientas &gt; Ajustes del servidor WebSocket. También puedes usar las acciones rápidas de abajo o elegir «Cambiar a escena» para configurar una escena manualmente.</p>
+      <button class="btn-secondary" id="obs-retry" style="margin-bottom: 10px;">Volver a comprobar</button>`;
+    live.querySelector("#obs-retry")?.addEventListener("click", () => ctx.refresh());
     return;
   }
   if (ctx.setupOnly) {
     live.innerHTML = '<p class="integration-hint">OBS está conectado: los botones de OBS ya funcionan.</p>';
     return;
   }
-  live.innerHTML = '<label>Cambiar a una escena</label><div class="chip-list" id="obs-scenes"></div><label>Silenciar un micrófono de OBS</label><div class="inline-row" id="obs-inputs"></div>';
-  Promise.all([connectorApi("/obs/options/scenes"), connectorApi("/obs/options/inputs")]).then(([scenes, inputs]) => {
+  live.innerHTML = `
+    <label>Cambiar a una escena específica</label>
+    <div class="chip-list" id="obs-scenes"><span class="integration-hint">Cargando escenas...</span></div>
+    <button type="button" class="btn-secondary" id="obs-make-page-btn" style="margin-top: 8px; width: 100%; justify-content: center;">＋ Crear página en StreamDesk con todas mis escenas</button>
+    <label style="margin-top: 12px; display: block;">Mostrar u ocultar una fuente (Webcam, alertas...)</label>
+    <div class="inline-row" id="obs-sources"><span class="integration-hint">Cargando fuentes...</span></div>
+    <label style="margin-top: 12px; display: block;">Silenciar un micrófono de OBS</label>
+    <div class="inline-row" id="obs-inputs"><span class="integration-hint">Cargando micrófonos...</span></div>`;
+  Promise.all([
+    connectorApi("/obs/options/scenes"),
+    connectorApi("/obs/options/inputs"),
+    connectorApi("/obs/options/scene_items").catch(() => ({ options: [] })),
+  ]).then(([scenes, inputs, sceneItems]) => {
     const chips = live.querySelector("#obs-scenes");
-    if (!chips) return;
-    chips.innerHTML = scenes.options.map((o, i) => `<button class="chip" data-scene="${i}">${escapeHtml(o.name)}</button>`).join("") || '<span class="integration-hint">OBS no tiene escenas</span>';
-    chips.querySelectorAll("[data-scene]").forEach(chip => chip.addEventListener("click", () => {
-      const name = scenes.options[Number(chip.dataset.scene)].name;
-      assignFromTemplate(ctx.btn, ctx.index, {
-        label: name, sublabel: "Escena", icon: "/static/icons/gamepad.svg", color: "#10b981",
-        action_type: "obs_action", target: `scene_${name}`, extra: { scene_name: name },
-      });
-    }));
-    const row = live.querySelector("#obs-inputs");
-    row.innerHTML = `<select id="obs-input-select">${inputs.options.map(i => `<option value="${escapeHtml(i.name)}">${escapeHtml(i.name)}</option>`).join("")}</select>
-      <button class="btn-secondary" id="obs-input-assign">Asignar</button>`;
-    row.querySelector("#obs-input-assign").addEventListener("click", () => {
-      const source = row.querySelector("#obs-input-select").value;
-      assignFromTemplate(ctx.btn, ctx.index, {
-        label: `Silenciar ${source}`, sublabel: "OBS", icon: "/static/icons/mute.svg", color: "#ef4444",
-        action_type: "obs_action", target: "mute_mic", extra: { source_name: source },
-      });
+    if (chips) {
+      chips.innerHTML = scenes.options.map((o, i) => `<button class="chip" data-scene="${i}" title="Asignar escena «${escapeHtml(o.name)}»">${escapeHtml(o.name)}</button>`).join("") || '<span class="integration-hint">OBS no tiene escenas</span>';
+      chips.querySelectorAll("[data-scene]").forEach(chip => chip.addEventListener("click", () => {
+        const name = scenes.options[Number(chip.dataset.scene)].name;
+        assignFromTemplate(ctx.btn, ctx.index, {
+          label: name, sublabel: "Escena", icon: "/static/icons/gamepad.svg", color: "#10b981",
+          action_type: "obs_action", target: "set_scene", extra: { scene_name: name },
+        });
+      }));
+    }
+
+    live.querySelector("#obs-make-page-btn")?.addEventListener("click", async () => {
+      try {
+        if (!scenes.options || !scenes.options.length) return showToast("OBS no tiene ninguna escena");
+        const totalSlots = config.layout?.total_slots || 12;
+        const sceneColors = ["#10b981", "#3b82f6", "#8b5cf6", "#f59e0b", "#ec4899", "#06b6d4", "#f97316", "#14b8a6"];
+        const slots = [];
+        scenes.options.slice(0, totalSlots).forEach((sc, i) => {
+          slots.push({
+            index: i,
+            type: "button",
+            id: `btn_obs_sc_${Date.now()}_${i}`,
+            label: sc.name.slice(0, 32),
+            sublabel: "Escena",
+            icon: "",
+            image: "/static/icons/gamepad.svg",
+            color: sceneColors[i % sceneColors.length],
+            action_type: "obs_action",
+            target: "set_scene",
+            extra: { scene_name: sc.name },
+          });
+        });
+        for (let i = slots.length; i < totalSlots; i++) {
+          slots.push({ index: i, type: "empty" });
+        }
+        const newPage = {
+          id: `page_obs_${Date.now()}`,
+          name: "Escenas OBS",
+          auto_app: "obs64.exe",
+          slots,
+        };
+        config.pages.push(newPage);
+        await saveConfigToServer({ immediate: true });
+        renderPageTabs();
+        await switchPage(config.pages.length - 1);
+        if (typeof closeActionPicker === "function") closeActionPicker();
+        showToast(`¡Página «Escenas OBS» creada con ${scenes.options.length} escena${scenes.options.length === 1 ? "" : "s"}!`);
+      } catch (err) {
+        showToast(`Error al crear la página: ${err.message}`);
+      }
     });
+
+    const sourcesRow = live.querySelector("#obs-sources");
+    if (sourcesRow) {
+      const items = sceneItems.options || [];
+      if (items.length) {
+        sourcesRow.innerHTML = `<select id="obs-source-select">${items.map(s => `<option value="${escapeHtml(s.name)}" data-scene="${escapeHtml(s.scene)}">${escapeHtml(s.name)} (${escapeHtml(s.scene)})</option>`).join("")}</select>
+          <button class="btn-secondary" id="obs-source-assign">Asignar</button>`;
+        sourcesRow.querySelector("#obs-source-assign").addEventListener("click", () => {
+          const opt = sourcesRow.querySelector("#obs-source-select").selectedOptions[0];
+          if (!opt) return;
+          const sourceName = opt.value;
+          const sceneName = opt.dataset.scene;
+          assignFromTemplate(ctx.btn, ctx.index, {
+            label: sourceName.slice(0, 32), sublabel: "Fuente OBS", icon: "/static/icons/video.svg", color: "#10b981",
+            action_type: "obs_action", target: "source_toggle", extra: { scene_name: sceneName, source_name: sourceName },
+          });
+        });
+      } else {
+        sourcesRow.innerHTML = '<span class="integration-hint">No hay fuentes en las escenas</span>';
+      }
+    }
+
+    const row = live.querySelector("#obs-inputs");
+    if (row) {
+      row.innerHTML = `<select id="obs-input-select">${inputs.options.map(i => `<option value="${escapeHtml(i.name)}">${escapeHtml(i.name)}</option>`).join("")}</select>
+        <button class="btn-secondary" id="obs-input-assign">Asignar</button>`;
+      row.querySelector("#obs-input-assign").addEventListener("click", () => {
+        const source = row.querySelector("#obs-input-select").value;
+        assignFromTemplate(ctx.btn, ctx.index, {
+          label: `Silenciar ${source}`.slice(0, 32), sublabel: "OBS", icon: "/static/icons/mute.svg", color: "#ef4444",
+          action_type: "obs_action", target: "mute_mic", extra: { source_name: source },
+        });
+      });
+    }
   }).catch(err => { live.innerHTML = `<p class="integration-hint">${escapeHtml(err.message)}</p>`; });
 }
 

@@ -55,6 +55,8 @@ def _action(action_id, label, sublabel, icon, color, target, fields=None):
 
 PLACEHOLDER = "Elige"
 SCENE = {"name": "scene_name", "label": "Escena", "options": "scenes", "filter_by": None, "required": True}
+COLLECTION = {"name": "collection_name", "label": "Colección de escenas", "options": "collections", "filter_by": None, "required": True}
+PROFILE = {"name": "profile_name", "label": "Perfil", "options": "profiles", "filter_by": None, "required": True}
 
 
 def actions() -> List[Dict[str, Any]]:
@@ -65,6 +67,7 @@ def actions() -> List[Dict[str, Any]]:
          "action_type": "obs_action", "target": "stream_toggle", "extra": {}},
         {"id": "pause", "label": "Pausar grabación", "sublabel": "OBS", "icon": "/static/icons/pause.svg", "color": "#f59e0b",
          "action_type": "obs_action", "target": "record_pause", "extra": {}},
+        _action("set_scene", "Cambiar a escena", "OBS", "/static/icons/gamepad.svg", "#10b981", "set_scene", [SCENE]),
         {"id": "next_scene", "label": "Escena siguiente", "sublabel": "OBS", "icon": "/static/icons/next.svg", "color": "#38bdf8",
          "action_type": "obs_action", "target": "next_scene", "extra": {}},
         {"id": "prev_scene", "label": "Escena anterior", "sublabel": "OBS", "icon": "/static/icons/prev.svg", "color": "#38bdf8",
@@ -96,6 +99,8 @@ def actions() -> List[Dict[str, Any]]:
                 [{"name": "source_name", "label": "Fuente de audio", "options": "inputs", "filter_by": None, "required": True}]),
         _action("source_refresh", "Refrescar fuente de navegador", "OBS", "/static/icons/play.svg", "#10b981", "source_refresh",
                 [{"name": "source_name", "label": "Fuente de navegador", "options": "inputs", "filter_by": None, "required": True}]),
+        _action("set_scene_collection", "Colección de escenas", "OBS", "/static/icons/folder.svg", "#8b5cf6", "set_scene_collection", [COLLECTION]),
+        _action("set_profile", "Cambiar perfil", "OBS", "/static/icons/sliders.svg", "#f59e0b", "set_profile", [PROFILE]),
         _action("hotkey", "Atajo de OBS por nombre", "OBS", "/static/icons/keyboard.svg", "#a855f7", "hotkey",
                 [{"name": "hotkey_name", "label": "Nombre del atajo (por ejemplo OBSBasic.StartRecording)", "options": None, "filter_by": None, "required": True}]),
     ]
@@ -113,4 +118,8 @@ def options(name: str) -> List[Dict[str, Any]]:
         return obs_client.list_scene_items()
     if name == "filters":
         return obs_client.list_filters()
+    if name == "collections":
+        return obs_client.list_scene_collections()
+    if name == "profiles":
+        return obs_client.list_profiles()
     return []

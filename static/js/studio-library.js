@@ -192,7 +192,22 @@ function describeAction(a) {
     case "media": return `Multimedia: ${t.replace("_", " ")}`;
     case "spotify_action": return t === "like" ? "Spotify: Me gusta (favoritos)" : `Spotify: ${t}`;
     case "preset_app": case "launch": return `Abre ${detectedSystemApps.find(app => app.id === t)?.name || t}`;
-    case "obs_action": return `OBS: ${t.replace("_", " ")}`;
+    case "obs_action": {
+      if (t === "set_scene" || t.startsWith("scene_")) {
+        const scName = a.extra?.scene_name || (t.startsWith("scene_") ? t.slice(6) : "");
+        return scName && scName !== "Elige" ? `OBS: Cambiar a escena «${scName}»` : "OBS: Cambiar a escena";
+      }
+      if (t === "set_scene_collection") {
+        return a.extra?.collection_name && a.extra.collection_name !== "Elige" ? `OBS: Colección «${a.extra.collection_name}»` : "OBS: Colección de escenas";
+      }
+      if (t === "set_profile") {
+        return a.extra?.profile_name && a.extra.profile_name !== "Elige" ? `OBS: Perfil «${a.extra.profile_name}»` : "OBS: Cambiar perfil";
+      }
+      if (t === "source_toggle") {
+        return a.extra?.source_name && a.extra.source_name !== "Elige" ? `OBS: Fuente «${a.extra.source_name}» (mostrar/ocultar)` : "OBS: Mostrar/ocultar fuente";
+      }
+      return `OBS: ${t.replace(/_/g, " ")}`;
+    }
     case "discord_hotkey": return t === "sound" ? `Sonido de Discord (${a.extra?.sound_name || "sin nombre"})` : t === "mute" ? "Silencia o activa tu micrófono en Discord" : t === "deafen" ? "Ensordece o activa el sonido en Discord" : `Discord: ${t}`;
     case "discord_sound": return `Reproduce «${a.target || a.extra?.sound_name || "un sonido"}» en tu canal de voz${a.extra?.hotkey ? ` (atajo ${a.extra.hotkey})` : ""}`;
     case "windows": {
@@ -655,12 +670,19 @@ const NOT_CHOSEN = "Elige";
 
 // The catalog item behind a button that needs choices (a scene, a source...), with the connector it belongs to.
 function fieldsForButton(btn) {
+  if (btn.action_type === "obs_action" && (btn.target === "set_scene" || String(btn.target || "").startsWith("scene_"))) {
+    const item = libraryCategories.flatMap(c => c.items).find(i => i.action_type === "obs_action" && i.target === "set_scene");
+    if (item) return { fields: item.fields, connector: item.connector };
+  }
   const item = libraryCategories.flatMap(c => c.items).find(i => i.fields && i.action_type === btn.action_type && i.target === btn.target);
   return item ? { fields: item.fields, connector: item.connector } : null;
 }
 
 function renderFieldsEditor(el, btn, { fields, connector }) {
   btn.extra = btn.extra || {};
+  if (btn.action_type === "obs_action" && !btn.extra.scene_name && String(btn.target || "").startsWith("scene_")) {
+    btn.extra.scene_name = btn.target.slice(6);
+  }
   const loaded = {}; // options name -> promise of its list, asked once per editor
   const optionsOf = (name) => (loaded[name] ??= connectorApi(`/${connector}/options/${name}`).then(data => data.options));
 
@@ -676,6 +698,18 @@ function renderFieldsEditor(el, btn, { fields, connector }) {
   };
   const set = (field, value) => {
     btn.extra[field.name] = value || NOT_CHOSEN;
+    if (field.name === "scene_name" && value && value !== NOT_CHOSEN) {
+      if (btn.target && btn.target.startsWith("scene_")) {
+        btn.target = "set_scene";
+      }
+      if (!btn.label || btn.label === "Cambiar a escena" || btn.label === "Escena" || btn.label === "Acción") {
+        btn.label = value.slice(0, 32);
+        const labelInput = document.getElementById("edit-btn-label");
+        if (labelInput) labelInput.value = btn.label;
+        const previewTitle = document.getElementById("inspector-preview-title");
+        if (previewTitle) previewTitle.textContent = btn.label;
+      }
+    }
     // A choice that depends on this one (the sources of a scene) starts over.
     fields.filter(f => f.filter_by === field.name).forEach(dep => { btn.extra[dep.name] = NOT_CHOSEN; draw(dep); });
     commitAction(btn);

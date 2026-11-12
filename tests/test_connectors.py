@@ -133,6 +133,13 @@ class OBSProtocolTests(unittest.TestCase):
             result = OBSClient(port=fake.port, password="").execute_obs_action("scene_x", {"scene_name": "x"})
         self.assertIs(result["success"], False)
 
+    def test_set_scene_switches_scene(self):
+        with FakeOBS(responses={"SetCurrentProgramScene": (True, {})}) as fake:
+            result = OBSClient(port=fake.port, password="").execute_obs_action("set_scene", {"scene_name": "Charla"})
+            requests = list(fake.requests)
+        self.assertEqual(requests, [("SetCurrentProgramScene", {"sceneName": "Charla"})])
+        self.assertEqual((result["success"], result["scene"]), (True, "Charla"))
+
     def test_closed_obs_gives_the_setup_hint(self):
         result = OBSClient(port=support.free_port(), password="").execute_obs_action("stream_toggle")
         self.assertEqual(result["error"], OBS_UNREACHABLE)

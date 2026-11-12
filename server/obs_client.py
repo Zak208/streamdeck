@@ -149,6 +149,18 @@ class OBSClient:
                 items.append({"name": item.get("sourceName", ""), "scene": scene})
         return items
 
+    def list_scene_collections(self) -> List[Dict[str, Any]]:
+        res = self.request("GetSceneCollectionList")
+        if not _request_ok(res):
+            raise RuntimeError(self.failure(res)["error"])
+        return [{"name": name} for name in res.get("responseData", {}).get("sceneCollections", [])]
+
+    def list_profiles(self) -> List[Dict[str, Any]]:
+        res = self.request("GetProfileList")
+        if not _request_ok(res):
+            raise RuntimeError(self.failure(res)["error"])
+        return [{"name": name} for name in res.get("responseData", {}).get("profiles", [])]
+
     # --- Actions ---
 
     def execute_obs_action(self, target: str, extra: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -178,8 +190,10 @@ class OBSClient:
                 self.is_streaming = active
                 return {"success": True, "action": "obs_stream_toggle", "outputActive": active, "active": active}
 
-            elif cmd.startswith("scene_"):
+            elif cmd in ("set_scene", "switch_scene") or cmd.startswith("scene_"):
                 scene_name = extra.get("scene_name") or cmd.replace("scene_", "")
+                if not scene_name or scene_name == "Elige":
+                    return {"success": False, "error": "Elige una escena en los ajustes del botón"}
                 res = call("SetCurrentProgramScene", {"sceneName": scene_name})
                 if not _request_ok(res):
                     return failure(res)
@@ -309,6 +323,20 @@ class OBSClient:
             elif cmd == "source_refresh":
                 res = call("PressInputPropertiesButton", {"inputName": extra.get("source_name", ""), "propertyName": "refreshnocache"})
                 return {"success": True, "action": "obs_source_refresh"} if _request_ok(res) else failure(res)
+
+            elif cmd in ("set_scene_collection", "scene_collection"):
+                col_name = extra.get("collection_name", "")
+                if not col_name or col_name == "Elige":
+                    return {"success": False, "error": "Elige una colección de escenas"}
+                res = call("SetCurrentSceneCollection", {"sceneCollectionName": col_name})
+                return {"success": True, "action": "obs_set_scene_collection", "collection": col_name} if _request_ok(res) else failure(res)
+
+            elif cmd in ("set_profile", "profile"):
+                prof_name = extra.get("profile_name", "")
+                if not prof_name or prof_name == "Elige":
+                    return {"success": False, "error": "Elige un perfil de OBS"}
+                res = call("SetCurrentProfile", {"profileName": prof_name})
+                return {"success": True, "action": "obs_set_profile", "profile": prof_name} if _request_ok(res) else failure(res)
 
             return {"success": False, "error": f"Acción OBS desconocida: {cmd}"}
         except Exception as e:

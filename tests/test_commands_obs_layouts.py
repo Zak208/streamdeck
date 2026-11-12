@@ -271,6 +271,9 @@ class ObsActionTests(unittest.TestCase):
     def test_the_single_request_actions(self):
         for target, extra, request, payload in (
             ("studio_transition", {}, "TriggerStudioModeTransition", {}),
+            ("set_scene", {"scene_name": "Juego"}, "SetCurrentProgramScene", {"sceneName": "Juego"}),
+            ("set_scene_collection", {"collection_name": "Podcast"}, "SetCurrentSceneCollection", {"sceneCollectionName": "Podcast"}),
+            ("set_profile", {"profile_name": "1080p"}, "SetCurrentProfile", {"profileName": "1080p"}),
             ("preview_scene", {"scene_name": "Juego"}, "SetCurrentPreviewScene", {"sceneName": "Juego"}),
             ("set_transition", {"transition_name": "Fundido"}, "SetCurrentSceneTransition", {"transitionName": "Fundido"}),
             ("replay_save", {}, "SaveReplayBuffer", {}),
@@ -316,6 +319,27 @@ class ObsActionTests(unittest.TestCase):
                 with self.subTest(target=target):
                     self.assertFalse(obs_client.execute_obs_action(target, {})["success"])
 
+    def test_sync_obs_scene_state(self):
+        import asyncio
+        from server.main import sync_obs_scene_state, button_states
+        from server.config_manager import config_manager
+
+        cfg = default_profile()
+        cfg["pages"][0]["slots"][0] = {
+            "index": 0, "type": "button", "id": "btn_scene_a", "action_type": "obs_action", "target": "set_scene", "extra": {"scene_name": "Juego"}
+        }
+        cfg["pages"][0]["slots"][1] = {
+            "index": 1, "type": "button", "id": "btn_scene_b", "action_type": "obs_action", "target": "set_scene", "extra": {"scene_name": "Charla"}
+        }
+        with mock.patch.object(config_manager, "load_config", return_value=cfg):
+            asyncio.run(sync_obs_scene_state("Juego"))
+            self.assertTrue(button_states.get("btn_scene_a"))
+            self.assertFalse(button_states.get("btn_scene_b"))
+
+            asyncio.run(sync_obs_scene_state("Charla"))
+            self.assertFalse(button_states.get("btn_scene_a"))
+            self.assertTrue(button_states.get("btn_scene_b"))
+
 
 class ObsValidationTests(unittest.TestCase):
     def test_what_needs_a_name_must_have_it(self):
@@ -343,10 +367,14 @@ class ObsValidationTests(unittest.TestCase):
             "GetSceneTransitionList": {"transitions": [{"transitionName": "Corte"}, {"transitionName": "Fundido"}]},
             "GetSceneList": {"scenes": [{"sceneName": "A"}, {"sceneName": "B"}]},
             "GetSceneItemList": {"sceneItems": [{"sourceName": "Cámara"}]},
+            "GetSceneCollectionList": {"sceneCollections": ["Principal", "Vertical"]},
+            "GetProfileList": {"profiles": ["Directo", "Grabación"]},
         })
         with mock.patch.object(obs_client, "request", fake):
             self.assertEqual(obs_connector.options("transitions"), [{"name": "Corte"}, {"name": "Fundido"}])
             self.assertEqual(obs_connector.options("scene_items"), [{"name": "Cámara", "scene": "A"}, {"name": "Cámara", "scene": "B"}])
+            self.assertEqual(obs_connector.options("collections"), [{"name": "Principal"}, {"name": "Vertical"}])
+            self.assertEqual(obs_connector.options("profiles"), [{"name": "Directo"}, {"name": "Grabación"}])
 
 
 if __name__ == "__main__":

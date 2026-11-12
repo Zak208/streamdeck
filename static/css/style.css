@@ -211,6 +211,18 @@ header {
 /* Toggles that are currently on (OBS recording or streaming, a muted microphone). */
 .deck-btn.is-active { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger), 0 0 16px color-mix(in srgb, var(--danger) 35%, transparent); }
 .deck-btn.is-active .deck-btn-sub::before { content: "● "; color: var(--danger); }
+
+/* OBS Active Scene highlight - vibrant emerald indicator */
+.deck-btn[data-action="obs_action"][data-target="set_scene"].is-active,
+.deck-btn[data-action="obs_action"][data-target^="scene_"].is-active {
+  border-color: #10b981;
+  box-shadow: 0 0 0 1px #10b981, 0 0 16px rgba(16, 185, 129, 0.45);
+}
+.deck-btn[data-action="obs_action"][data-target="set_scene"].is-active .deck-btn-sub::before,
+.deck-btn[data-action="obs_action"][data-target^="scene_"].is-active .deck-btn-sub::before {
+  content: "● ";
+  color: #10b981;
+}
 .btn-shake-error { animation: shake 0.35s ease-in-out; border-color: var(--danger); }
 @keyframes shake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
 

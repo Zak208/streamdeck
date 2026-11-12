@@ -50,6 +50,9 @@ OBS_TARGETS = frozenset({
 })
 # OBS actions that need to be told which scene, source, transition or hotkey: target -> the names kept in `extra`.
 OBS_TARGETS_WITH_FIELDS = {
+    "set_scene": ("scene_name",),
+    "set_scene_collection": ("collection_name",),
+    "set_profile": ("profile_name",),
     "preview_scene": ("scene_name",),
     "set_transition": ("transition_name",),
     "source_toggle": ("scene_name", "source_name"),

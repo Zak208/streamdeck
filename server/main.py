@@ -1441,6 +1441,27 @@ def _record_button_failure(websocket: WebSocket, label: str, message: str) -> No
     diagnostics.record("error", f"Botón «{str(label)[:60]}»: {str(message)[:200]}", ip, websocket.headers.get("user-agent"))
 
 
+async def sync_obs_scene_state(active_scene: str) -> None:
+    """Lights up the button matching the active OBS scene, and turns off all other scene buttons."""
+    if not active_scene:
+        return
+    norm = active_scene.strip().lower()
+    current_cfg = config_manager.load_config()
+    for page in current_cfg.get("pages", []):
+        for s in page.get("slots", []):
+            if s.get("type") == "button" and s.get("action_type") == "obs_action":
+                tgt = (s.get("target") or "").lower()
+                s_extra = s.get("extra") or {}
+                s_scene = s_extra.get("scene_name") or (s.get("target")[6:] if tgt.startswith("scene_") else "")
+                if s_scene:
+                    s_id = s.get("id")
+                    if s_id:
+                        is_active = (s_scene.strip().lower() == norm)
+                        if button_states.get(s_id) != is_active:
+                            button_states[s_id] = is_active
+                            await ws_manager.broadcast({"type": "button_state", "id": s_id, "active": is_active})
+
+
 async def run_button_action(websocket: WebSocket, slot: Dict[str, Any], gesture: str = "tap") -> None:
     """Execute a button off the event loop and tell every phone how it went."""
     btn_id = slot.get("id")
@@ -1492,6 +1513,9 @@ async def run_button_action(websocket: WebSocket, slot: Dict[str, Any], gesture:
             # A two-state key: every successful tap flips it, whatever the action reports.
             button_states[btn_id] = not button_states.get(btn_id, False)
             await ws_manager.broadcast({"type": "button_state", "id": btn_id, "active": button_states[btn_id]})
+
+        if success and result.get("action") in ("obs_set_scene", "obs_scene") and result.get("scene"):
+            await sync_obs_scene_state(str(result["scene"]))
     finally:
         _running_actions.discard(btn_id)
 

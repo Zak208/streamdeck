@@ -618,6 +618,8 @@ const STATE_LABELS = {
   "obs_action:record_toggle": "Grabando",
   "obs_action:stream_toggle": "En directo",
   "obs_action:mute_mic": "Silenciado",
+  "obs_action:set_scene": "En vivo",
+  "obs_action:source_toggle": "Visible",
   "windows:mic_mute": "Silenciado",
   "windows:app_mute": "Silenciado",
 };
@@ -801,6 +803,8 @@ function createButtonElement(btn) {
   const keycap = document.createElement("div");
   keycap.className = "deck-btn";
   keycap.id = btn.id || `slot_btn_${btn.index}`;
+  if (btn.action_type) keycap.dataset.action = btn.action_type;
+  if (btn.target) keycap.dataset.target = btn.target;
   if (buttonStates[keycap.id]) keycap.classList.add("is-active");
   if (btn.action_type === "hardware_monitor") return createMonitorElement(btn, keycap);
 
