@@ -1265,22 +1265,22 @@ def get_version_changelog(version: str) -> Dict[str, Any]:
         "title": f"Novedades de StreamDesk v{version}",
         "steps": [
             {
-                "title": "StreamDesk sigue activo con la ventana cerrada",
+                "title": "Control específico de escenas OBS",
                 "tag": "Novedad",
-                "icon": "phone",
-                "description": "Al cerrar la ventana, StreamDesk se queda junto al reloj y el móvil sigue funcionando. Puede abrirse solo al iniciar Windows, sin ventana. El icono tiene un menú para ver los móviles conectados, copiar la dirección o mostrar el QR. Se cambia en Ajustes > Segundo plano y arranque.",
-            },
-            {
-                "title": "Más control sobre tus móviles",
-                "tag": "Seguridad",
-                "icon": "shield",
-                "description": "Puedes limitar un móvil para que no apague el PC ni lance comandos, ver qué botones se pulsaron y desde dónde, y recibes un aviso de Windows cuando se empareja uno nuevo. Un móvil que no se usa en 90 días se desempareja, y las contraseñas se guardan cifradas. Apagar el PC desde el móvil siempre pide confirmación.",
-            },
-            {
-                "title": "Si el móvil no conecta, ahora se ve por qué",
-                "tag": "Facilidad",
                 "icon": "grid",
-                "description": "En Ajustes > Conexión del móvil, «Comprobar la conexión» revisa la red y el cortafuegos y te dice qué hacer, y «Copiar el diagnóstico» junta todo para pedir ayuda. Si otro programa ocupa el puerto, StreamDesk lo dice en lugar de abrir una ventana en blanco. También puedes guardar una copia de tu perfil en OneDrive o en un USB. Y si la app de Android de tu móvil es más antigua que tu PC, te lo dice y te deja descargar la nueva.",
+                "description": "Elige la escena exacta de OBS desde un desplegable dinámico. La escena activa en transmisión se resalta en tu móvil con un borde verde esmeralda y el indicador «En vivo» en tiempo real.",
+            },
+            {
+                "title": "Generador de página OBS en 1 clic",
+                "tag": "Facilidad",
+                "icon": "phone",
+                "description": "Crea al instante una página en StreamDesk con todas tus escenas de OBS y vinculada automáticamente a obs64.exe desde el panel de conexión de OBS.",
+            },
+            {
+                "title": "Colecciones, perfiles y fuentes",
+                "tag": "Control",
+                "icon": "shield",
+                "description": "Cambia colecciones de escenas completas y perfiles de transmisión con un toque, y alterna fuentes individuales (cámaras, alertas, overlays) fácilmente.",
             },
         ],
     }
