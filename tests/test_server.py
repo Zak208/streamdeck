@@ -94,6 +94,13 @@ class ServerTests(unittest.TestCase):
         self.assertIn("icon-192.png", content)
         self.assertIn("icon-512.png", content)
 
+    def test_play_sound_endpoint(self):
+        with mock.patch("server.main.play_local_sound") as mock_play:
+            res = post_json(self.live.base_url + "/api/sounds/play", {"id": "beep"})
+            self.assertTrue(res.get("success"))
+            self.assertEqual(res.get("played"), "beep")
+            mock_play.assert_called_once_with("beep")
+
     def test_page_switch_round_trip(self):
         result = post_json(f"{self.live.base_url}/api/deck/page/switch", {"page_index": 1})
         self.assertEqual(result["current_page"], 1)

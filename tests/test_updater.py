@@ -2,8 +2,6 @@
 
 import hashlib
 import json
-import os
-import time
 import unittest
 import urllib.request
 from unittest import mock

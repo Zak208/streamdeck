@@ -18,7 +18,6 @@ import websockets
 
 import support
 from server import audit, firewall, main, permissions
-from server import settings_store
 from server.auth import AuthManager, TOKEN_IDLE_DAYS
 from server.config_manager import config_manager
 from server.paths import BASE_DIR, VERSION

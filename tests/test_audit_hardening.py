@@ -4,7 +4,6 @@ crash resilience, program packs, and system audits.
 """
 import ctypes
 import os
-import sys
 import tempfile
 import threading
 import time
@@ -12,7 +11,6 @@ import unittest
 import urllib.parse
 from unittest import mock
 
-import support
 
 import server.auth as auth_mod
 from server.telemetry import Nvml

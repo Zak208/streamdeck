@@ -4,7 +4,6 @@ Kept in memory only (last 40 events, gone on restart). It stores the phone's add
 and a coarse device label, never the PIN, the token or the full browser string.
 """
 
-import os
 import platform
 import time
 from collections import deque

@@ -3,7 +3,6 @@ import unittest
 import urllib.request
 import support
 
-from server.main import app
 from server.paths import VERSION
 from server.settings_store import settings
 

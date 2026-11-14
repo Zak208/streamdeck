@@ -16,7 +16,7 @@ from contextlib import ExitStack
 from unittest import mock
 
 import support  # noqa: F401  (paths and a throwaway data directory)
-from server import actions, discord_ui, main, spotify_ui
+from server import actions, discord_ui, main
 from server.action_catalog import validate_action
 from server.connectors import REGISTRY
 from server.paths import STATIC_DIR
@@ -138,6 +138,7 @@ class LaunchTests(unittest.TestCase):
     def launch(self, app_id, path):
         detected = [{"id": app_id, "path": path}]
         with mock.patch.object(actions.system_scanner, "get_detected_apps", return_value=detected), \
+                mock.patch.object(actions, "_find_running_app_window", return_value=0), \
                 mock.patch.object(actions.os, "startfile", create=True) as startfile:
             self.assertTrue(actions.launch_smart_app(app_id))
         return startfile
@@ -155,9 +156,20 @@ class LaunchTests(unittest.TestCase):
         updater = r"C:\Users\x\AppData\Local\Discord\Update.exe"
         detected = [{"id": "discord", "path": updater + " --processStart Discord.exe"}]
         with mock.patch.object(actions.system_scanner, "get_detected_apps", return_value=detected), \
+                mock.patch.object(actions, "_find_running_app_window", return_value=0), \
                 mock.patch("subprocess.Popen") as popen:
             self.assertTrue(actions.launch_smart_app("discord"))
         self.assertEqual(popen.call_args.args[0], [updater, "--processStart", "Discord.exe"])
+
+    def test_running_app_is_brought_to_front_instead_of_launched(self):
+        detected = [{"id": "discord", "path": r"C:\path\to\Discord.exe"}]
+        with mock.patch.object(actions.system_scanner, "get_detected_apps", return_value=detected), \
+                mock.patch.object(actions, "_find_running_app_window", return_value=12345), \
+                mock.patch.object(actions, "bring_window_to_front", return_value=True) as mock_bring, \
+                mock.patch("subprocess.Popen") as popen:
+            self.assertTrue(actions.launch_smart_app("discord"))
+            mock_bring.assert_called_once_with(12345)
+            popen.assert_not_called()
 
 
 class PageJumpTests(unittest.TestCase):
@@ -190,6 +202,50 @@ class PageJumpTests(unittest.TestCase):
                     self.assertIs(result["success"], True)
                     self.assertEqual(fake.config["current_page"], expected)
             self.assertIs(asyncio.run(main.navigate_pages("nope"))["success"], False)
+
+
+class SoundSecurityTests(unittest.TestCase):
+    def test_play_sound_rejects_quotes(self):
+        with mock.patch("winsound.PlaySound") as mock_play, \
+                mock.patch("ctypes.windll.winmm.mciSendStringW") as mock_mci:
+            actions.play_local_sound('test"file.mp3')
+            mock_play.assert_not_called()
+            mock_mci.assert_not_called()
+
+    def test_play_sound_rejects_dot_dot(self):
+        with mock.patch("winsound.PlaySound") as mock_play, \
+                mock.patch("ctypes.windll.winmm.mciSendStringW") as mock_mci:
+            actions.play_local_sound('../../windows/system32/cmd.exe')
+            mock_play.assert_not_called()
+            mock_mci.assert_not_called()
+
+    def test_play_sound_rejects_absolute_path(self):
+        with mock.patch("winsound.PlaySound") as mock_play, \
+                mock.patch("ctypes.windll.winmm.mciSendStringW") as mock_mci:
+            actions.play_local_sound(r'C:\Windows\Media\tada.wav')
+            mock_play.assert_not_called()
+            mock_mci.assert_not_called()
+
+    def test_play_sound_closes_previous_mci(self):
+        from server.paths import CONFIG_DIR
+        sound_dir = os.path.join(CONFIG_DIR, "sounds")
+        os.makedirs(sound_dir, exist_ok=True)
+        dummy_mp3 = os.path.join(sound_dir, "test_mci.mp3")
+        try:
+            with open(dummy_mp3, "wb") as f:
+                f.write(b"ID3dummy")
+            calls = []
+            def fake_mci(cmd, _, __, ___):
+                calls.append(cmd)
+                return 0
+            with mock.patch("ctypes.windll.winmm.mciSendStringW", side_effect=fake_mci):
+                actions.play_local_sound("test_mci.mp3")
+                actions.play_local_sound("test_mci.mp3")
+            closes = [c for c in calls if c.startswith("close sd_snd_")]
+            self.assertGreaterEqual(len(closes), 2)
+        finally:
+            if os.path.exists(dummy_mp3):
+                os.remove(dummy_mp3)
 
 
 if __name__ == "__main__":

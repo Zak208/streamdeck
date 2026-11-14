@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 import support  # noqa: F401  (paths and a throwaway data directory)
-from server import discord_ui, spotify_ui
+from server import spotify_ui
 from server.spotify_ui import SpotifyUiError
 
 VIEW = (-2163, 58, -1677, 1312)

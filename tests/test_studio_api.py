@@ -174,7 +174,6 @@ class StudioApiTests(unittest.TestCase):
         self.assertEqual(get("/api/connectors"), 403)
 
     def test_automatic_backups_are_rolling(self):
-        import tempfile
         from server import config_manager as cm
         manager = cm.config_manager
         folder = os.path.join(cm.CONFIG_DIR, "backups")

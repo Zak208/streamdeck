@@ -2,7 +2,6 @@ import unittest
 from unittest import mock
 import psutil
 
-import support
 from server.audio_controller import AudioController
 from server import actions
 

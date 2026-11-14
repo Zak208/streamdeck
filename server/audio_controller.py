@@ -1,7 +1,6 @@
-import os
 import psutil
 import comtypes
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from pycaw.pycaw import AudioUtilities, ISimpleAudioVolume
 
 class AudioController:

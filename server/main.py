@@ -49,7 +49,7 @@ if sys.stderr and hasattr(sys.stderr, 'encoding') and sys.stderr.encoding and sy
 from server import connectors
 from server.audio_controller import audio_controller
 from server.com_worker import com_worker
-from server.actions import execute_action
+from server.actions import execute_action, play_local_sound
 from server.auth import auth_manager
 from server import app_icons, audit, desktop, diagnostics, discord_ui, firewall, layouts, live_buttons, page_library, permissions, program_packs, shell_actions, steam, templates, updater, webhooks
 from server.action_catalog import GESTURES, validate_deck_config
@@ -905,7 +905,7 @@ def test_play_sound(values: Dict[str, Any] = Body(...), _: None = Depends(requir
     sound_id = str(values.get("id") or values.get("target") or "").strip()
     if not sound_id:
         raise HTTPException(status_code=422, detail="Falta el identificador de sonido")
-    actions.play_local_sound(sound_id)
+    play_local_sound(sound_id)
     return {"success": True, "played": sound_id}
 
 

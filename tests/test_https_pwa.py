@@ -13,7 +13,7 @@ from cryptography import x509
 
 from server.auth import auth_manager
 from server.paths import PORT
-from server.ssl_helper import ensure_ssl_certificates, get_ca_certificate_path, get_all_local_ips
+from server.ssl_helper import ensure_ssl_certificates, get_all_local_ips
 
 
 class SslCertificateTests(unittest.TestCase):

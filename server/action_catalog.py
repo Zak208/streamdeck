@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 from server.shell_actions import SHELLS, validate_commands
 from server.webhooks import validate_extra as validate_webhook_extra, validate_target
-from server.layouts import LAYOUTS, layout_dict, layout_name, size_of
+from server.layouts import layout_dict, layout_name, size_of
 
 
 ACTION_TYPES = frozenset({

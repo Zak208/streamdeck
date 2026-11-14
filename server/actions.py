@@ -327,7 +327,13 @@ def launch_smart_app(app_id: str) -> bool:
     return False
 
 
+_last_mci_alias: str | None = None
+
+
 def play_local_sound(target: str) -> None:
+    global _last_mci_alias
+    if not target or not isinstance(target, str):
+        return
     if target == "beep":
         winsound.Beep(1000, 200)
         return
@@ -338,9 +344,24 @@ def play_local_sound(target: str) -> None:
         winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
         return
 
+    # Reject quotes, directory traversal (..), path separators, and absolute paths
+    if '"' in target or ".." in target or os.path.isabs(target) or "\\" in target or "/" in target:
+        return
+
+    clean_name = os.path.basename(target)
+    if not clean_name or clean_name != target:
+        return
+
     from server.paths import CONFIG_DIR
-    sound_dir = os.path.join(CONFIG_DIR, "sounds")
-    candidate = os.path.join(sound_dir, target) if not os.path.isabs(target) else target
+    sound_dir = os.path.abspath(os.path.join(CONFIG_DIR, "sounds"))
+    candidate = os.path.abspath(os.path.join(sound_dir, clean_name))
+
+    try:
+        if os.path.commonpath([sound_dir, candidate]) != sound_dir or candidate == sound_dir:
+            return
+    except Exception:
+        return
+
     if not os.path.isfile(candidate):
         winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
         return
@@ -351,7 +372,10 @@ def play_local_sound(target: str) -> None:
         return
 
     try:
+        if _last_mci_alias:
+            ctypes.windll.winmm.mciSendStringW(f'close {_last_mci_alias}', None, 0, 0)
         alias = f"sd_snd_{int(time.time() * 1000) % 10000}"
+        _last_mci_alias = alias
         ctypes.windll.winmm.mciSendStringW(f'close {alias}', None, 0, 0)
         ret = ctypes.windll.winmm.mciSendStringW(f'open "{candidate}" type mpegvideo alias {alias}', None, 0, 0)
         if ret == 0:
