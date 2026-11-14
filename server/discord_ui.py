@@ -104,6 +104,15 @@ DISCORD = AppSpec("discord.exe", "Discord", lambda title: title.endswith("Discor
 def _find_window(app: AppSpec = DISCORD) -> int:
     """Handle of the program's main window (the biggest visible one), or an error saying why there is none."""
     user32 = ctypes.windll.user32
+    try:
+        hwinsta = user32.OpenWindowStationW("WinSta0", False, 0x037F)
+        if hwinsta:
+            user32.SetProcessWindowStation(hwinsta)
+            hdesk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
+            if hdesk:
+                user32.SetThreadDesktop(hdesk)
+    except Exception:
+        pass
     pids = {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() == app.process}
     if not pids:
         raise DiscordUiError(f"{app.name} no está abierto.")
@@ -123,6 +132,14 @@ def _find_window(app: AppSpec = DISCORD) -> int:
         return True
 
     user32.EnumWindows(visit, 0)
+    if not found:
+        try:
+            hinput = user32.OpenInputDesktop(0, False, 0x01FF)
+            if hinput:
+                user32.EnumDesktopWindows(hinput, visit, 0)
+                user32.CloseDesktop(hinput)
+        except Exception:
+            pass
     if not found:
         raise DiscordUiError(f"No encuentro la ventana de {app.name}. Ábrela (puede quedar detrás de otras ventanas).")
 
@@ -147,6 +164,7 @@ class _Window:
         comtypes.client.GetModule("UIAutomationCore.dll")
         from comtypes.gen import UIAutomationClient as UIA
         self.app = app
+        self._prev_foreground = _user32.GetForegroundWindow()
         self.hwnd = _find_window(app)
         self._guarded = False
         if guard:
@@ -178,6 +196,27 @@ class _Window:
             self._guarded = False
             time.sleep(REACTION_SECONDS)
             _unmark(self.hwnd)
+            prev_fg = getattr(self, "_prev_foreground", 0)
+            if prev_fg and _user32.IsWindow(prev_fg) and prev_fg != self.hwnd:
+                cur_fg = _user32.GetForegroundWindow()
+                if cur_fg != prev_fg:
+                    try:
+                        _user32.AllowSetForegroundWindow(-1)
+                        cur_thread = ctypes.windll.kernel32.GetCurrentThreadId()
+                        fg_thread = _user32.GetWindowThreadProcessId(cur_fg, None) if cur_fg else 0
+                        target_thread = _user32.GetWindowThreadProcessId(prev_fg, None)
+                        if fg_thread and fg_thread != target_thread:
+                            _user32.AttachThreadInput(fg_thread, target_thread, True)
+                        if cur_thread != target_thread:
+                            _user32.AttachThreadInput(cur_thread, target_thread, True)
+                        _user32.BringWindowToTop(prev_fg)
+                        _user32.SetForegroundWindow(prev_fg)
+                        if fg_thread and fg_thread != target_thread:
+                            _user32.AttachThreadInput(fg_thread, target_thread, False)
+                        if cur_thread != target_thread:
+                            _user32.AttachThreadInput(cur_thread, target_thread, False)
+                    except Exception:
+                        pass
 
     def _named(self, name: str, control_type: int = UIA_BUTTON) -> Optional[Any]:
         return next((e for e, n, _ in self._all(control_type) if n == name), None)

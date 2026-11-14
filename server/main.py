@@ -170,7 +170,8 @@ def merge_sessions(sessions: list) -> list:
 def read_audio_state() -> Dict[str, Any]:
     sessions = audio_controller.get_audio_sessions()
     for process, volume in list(_pending_app_volumes.items()):
-        if any(s["process_name"].lower() == process for s in sessions):
+        proc_clean = process.replace(".exe", "")
+        if any(s["process_name"].lower() == process or s["process_name"].lower().replace(".exe", "") == proc_clean for s in sessions):
             audio_controller.set_app_volume(process, volume)
             _pending_app_volumes.pop(process, None)
             sessions = audio_controller.get_audio_sessions()
@@ -1265,22 +1266,22 @@ def get_version_changelog(version: str) -> Dict[str, Any]:
         "title": f"Novedades de StreamDesk v{version}",
         "steps": [
             {
-                "title": "Control específico de escenas OBS",
-                "tag": "Novedad",
-                "icon": "grid",
-                "description": "Elige la escena exacta de OBS desde un desplegable dinámico. La escena activa en transmisión se resalta en tu móvil con un borde verde esmeralda y el indicador «En vivo» en tiempo real.",
-            },
-            {
-                "title": "Generador de página OBS en 1 clic",
-                "tag": "Facilidad",
-                "icon": "phone",
-                "description": "Crea al instante una página en StreamDesk con todas tus escenas de OBS y vinculada automáticamente a obs64.exe desde el panel de conexión de OBS.",
-            },
-            {
-                "title": "Colecciones, perfiles y fuentes",
-                "tag": "Control",
+                "title": "Independencia de foco y juegos",
+                "tag": "Corrección",
                 "icon": "shield",
-                "description": "Cambia colecciones de escenas completas y perfiles de transmisión con un toque, y alterna fuentes individuales (cámaras, alertas, overlays) fácilmente.",
+                "description": "Las acciones como «Me gusta» en Spotify ya no envían atajos de teclado físicos a juegos o aplicaciones en primer plano (como Valorant) ni interfieren con ventanas activas.",
+            },
+            {
+                "title": "Control individual de audio por app",
+                "tag": "Mejora",
+                "icon": "sliders",
+                "description": "El control de volumen por aplicación ahora es completamente resiliente ante procesos cerrados o inaccesibles, permitiendo controlar Spotify, Discord y juegos sin interrupciones.",
+            },
+            {
+                "title": "Automatización en segundo plano protegida",
+                "tag": "Estabilidad",
+                "icon": "power",
+                "description": "Detección mejorada de ventanas en segundo plano mediante OpenInputDesktop y preservación estricta del foco original del usuario.",
             },
         ],
     }

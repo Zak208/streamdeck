@@ -9,6 +9,8 @@ import winsound
 from typing import Any, Dict
 from urllib.parse import urlparse
 
+import psutil
+
 from server.action_catalog import (
     DISCORD_TARGETS,
     MEDIA_TARGETS,
@@ -42,6 +44,59 @@ HOTKEY_VK.update({"INSERT": 0x2D, "PAGEUP": 0x21, "PAGEDOWN": 0x22, "PRINTSCREEN
 # These share a scan code with a numpad key unless flagged as extended.
 EXTENDED_KEYS = {"UP", "DOWN", "LEFT", "RIGHT", "HOME", "END", "DELETE", "INSERT", "PAGEUP", "PAGEDOWN"}
 KEYEVENTF_EXTENDEDKEY = 0x0001
+
+
+WM_APPCOMMAND = 0x0319
+SPOTIFY_APPCOMMANDS = {
+    "play_pause": 14,
+    "play": 14,
+    "pause": 14,
+    "next": 11,
+    "next_track": 11,
+    "prev": 12,
+    "previous": 12,
+    "prev_track": 12,
+    "stop": 13,
+}
+
+
+def _find_spotify_hwnds() -> list:
+    """Find top-level Spotify windows to deliver media commands directly."""
+    try:
+        user32 = ctypes.windll.user32
+        pids = {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() == "spotify.exe"}
+        if not pids:
+            return []
+        found: list = []
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        def enum_proc(hwnd, _):
+            pid = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value in pids:
+                cls_buff = ctypes.create_unicode_buffer(80)
+                user32.GetClassNameW(hwnd, cls_buff, 80)
+                if "Chrome_WidgetWin" in cls_buff.value:
+                    found.append(hwnd)
+            return True
+
+        user32.EnumWindows(enum_proc, 0)
+        return found
+    except Exception:
+        return []
+
+
+def _post_spotify_media_command(media_key: str) -> None:
+    cmd = SPOTIFY_APPCOMMANDS.get(media_key)
+    if cmd is None:
+        return
+    try:
+        user32 = ctypes.windll.user32
+        lParam = cmd << 16
+        for hwnd in _find_spotify_hwnds():
+            user32.PostMessageW(hwnd, WM_APPCOMMAND, 0, lParam)
+    except Exception:
+        pass
 
 
 def send_vk_key(vk_code: int) -> bool:
@@ -140,11 +195,93 @@ def type_text(text: str, press_enter: bool = False) -> bool:
         return False
 
 
+def bring_window_to_front(hwnd: int) -> bool:
+    """Bring a window to the foreground even if another app is currently in foreground."""
+    if not hwnd:
+        return False
+    user32 = ctypes.windll.user32
+    if not user32.IsWindow(hwnd):
+        return False
+    try:
+        user32.AllowSetForegroundWindow(-1)
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        else:
+            user32.ShowWindow(hwnd, 5)  # SW_SHOW
+
+        cur_thread = ctypes.windll.kernel32.GetCurrentThreadId()
+        fg_hwnd = user32.GetForegroundWindow()
+        fg_thread = user32.GetWindowThreadProcessId(fg_hwnd, None) if fg_hwnd else 0
+        target_thread = user32.GetWindowThreadProcessId(hwnd, None)
+
+        if fg_thread and fg_thread != target_thread:
+            user32.AttachThreadInput(fg_thread, target_thread, True)
+        if cur_thread != target_thread:
+            user32.AttachThreadInput(cur_thread, target_thread, True)
+
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+
+        if fg_thread and fg_thread != target_thread:
+            user32.AttachThreadInput(fg_thread, target_thread, False)
+        if cur_thread != target_thread:
+            user32.AttachThreadInput(cur_thread, target_thread, False)
+        return True
+    except Exception:
+        return False
+
+
+def _find_running_app_window(exe_names: list) -> int:
+    """Find the main top-level visible window for given executable name(s)."""
+    try:
+        user32 = ctypes.windll.user32
+        names = {name.lower() for name in exe_names}
+        pids = {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() in names}
+        if not pids:
+            return 0
+        candidates = []
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        def enum_proc(hwnd, _):
+            pid = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value in pids and (user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd)):
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length > 0:
+                    rect = (ctypes.c_long * 4)()
+                    user32.GetWindowRect(hwnd, rect)
+                    area = (rect[2] - rect[0]) * (rect[3] - rect[1])
+                    candidates.append((area, hwnd))
+            return True
+
+        user32.EnumWindows(enum_proc, 0)
+        if candidates:
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            return candidates[0][1]
+    except Exception:
+        pass
+    return 0
+
+
 def launch_smart_app(app_id: str) -> bool:
-    """Launch only an installed app selected by StreamDesk's own scanner."""
+    """Launch or focus an installed app selected by StreamDesk's own scanner."""
     app_key = (app_id or "").lower().strip()
     if not app_key:
         return False
+
+    # If the app is already running, attempt to bring its window to the foreground first
+    candidates_exe = [f"{app_key}.exe", app_key]
+    for app in system_scanner.get_detected_apps():
+        if app["id"].lower() == app_key:
+            if app.get("exe_names"):
+                candidates_exe.extend(app["exe_names"])
+            if app.get("exe_name"):
+                candidates_exe.append(app["exe_name"])
+            break
+
+    existing_hwnd = _find_running_app_window(candidates_exe)
+    if existing_hwnd and bring_window_to_front(existing_hwnd):
+        return True
 
     for app in system_scanner.get_detected_apps():
         if app["id"].lower() != app_key:
@@ -251,6 +388,11 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
             return windows.execute(target, extra)
 
         if action_type == "hotkey":
+            parts = [p.strip().upper() for p in (target or "").split("+") if p.strip()]
+            if sorted(parts) == ["ALT", "B", "SHIFT"]:
+                # Intercept Spotify Like shortcut so it operates Spotify in background
+                # and never injects 'B' into foreground games (e.g. Valorant buy menu).
+                return spotify.toggle_like()
             return {"success": send_hotkey(target, require_modifier=False), "action": action_type, "target": target}
 
         if action_type == "text":
@@ -296,7 +438,9 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
             }
             if media_key not in MEDIA_TARGETS:
                 return {"success": False, "error": "Comando multimedia desconocido"}
-            return {"success": send_vk_key(media_map[media_key]), "action": action_type, "target": target}
+            ok = send_vk_key(media_map[media_key])
+            _post_spotify_media_command(media_key)
+            return {"success": ok, "action": action_type, "target": target}
 
         if action_type == "url":
             parsed = urlparse(target)

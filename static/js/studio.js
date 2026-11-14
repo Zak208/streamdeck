@@ -1562,6 +1562,20 @@ function openAppHub(host, app, btn, index, onBack) {
     packBox.addEventListener("click", (e) => {
       const chosen = pack.actions.find(a => a.id === e.target.closest("[data-action]")?.dataset.action);
       if (!chosen) return;
+      if (pack.id === "spotify" && chosen.id === "like") {
+        assignFromTemplate(btn, index, {
+          label: chosen.label, sublabel: "Spotify", icon: `/static/icons/${chosen.icon}.svg`,
+          color: pack.color || "#1db954", action_type: "spotify_action", target: "like", extra: {},
+        });
+        return;
+      }
+      if (pack.id === "spotify" && chosen.id === "play_pause") {
+        assignFromTemplate(btn, index, {
+          label: chosen.label, sublabel: "Spotify", icon: `/static/icons/${chosen.icon}.svg`,
+          color: pack.color || "#1db954", action_type: "media", target: "play_pause", extra: {},
+        });
+        return;
+      }
       assignFromTemplate(btn, index, {
         label: chosen.label, sublabel: chosen.sub || chosen.keys, icon: `/static/icons/${chosen.icon}.svg`,
         color: pack.color || "#f8c700", action_type: "hotkey", target: chosen.keys, extra: {},
