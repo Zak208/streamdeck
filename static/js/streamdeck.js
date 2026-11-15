@@ -746,6 +746,28 @@ function closeSystemDetail() {
   if (detailSheet) detailSheet.hidden = true;
 }
 
+window.onAndroidBack = function() {
+  if (appModal && appModal.classList.contains("open")) {
+    appModal.classList.remove("open");
+    return true;
+  }
+  if (pinModal && pinModal.classList.contains("open")) {
+    pinModal.classList.remove("open");
+    return true;
+  }
+  if (detailSheet && !detailSheet.hidden) {
+    closeSystemDetail();
+    return true;
+  }
+  const settingsModal = document.getElementById("settings-modal");
+  if (settingsModal && (settingsModal.classList.contains("open") || !settingsModal.hidden)) {
+    settingsModal.classList.remove("open");
+    settingsModal.hidden = true;
+    return true;
+  }
+  return false;
+};
+
 document.getElementById("btn-close-detail")?.addEventListener("click", closeSystemDetail);
 detailSheet?.addEventListener("click", (event) => { if (event.target === detailSheet) closeSystemDetail(); });
 

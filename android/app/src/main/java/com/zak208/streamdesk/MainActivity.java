@@ -30,6 +30,7 @@ import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.AppCompatButton;
 
 import com.journeyapps.barcodescanner.ScanContract;
@@ -72,7 +73,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_SERVERS = "servers";
     private static final String KEY_LAST_ID = "last_server_id";
     private static final int PORT = 48291;
-    private static final int RETRY_MS = 6000;
+    private static final int[] SCAN_BACKOFF_MS = {6000, 12000, 30000, 60000};
+    private int scanAttempt = 0;
 
     /** A PC this phone knows. */
     private static final class Server {
@@ -116,6 +118,8 @@ public class MainActivity extends AppCompatActivity {
     private volatile String currentId = "";
     /** True when the PC shown proved it holds our token: only then does the page get the token. */
     private volatile boolean currentVerified = false;
+    /** True when a connection was started with a PIN (from QR or manual input), allowing saveToken once. */
+    private volatile boolean pinPairingInitiated = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -253,6 +257,7 @@ public class MainActivity extends AppCompatActivity {
     private void showDeck() {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         generation++;
+        scanAttempt = 0;
         ui.removeCallbacksAndMessages(null);
         progress.setVisibility(View.INVISIBLE);
         connectLayout.setVisibility(View.GONE);
@@ -264,18 +269,42 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onBackPressed() {
         if (webView.getVisibility() == View.VISIBLE) {
-            // A stray Back gesture in the middle of a stream must not drop the panel: the second one within 2 s does.
-            long now = System.currentTimeMillis();
-            if (now - lastBackAt > 2000) {
-                lastBackAt = now;
-                Toast.makeText(this, R.string.press_back_again, Toast.LENGTH_SHORT).show();
-                return;
-            }
-            generation++;
-            showConnect("Has salido del panel. Toca Buscar mi PC para volver, o escanea otro QR.");
-            progress.setVisibility(View.INVISIBLE);
+            // Ask the web page if it has an open sheet or modal to close first
+            webView.evaluateJavascript("window.onAndroidBack ? window.onAndroidBack() : false;", value -> {
+                if ("true".equals(value) || "\"true\"".equals(value)) {
+                    return;
+                }
+                long now = System.currentTimeMillis();
+                if (now - lastBackAt > 2000) {
+                    lastBackAt = now;
+                    Toast.makeText(this, R.string.press_back_again, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                generation++;
+                showConnect("Has salido del panel. Toca Buscar mi PC para volver, o escanea otro QR.");
+                progress.setVisibility(View.INVISIBLE);
+            });
         } else {
             super.onBackPressed();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (webView != null) {
+            webView.onPause();
+            webView.pauseTimers();
+        }
+        ui.removeCallbacksAndMessages(null);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (webView != null) {
+            webView.onResume();
+            webView.resumeTimers();
         }
     }
 
@@ -363,6 +392,7 @@ public class MainActivity extends AppCompatActivity {
         ui.removeCallbacksAndMessages(null);
         currentId = s.id;
         currentVerified = verified;
+        pinPairingInitiated = (pin != null && !pin.isEmpty());
         pageFailed = false;
         prefs.edit().putString(KEY_LAST_ID, s.id).apply();
         setStatus("Conectando con " + s.name + "...");
@@ -407,6 +437,20 @@ public class MainActivity extends AppCompatActivity {
                     setStatus("No encuentro StreamDesk en " + base + ". Si es un QR, comprueba que es el de Studio; si es una IP, que StreamDesk está abierto y que estáis en la misma Wi-Fi. Si todo parece bien, en el PC abre Studio > Ajustes > Conexión del móvil > Comprobar la conexión: la causa más habitual es el cortafuegos de Windows.");
                     return;
                 }
+                Server known = serverById(found.id);
+                if (known != null && known.token != null && !known.token.isEmpty() && !found.verified) {
+                    progress.setVisibility(View.INVISIBLE);
+                    new AlertDialog.Builder(MainActivity.this)
+                            .setTitle("PC desconocido con el mismo id")
+                            .setMessage("Este PC dice ser " + found.name + " (" + found.id + ") pero no ha podido verificar su identidad mediante HMAC. ¿Quieres abrirlo de todas formas?")
+                            .setPositiveButton("Abrir", (dialog, which) -> {
+                                Server s = remember(found);
+                                loadServer(s, false, pinToUse);
+                            })
+                            .setNegativeButton("Cancelar", null)
+                            .show();
+                    return;
+                }
                 Server s = remember(found);
                 loadServer(s, found.verified, pinToUse);
             });
@@ -449,12 +493,14 @@ public class MainActivity extends AppCompatActivity {
     // ------------------------------------------------------------------ searching for the PC
 
     private void scheduleRetry() {
+        int waitMs = SCAN_BACKOFF_MS[Math.min(scanAttempt, SCAN_BACKOFF_MS.length - 1)];
+        scanAttempt++;
         ui.postDelayed(() -> {
             Server last = lastServer();
             if (connectVisible() && last != null) {
                 startSearch(last);
             }
-        }, RETRY_MS);
+        }, waitMs);
     }
 
     /**
@@ -514,7 +560,9 @@ public class MainActivity extends AppCompatActivity {
                             hits[0]++;
                             Server known = serverById(found.id);
                             if (known != null) {
-                                if (!opened[0]) {
+                                if (known.token != null && !known.token.isEmpty() && !found.verified) {
+                                    addFound(found);
+                                } else if (!opened[0]) {
                                     opened[0] = true;
                                     loadServer(remember(found), found.verified, null);
                                 }
@@ -565,7 +613,10 @@ public class MainActivity extends AppCompatActivity {
         button.setAllCaps(false);
         button.setBackgroundResource(R.drawable.bg_button_secondary);
         button.setTextColor(getResources().getColor(R.color.text_primary, getTheme()));
-        button.setText(found.name + "   " + found.url.replace("http://", ""));
+        Server known = serverById(found.id);
+        boolean impostor = known != null && known.token != null && !known.token.isEmpty() && !found.verified;
+        String displayName = impostor ? "PC desconocido con el mismo id" : found.name;
+        button.setText(displayName + "   " + found.url.replace("http://", ""));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, (int) (48 * getResources().getDisplayMetrics().density));
         lp.topMargin = (int) (6 * getResources().getDisplayMetrics().density);
@@ -746,6 +797,15 @@ public class MainActivity extends AppCompatActivity {
     private Server remember(Identity found) {
         synchronized (servers) {
             Server s = serverById(found.id);
+            if (s != null && s.token != null && !s.token.isEmpty() && !found.verified) {
+                // An unverified PC with the same ID as a paired server must not overwrite the remembered address.
+                Server unverifiedCopy = new Server();
+                unverifiedCopy.id = s.id;
+                unverifiedCopy.token = "";
+                unverifiedCopy.name = "PC desconocido con el mismo id";
+                unverifiedCopy.url = found.url;
+                return unverifiedCopy;
+            }
             if (s == null) {
                 s = new Server();
                 s.id = found.id;
@@ -799,6 +859,10 @@ public class MainActivity extends AppCompatActivity {
             if (s == null || token == null || token.length() > 128) {
                 return;
             }
+            if (!currentVerified && !pinPairingInitiated) {
+                return;
+            }
+            pinPairingInitiated = false;
             synchronized (servers) {
                 s.token = token;
                 saveServers();
@@ -808,6 +872,9 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public void clearToken() {
+            if (!currentVerified) {
+                return;
+            }
             Server s = serverById(currentId);
             if (s == null) {
                 return;

@@ -80,6 +80,25 @@ class AndroidProjectTests(unittest.TestCase):
         self.assertIn(f'ANDROID_APK_URL = "{ANDROID_APK_URL}"', read("static", "js", "phone-settings.js"))
         self.assertIn("StreamDesk.apk", read(".github", "workflows", "build-apk.yml"))
 
+    def test_security_guards_and_lifecycle(self):
+        java = read("android", "app", "src", "main", "java", "com", "zak208", "streamdesk", "MainActivity.java")
+        js = read("static", "js", "streamdeck.js")
+        # 1. Unverified PC with same ID does not overwrite remembered address and shows warning label
+        self.assertIn("PC desconocido con el mismo id", java)
+        self.assertIn("!found.verified", java)
+        # 2. Token guards in bridge require currentVerified or pinPairingInitiated
+        self.assertIn("!currentVerified && !pinPairingInitiated", java)
+        self.assertIn("if (!currentVerified) {", java)
+        # 3. Back button bridge closes open sheets and modals before exit
+        self.assertIn("window.onAndroidBack", java)
+        self.assertIn("window.onAndroidBack", js)
+        # 4. Battery optimization: scan backoff and webView pause on lifecycle events
+        self.assertIn("SCAN_BACKOFF_MS", java)
+        self.assertIn("webView.onPause()", java)
+        self.assertIn("webView.pauseTimers()", java)
+        self.assertIn("webView.onResume()", java)
+        self.assertIn("webView.resumeTimers()", java)
+
 
 class IdentityTests(unittest.TestCase):
     @classmethod
