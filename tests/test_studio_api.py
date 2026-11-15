@@ -425,6 +425,23 @@ class AssetTests(unittest.TestCase):
             self.assertIn("/static/css/tokens.css", read(page))
         self.assertIn("/static/js/studio-ui.js", read("studio.html"))
 
+    def test_studio_undo_redo_stack_and_paste_safety(self):
+        code = read("js/studio.js")
+        html = read("studio.html")
+        # Deletions are unified through the chronological undo stack, no separate lastDeleted priority
+        self.assertNotIn("lastDeleted", code)
+        self.assertNotIn("undoLastDelete", code)
+        self.assertIn('showToast(msg, { action: { label: "Deshacer", run: performUndo } })', code)
+        # Redo support via performRedo, btn-redo, Ctrl+Y, and Ctrl+Shift+Z
+        self.assertIn("function performRedo()", code)
+        self.assertIn('id="btn-redo"', html)
+        self.assertIn('key === "y" || (key === "z" && event.shiftKey)', code)
+        # Paste confirmation when target slot is occupied and pushes state
+        self.assertIn("async function pasteCopiedSlot", code)
+        self.assertIn("askConfirm", code)
+        # 422 rollback to last accepted server configuration
+        self.assertIn("response.status === 422 && lastAcceptedServerConfig", code)
+
 
 if __name__ == "__main__":
     unittest.main()

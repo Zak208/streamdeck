@@ -427,6 +427,7 @@ async function loadConfig() {
   try {
     const res = await fetch("/api/deck/config");
     config = await res.json();
+    lastAcceptedServerConfig = JSON.parse(JSON.stringify(config));
     activePageIndex = config.current_page || 0;
     renderPageTabs();
     renderPhoneScreen();
@@ -831,45 +832,17 @@ function finishSlotDrag(event, index, wrap) {
   deleteSlotByDrag(index);
 }
 
-// What was removed last (a button, or a fader with the cell under it), so Ctrl+Z can bring it back.
-let lastDeleted = null;
-
-function rememberDeleted(pageIndex, slots, indices) {
-  lastDeleted = { page: pageIndex, cells: indices.map(index => ({ index, slot: JSON.parse(JSON.stringify(slots[index])) })) };
-}
-
-function undoLastDelete() {
-  if (!lastDeleted || !config?.pages?.[lastDeleted.page]) return false;
-  const { page, cells } = lastDeleted;
-  const slots = config.pages[page].slots;
-  // Only into cells that are still empty: undoing must never overwrite what was put there since.
-  if (cells.some(({ index }) => slots[index] && slots[index].type !== "empty")) {
-    showToast("No se puede deshacer: esa casilla ya tiene otra cosa");
-    lastDeleted = null;
-    return true;
-  }
-  if (page !== activePageIndex) switchPage(page);
-  cells.forEach(({ index, slot }) => { slots[index] = slot; });
-  lastDeleted = null;
-  renderPhoneScreen();
-  selectSlot(cells[0].index);
-  saveConfigToServer();
-  showToast("Deshecho: casilla recuperada");
-  return true;
-}
-
-// Ctrl+Z itself is handled once, in the keydown listener at the end of this file: it brings back
-// the last removed button or fader first (undoLastDelete) and otherwise undoes the last change.
+// Undo / Redo is handled in true chronological order via pushUndoState / performUndo / performRedo.
 
 function deleteSlotByDrag(index) {
   const slots = config?.pages?.[activePageIndex]?.slots;
   const slot = slots?.[index];
   if (!slot || slot.type === "empty" || slot.type === "occupied_by_slider") return;
   const name = slot.label || (slot.type === "slider" ? "Deslizador" : "Botón");
+  pushUndoState();
   if (slot.type === "slider") {
     removeFader(slots, index % gridCols());
   } else {
-    rememberDeleted(activePageIndex, slots, [index]);
     slots[index] = { index, type: "empty" };
   }
   selectedSlotIndex = null;
@@ -974,11 +947,11 @@ function emptySlotByIndex(idx) {
   const slot = currentSlots[idx];
   if (!slot || slot.type === "empty") return;
 
+  pushUndoState();
   if (slot.type === "slider" || slot.type === "occupied_by_slider" || inFaderColumn(currentSlots, idx)) {
     removeFader(currentSlots, col);
     showUndoToast(`Columna ${col + 1} vaciada`);
   } else {
-    rememberDeleted(activePageIndex, currentSlots, [idx]);
     currentSlots[idx] = { index: idx, type: "empty" };
     showUndoToast(`Casilla ${idx + 1} vaciada`);
   }
@@ -987,11 +960,28 @@ function emptySlotByIndex(idx) {
   saveConfigToServer();
 }
 
-function pasteCopiedSlot(targetIdx) {
+async function pasteCopiedSlot(targetIdx) {
   if (!copiedSlotConfig) return;
   const pages = config?.pages || [];
   const currentSlots = (pages[activePageIndex] ? pages[activePageIndex].slots : config?.slots) || [];
   const tCol = targetIdx % gridCols();
+  const targetSlot = currentSlots[targetIdx];
+
+  const isOccupied = copiedSlotConfig.type === "slider"
+    ? currentSlots.some((s, i) => i % gridCols() === tCol && s && s.type !== "empty")
+    : (targetSlot && targetSlot.type !== "empty");
+
+  if (isOccupied) {
+    const confirmed = await askConfirm({
+      title: "¿Sobrescribir casilla?",
+      message: "La casilla destino ya tiene una acción. ¿Quieres sobrescribirla?",
+      confirmLabel: "Sobrescribir",
+      danger: true
+    });
+    if (!confirmed) return;
+  }
+
+  pushUndoState();
 
   if (copiedSlotConfig.type === "slider") {
     const pastedSlider = JSON.parse(JSON.stringify(copiedSlotConfig));
@@ -1337,6 +1327,7 @@ window.addEventListener("keydown", (e) => {
     }
   } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
     if (copiedSlotConfig && selectedSlotIndex !== null) {
+      e.preventDefault();
       pasteCopiedSlot(selectedSlotIndex);
     }
   }
@@ -3029,6 +3020,8 @@ function setSaveStatus(state, text) {
   document.getElementById("save-status-text").textContent = text;
 }
 
+let lastAcceptedServerConfig = null;
+
 async function persistConfig() {
   if (!config) return false;
   setSaveStatus("saving", "Guardando...");
@@ -3045,8 +3038,33 @@ async function persistConfig() {
       const error = await response.json().catch(() => ({}));
       setSaveStatus("error", "No se guardó");
       showToast(typeof error.detail === "string" ? error.detail : "No se pudieron guardar los cambios");
+
+      if (response.status === 422 && lastAcceptedServerConfig) {
+        config = JSON.parse(JSON.stringify(lastAcceptedServerConfig));
+        if (typeof activePageIndex === "number" && config.pages && !config.pages[activePageIndex]) {
+          activePageIndex = Math.max(0, config.pages.length - 1);
+        }
+        renderPageTabs();
+        renderPhoneScreen();
+        if (selectedSlotIndex !== null && config.pages?.[activePageIndex]?.slots?.[selectedSlotIndex]) {
+          selectSlot(selectedSlotIndex);
+        } else {
+          clearInspector();
+        }
+        lastSavedSnapshot = JSON.stringify({
+          config,
+          activePageIndex,
+          selectedSlotIndex,
+        });
+        if (undoStack.length > 0 && undoStack[undoStack.length - 1] === lastSavedSnapshot) {
+          undoStack.pop();
+        }
+        redoStack.length = 0;
+        updateUndoButtonState();
+      }
       return false;
     }
+    lastAcceptedServerConfig = JSON.parse(JSON.stringify(config));
     setSaveStatus("saved", "Guardado");
     return true;
   } catch (e) {
@@ -3059,16 +3077,22 @@ async function persistConfig() {
 
 let lastSavedSnapshot = null;
 const undoStack = [];
+const redoStack = [];
 const MAX_UNDO_STATES = 25;
 
 function initUndoBaseline() {
   if (!config) return;
   try {
+    if (!lastAcceptedServerConfig) {
+      lastAcceptedServerConfig = JSON.parse(JSON.stringify(config));
+    }
     lastSavedSnapshot = JSON.stringify({
       config,
       activePageIndex,
       selectedSlotIndex,
     });
+    undoStack.length = 0;
+    redoStack.length = 0;
     updateUndoButtonState();
   } catch (e) {}
 }
@@ -3084,6 +3108,7 @@ function pushUndoState() {
     if (lastSavedSnapshot && lastSavedSnapshot !== current) {
       undoStack.push(lastSavedSnapshot);
       if (undoStack.length > MAX_UNDO_STATES) undoStack.shift();
+      redoStack.length = 0;
       updateUndoButtonState();
     }
     lastSavedSnapshot = current;
@@ -3098,6 +3123,14 @@ async function performUndo() {
   }
   const snapshotJson = undoStack.pop();
   try {
+    const current = JSON.stringify({
+      config,
+      activePageIndex,
+      selectedSlotIndex,
+    });
+    redoStack.push(current);
+    if (redoStack.length > MAX_UNDO_STATES) redoStack.shift();
+
     const state = JSON.parse(snapshotJson);
     config = state.config;
     if (typeof state.activePageIndex === "number" && config.pages && config.pages[state.activePageIndex]) {
@@ -3119,12 +3152,54 @@ async function performUndo() {
   }
 }
 
+async function performRedo() {
+  if (!redoStack.length) {
+    showToast("No hay más cambios para rehacer");
+    return;
+  }
+  const snapshotJson = redoStack.pop();
+  try {
+    const current = JSON.stringify({
+      config,
+      activePageIndex,
+      selectedSlotIndex,
+    });
+    undoStack.push(current);
+    if (undoStack.length > MAX_UNDO_STATES) undoStack.shift();
+
+    const state = JSON.parse(snapshotJson);
+    config = state.config;
+    if (typeof state.activePageIndex === "number" && config.pages && config.pages[state.activePageIndex]) {
+      activePageIndex = state.activePageIndex;
+    }
+    renderPageTabs();
+    renderPhoneScreen();
+    if (typeof state.selectedSlotIndex === "number" && config.pages[activePageIndex]?.slots?.[state.selectedSlotIndex]) {
+      selectSlot(state.selectedSlotIndex);
+    } else {
+      clearInspector();
+    }
+    lastSavedSnapshot = snapshotJson;
+    await saveConfigToServer({ immediate: true, skipUndo: true });
+    updateUndoButtonState();
+    showToast("Cambio rehecho");
+  } catch (e) {
+    showToast("No se pudo rehacer");
+  }
+}
+
 function updateUndoButtonState() {
-  const btn = document.getElementById("btn-undo");
-  if (btn) {
-    btn.disabled = undoStack.length === 0;
-    btn.style.opacity = undoStack.length === 0 ? "0.35" : "1";
-    btn.title = undoStack.length > 0 ? `Deshacer último cambio (Ctrl+Z) - ${undoStack.length} disponibles` : "Deshacer (Ctrl+Z)";
+  const btnUndo = document.getElementById("btn-undo");
+  if (btnUndo) {
+    btnUndo.disabled = undoStack.length === 0;
+    btnUndo.style.opacity = undoStack.length === 0 ? "0.35" : "1";
+    btnUndo.title = undoStack.length > 0 ? `Deshacer último cambio (Ctrl+Z) - ${undoStack.length} disponibles` : "Deshacer (Ctrl+Z)";
+  }
+  const btnRedo = document.getElementById("btn-redo");
+  if (btnRedo) {
+    btnRedo.disabled = redoStack.length === 0;
+    btnRedo.style.opacity = redoStack.length === 0 ? "0.35" : "1";
+    btnRedo.title = redoStack.length > 0 ? `Rehacer cambio (Ctrl+Y / Ctrl+Shift+Z) - ${redoStack.length} disponibles` : "Rehacer (Ctrl+Y)";
   }
 }
 
@@ -3175,7 +3250,7 @@ function showToast(msg, options = {}) {
 
 // What was just removed can be brought back: the message says so with a button, not with a keyboard hint nobody reads.
 function showUndoToast(msg) {
-  showToast(msg, { action: { label: "Deshacer", run: undoLastDelete } });
+  showToast(msg, { action: { label: "Deshacer", run: performUndo } });
 }
 
 // Saves what is waiting to be saved, now. Anything that reads the profile from the PC (adding a page from the
@@ -3209,13 +3284,18 @@ window.addEventListener("DOMContentLoaded", () => {
   checkGitHubUpdates();
   connectStudioSocket();
   document.getElementById("btn-undo")?.addEventListener("click", performUndo);
+  document.getElementById("btn-redo")?.addEventListener("click", performRedo);
   document.addEventListener("keydown", (event) => {
     const tag = (event.target?.tagName || "").toLowerCase();
     if (tag === "input" || tag === "textarea" || tag === "select" || event.target?.isContentEditable) return;
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !event.shiftKey) {
+    const isCtrlOrMeta = event.ctrlKey || event.metaKey;
+    const key = (event.key || "").toLowerCase();
+    if (isCtrlOrMeta && key === "z" && !event.shiftKey) {
       event.preventDefault();
-      if (lastDeleted && undoLastDelete()) return;
       performUndo();
+    } else if (isCtrlOrMeta && (key === "y" || (key === "z" && event.shiftKey))) {
+      event.preventDefault();
+      performRedo();
     }
   });
   setInterval(loadAudioSessions, 15000); // safety net: the live feed does the real work
