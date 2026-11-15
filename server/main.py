@@ -51,6 +51,7 @@ from server.audio_controller import audio_controller
 from server.com_worker import com_worker
 from server.actions import execute_action, play_local_sound
 from server.auth import auth_manager
+from server.release_notes import get_version_changelog
 from server import app_icons, audit, desktop, diagnostics, discord_ui, firewall, layouts, live_buttons, page_library, permissions, program_packs, shell_actions, steam, templates, updater, webhooks
 from server.action_catalog import GESTURES, validate_deck_config
 from server.config_manager import CONFIG_FILE, config_manager
@@ -1261,32 +1262,6 @@ def update_status(_: None = Depends(require_local_request)):
 
 
 # --- Onboarding & Guided Tour ---
-
-def get_version_changelog(version: str) -> Dict[str, Any]:
-    return {
-        "version": version,
-        "title": f"Novedades de StreamDesk v{version}",
-        "steps": [
-            {
-                "title": "Independencia de foco y juegos",
-                "tag": "Corrección",
-                "icon": "shield",
-                "description": "Las acciones como «Me gusta» en Spotify ya no envían atajos de teclado físicos a juegos o aplicaciones en primer plano (como Valorant) ni interfieren con ventanas activas.",
-            },
-            {
-                "title": "Control individual de audio por app",
-                "tag": "Mejora",
-                "icon": "sliders",
-                "description": "El control de volumen por aplicación ahora es completamente resiliente ante procesos cerrados o inaccesibles, permitiendo controlar Spotify, Discord y juegos sin interrupciones.",
-            },
-            {
-                "title": "Automatización en segundo plano protegida",
-                "tag": "Estabilidad",
-                "icon": "power",
-                "description": "Detección mejorada de ventanas en segundo plano mediante OpenInputDesktop y preservación estricta del foco original del usuario.",
-            },
-        ],
-    }
 
 
 @app.get("/api/system/onboarding")
