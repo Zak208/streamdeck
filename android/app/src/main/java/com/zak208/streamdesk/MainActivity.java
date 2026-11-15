@@ -306,6 +306,10 @@ public class MainActivity extends AppCompatActivity {
             webView.onResume();
             webView.resumeTimers();
         }
+        if (connectVisible()) {
+            scanAttempt = 0;
+            startSearch(lastServer());
+        }
     }
 
     @Override
@@ -441,13 +445,13 @@ public class MainActivity extends AppCompatActivity {
                 if (known != null && known.token != null && !known.token.isEmpty() && !found.verified) {
                     progress.setVisibility(View.INVISIBLE);
                     new AlertDialog.Builder(MainActivity.this)
-                            .setTitle("PC desconocido con el mismo id")
-                            .setMessage("Este PC dice ser " + found.name + " (" + found.id + ") pero no ha podido verificar su identidad mediante HMAC. ¿Quieres abrirlo de todas formas?")
-                            .setPositiveButton("Abrir", (dialog, which) -> {
+                            .setTitle(R.string.unknown_pc_same_id_title)
+                            .setMessage(getString(R.string.unknown_pc_same_id_message, found.name, found.id))
+                            .setPositiveButton(R.string.btn_open, (dialog, which) -> {
                                 Server s = remember(found);
                                 loadServer(s, false, pinToUse);
                             })
-                            .setNegativeButton("Cancelar", null)
+                            .setNegativeButton(R.string.btn_cancel, null)
                             .show();
                     return;
                 }
@@ -798,13 +802,19 @@ public class MainActivity extends AppCompatActivity {
         synchronized (servers) {
             Server s = serverById(found.id);
             if (s != null && s.token != null && !s.token.isEmpty() && !found.verified) {
-                // An unverified PC with the same ID as a paired server must not overwrite the remembered address.
-                Server unverifiedCopy = new Server();
-                unverifiedCopy.id = s.id;
-                unverifiedCopy.token = "";
-                unverifiedCopy.name = "PC desconocido con el mismo id";
-                unverifiedCopy.url = found.url;
-                return unverifiedCopy;
+                // An unverified PC with the same ID as a paired server must not overwrite the remembered address or token.
+                String separateId = found.id + "_unverified_" + Math.abs(found.url.hashCode());
+                Server separate = serverById(separateId);
+                if (separate == null) {
+                    separate = new Server();
+                    separate.id = separateId;
+                    separate.token = "";
+                    servers.add(separate);
+                }
+                separate.name = getString(R.string.unknown_pc_same_id_title);
+                separate.url = found.url;
+                saveServers();
+                return separate;
             }
             if (s == null) {
                 s = new Server();
@@ -860,6 +870,10 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             if (!currentVerified && !pinPairingInitiated) {
+                return;
+            }
+            // If the PC was not verified with HMAC, never allow overwriting a paired server that already has a token
+            if (!currentVerified && s.token != null && !s.token.isEmpty()) {
                 return;
             }
             pinPairingInitiated = false;

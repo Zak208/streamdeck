@@ -82,13 +82,17 @@ class AndroidProjectTests(unittest.TestCase):
 
     def test_security_guards_and_lifecycle(self):
         java = read("android", "app", "src", "main", "java", "com", "zak208", "streamdesk", "MainActivity.java")
+        strings = read("android", "app", "src", "main", "res", "values", "strings.xml")
         js = read("static", "js", "streamdeck.js")
-        # 1. Unverified PC with same ID does not overwrite remembered address and shows warning label
-        self.assertIn("PC desconocido con el mismo id", java)
+        # 1. Unverified PC with same ID does not overwrite remembered address and shows warning label from strings.xml
+        self.assertIn("R.string.unknown_pc_same_id_title", java)
+        self.assertIn('name="unknown_pc_same_id_title">PC desconocido con el mismo id<', strings)
         self.assertIn("!found.verified", java)
-        # 2. Token guards in bridge require currentVerified or pinPairingInitiated
+        self.assertIn("_unverified_", java)
+        # 2. Token guards in bridge require currentVerified or pinPairingInitiated, and prevent unverified overwriting
         self.assertIn("!currentVerified && !pinPairingInitiated", java)
         self.assertIn("if (!currentVerified) {", java)
+        self.assertIn("!currentVerified && s.token != null && !s.token.isEmpty()", java)
         # 3. Back button bridge closes open sheets and modals before exit
         self.assertIn("window.onAndroidBack", java)
         self.assertIn("window.onAndroidBack", js)
@@ -98,6 +102,8 @@ class AndroidProjectTests(unittest.TestCase):
         self.assertIn("webView.pauseTimers()", java)
         self.assertIn("webView.onResume()", java)
         self.assertIn("webView.resumeTimers()", java)
+        # 5. OnResume restarts search if connectScreen was active
+        self.assertIn("connectVisible()", java)
 
 
 class IdentityTests(unittest.TestCase):

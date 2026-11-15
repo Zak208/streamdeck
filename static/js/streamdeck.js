@@ -186,11 +186,15 @@ function renderPageNav(config) {
   }
 }
 
+function warnOfflineAndReconnect() {
+  haptic([40, 60, 40]);
+  showMobileToast("Sin conexión con el PC. Reconectando...", true);
+  if (!ws || ws.readyState === WebSocket.CLOSED) connectWebSocket();
+}
+
 function switchPage(pageIdx) {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
-    haptic([40, 60, 40]);
-    showMobileToast("Sin conexión con el PC. Reconectando...", true);
-    if (!ws || ws.readyState === WebSocket.CLOSED) connectWebSocket();
+    warnOfflineAndReconnect();
     return;
   }
   if (!currentConfig) return;
@@ -203,9 +207,7 @@ function switchPage(pageIdx) {
 
 function goToPrevPage() {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
-    haptic([40, 60, 40]);
-    showMobileToast("Sin conexión con el PC. Reconectando...", true);
-    if (!ws || ws.readyState === WebSocket.CLOSED) connectWebSocket();
+    warnOfflineAndReconnect();
     return;
   }
   if (!currentConfig) return;
@@ -219,9 +221,7 @@ function goToPrevPage() {
 
 function goToNextPage() {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
-    haptic([40, 60, 40]);
-    showMobileToast("Sin conexión con el PC. Reconectando...", true);
-    if (!ws || ws.readyState === WebSocket.CLOSED) connectWebSocket();
+    warnOfflineAndReconnect();
     return;
   }
   if (!currentConfig) return;
@@ -751,18 +751,22 @@ window.onAndroidBack = function() {
     appModal.classList.remove("open");
     return true;
   }
-  if (pinModal && pinModal.classList.contains("open")) {
+  if (pinModal && (pinModal.classList.contains("open") || (pinModal.style && pinModal.style.display !== "none"))) {
     pinModal.classList.remove("open");
+    pinModal.style.display = "none";
     return true;
   }
   if (detailSheet && !detailSheet.hidden) {
     closeSystemDetail();
     return true;
   }
-  const settingsModal = document.getElementById("settings-modal");
-  if (settingsModal && (settingsModal.classList.contains("open") || !settingsModal.hidden)) {
-    settingsModal.classList.remove("open");
-    settingsModal.hidden = true;
+  const settingsSheet = document.getElementById("settings-sheet");
+  if (settingsSheet && !settingsSheet.hidden) {
+    if (typeof closeSettingsSheet === "function") {
+      closeSettingsSheet();
+    } else {
+      settingsSheet.hidden = true;
+    }
     return true;
   }
   return false;

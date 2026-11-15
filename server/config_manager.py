@@ -4,6 +4,7 @@ import re
 import json
 import itertools
 import shutil
+import threading
 import time
 from typing import Dict, Any, List
 from server.action_catalog import validate_deck_config
@@ -102,6 +103,8 @@ class ConfigManager:
         os.makedirs(CONFIG_DIR, exist_ok=True)
         self.last_error = ""
         self._current_page = 0
+        self._page_timer_lock = threading.Lock()
+        self._page_save_timer = None
         self.config = self.load_config()
 
     def load_config(self) -> Dict[str, Any]:
@@ -169,6 +172,7 @@ class ConfigManager:
 
             self.config = validated
             self.last_error = ""
+            self.flush_active_page()
             self._mirror()
             return True
         except Exception as e:
@@ -226,6 +230,48 @@ class ConfigManager:
             return ""
         return path
 
+    @property
+    def _timer_lock(self) -> threading.Lock:
+        if not hasattr(self, "_page_timer_lock") or self._page_timer_lock is None:
+            self._page_timer_lock = threading.Lock()
+        return self._page_timer_lock
+
+    def _schedule_page_save(self, page_index: int, delay: float = 2.5):
+        """Debounce persisting the active page to settings.json so switching pages rapidly does not thrash disk."""
+        with self._timer_lock:
+            timer = getattr(self, "_page_save_timer", None)
+            if timer is not None:
+                timer.cancel()
+            def _write():
+                try:
+                    settings.update("runtime", {"current_page": page_index})
+                except Exception:
+                    pass
+            self._page_save_timer = threading.Timer(delay, _write)
+            self._page_save_timer.daemon = True
+            self._page_save_timer.start()
+
+    def flush_active_page(self):
+        """Immediately write any pending active page change to settings.json on disk."""
+        with self._timer_lock:
+            timer = getattr(self, "_page_save_timer", None)
+            if timer is not None:
+                timer.cancel()
+                self._page_save_timer = None
+            try:
+                current = getattr(self, "_current_page", 0)
+                settings.update("runtime", {"current_page": current})
+            except Exception:
+                pass
+
+    def get_active_page_index(self) -> int:
+        return self._current_page
+
+    def set_active_page_index(self, page_index: int):
+        self._current_page = page_index
+        self.config["current_page"] = page_index
+        self._schedule_page_save(page_index)
+
     def set_active_page(self, page_index: int) -> bool:
         pages = self.config.get("pages", [])
         if 0 <= page_index < len(pages):
@@ -234,7 +280,7 @@ class ConfigManager:
             self.config["slots"] = pages[page_index]["slots"]
             if pages[page_index].get("layout"):
                 self.config["layout"] = pages[page_index]["layout"]  # each page has its own size
-            settings.update("runtime", {"current_page": page_index})
+            self._schedule_page_save(page_index)
             return True
         return False
 

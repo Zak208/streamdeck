@@ -11,4 +11,8 @@
     <string name="press_back_again">Pulsa Atrás otra vez para salir del panel</string>
     <string name="panel_closed">El panel se cerró por falta de memoria. Toca Buscar mi PC para volver.</string>
     <string name="pin_hint">Para vincular un PC nuevo hace falta el QR o el PIN de 6 cifras que muestra Studio. Un PC ya vinculado se reconoce solo.</string>
+    <string name="unknown_pc_same_id_title">PC desconocido con el mismo id</string>
+    <string name="unknown_pc_same_id_message">Este PC dice ser %1$s (%2$s) pero no ha podido verificar su identidad mediante HMAC. ¿Quieres abrirlo de todas formas?</string>
+    <string name="btn_open">Abrir</string>
+    <string name="btn_cancel">Cancelar</string>
 </resources>
