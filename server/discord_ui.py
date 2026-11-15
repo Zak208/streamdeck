@@ -36,7 +36,7 @@ VOICE_STATUS = "Detalles de voz Voz conectada"
 VOICE_TIMER = re.compile(r"\s+\d{1,2}(:\d{2}){1,2}$")
 
 UIA_BUTTON, UIA_HYPERLINK, UIA_IMAGE, UIA_LISTITEM, UIA_TEXT = 50000, 50005, 50006, 50007, 50020
-INVOKE_PATTERN, SCROLL_PATTERN, TOGGLE_PATTERN = 10000, 10004, 10015
+INVOKE_PATTERN, SCROLL_PATTERN, TOGGLE_PATTERN, LEGACY_PATTERN = 10000, 10004, 10015, 10018
 # The user panel (bottom left): [microphone] [headphones] [Ajustes de usuario]. The two buttons just left of the
 # settings one are mute and deafen; found by position, because their names change when they are on.
 USER_SETTINGS = "Ajustes de usuario"
@@ -233,13 +233,27 @@ class _Window:
     def _invoke(self, element) -> None:
         pattern = element.GetCurrentPattern(INVOKE_PATTERN)
         if pattern:
-            pattern.QueryInterface(self.UIA.IUIAutomationInvokePattern).Invoke()
-            return
+            try:
+                pattern.QueryInterface(self.UIA.IUIAutomationInvokePattern).Invoke()
+                return
+            except Exception:
+                pass
         toggle = element.GetCurrentPattern(TOGGLE_PATTERN)
         if toggle:
-            toggle.QueryInterface(self.UIA.IUIAutomationTogglePattern).Toggle()
-            return
-        raise DiscordUiError("Discord no deja pulsar ese botón.")
+            try:
+                toggle.QueryInterface(self.UIA.IUIAutomationTogglePattern).Toggle()
+                return
+            except Exception:
+                pass
+        legacy = element.GetCurrentPattern(LEGACY_PATTERN)
+        if legacy:
+            try:
+                legacy.QueryInterface(self.UIA.IUIAutomationLegacyIAccessiblePattern).DoDefaultAction()
+                return
+            except Exception:
+                pass
+        name = getattr(self, "app", DISCORD).name
+        raise DiscordUiError(f"{name} no deja pulsar ese botón.")
 
 
 class _Panel(_Window):

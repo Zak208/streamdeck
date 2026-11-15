@@ -10,6 +10,7 @@ Limits: the Spotify desktop app must be open and visible (not minimized), and it
 Spanish ("Reproducir"). Free accounts play a playlist in shuffle, as the app does by itself.
 """
 
+import ctypes
 import os
 import time
 from typing import Any, Optional, Tuple
@@ -122,14 +123,34 @@ def _toggle_like() -> bool:
     window = _Window(guard=True, app=SPOTIFY)
     try:
         window._wait_for_tree()
-        like_targets = (
+        rect = (ctypes.c_long * 4)()
+        ctypes.windll.user32.GetWindowRect(window.hwnd, rect)
+        bar_y = rect[3] - 140
+        center_x = (rect[0] + rect[2]) // 2
+
+        like_targets_bottom = (
+            "añadir a lista", "añadir a la lista", "añadir a canciones que te gustan",
+            "eliminar de canciones que te gustan", "quitar de canciones que te gustan",
+            "añadir a tu biblioteca", "eliminar de tu biblioteca", "quitar de tu biblioteca",
+            "guardar en tu biblioteca", "guardada en tu biblioteca", "guardado en tu biblioteca",
+            "guardar en canciones que te gustan", "guardada en canciones que te gustan",
+            "save to your library", "remove from your library", "add to liked songs", "add to playlist"
+        )
+        for element, name, r in window._all(UIA_BUTTON):
+            low = (name or "").strip().lower()
+            if r[1] >= bar_y and r[0] < center_x:
+                if any(t in low for t in like_targets_bottom):
+                    window._invoke(element)
+                    return True
+
+        like_targets_global = (
             "guardar en tu biblioteca", "añadir a canciones que te gustan", "añadir a tu biblioteca",
             "eliminar de canciones que te gustan", "eliminar de tu biblioteca", "quitar de tu biblioteca",
             "save to your library", "remove from your library", "add to liked songs"
         )
         for element, name, _ in window._all(UIA_BUTTON):
             low = (name or "").strip().lower()
-            if any(t in low for t in like_targets):
+            if any(t in low for t in like_targets_global):
                 window._invoke(element)
                 return True
         raise SpotifyUiError("No encuentro el botón de Me gusta en la app de Spotify.")
