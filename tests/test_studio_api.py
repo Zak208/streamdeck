@@ -442,6 +442,25 @@ class AssetTests(unittest.TestCase):
         # 422 rollback to last accepted server configuration
         self.assertIn("response.status === 422 && lastAcceptedServerConfig", code)
 
+    def test_mobile_touch_feedback_and_fader_target_persistence(self):
+        code = read("js/streamdeck.js")
+        css = read("css/style.css")
+        # Visual states for button busy, success, and error
+        self.assertIn(".deck-btn.btn-busy", css)
+        self.assertIn(".deck-btn.btn-success", css)
+        self.assertIn(".deck-btn.btn-error", css)
+        self.assertIn('keycap.classList.add("btn-busy")', code)
+        self.assertIn('btnEl.classList.add("btn-success")', code)
+        # Toast duration scales with message length
+        self.assertIn("Math.max(2600, 60 * String(msg).length)", code)
+        # Offline toast feedback on navigation/swipe
+        self.assertIn("Sin conexión con el PC. Reconectando...", code)
+        self.assertIn('payload.type === "switch_page"', code)
+        # Fader target app persistence in localStorage
+        self.assertIn("FADER_TARGETS_KEY", code)
+        self.assertIn("loadSavedFaderTargets", code)
+        self.assertIn("saveFaderTarget", code)
+
 
 if __name__ == "__main__":
     unittest.main()

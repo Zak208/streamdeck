@@ -28,7 +28,27 @@ let token = readStoredToken();
 let wakeLock = null;
 let currentConfig = null;
 let currentSessions = [];
-let targetAppMap = {}; // sliderId -> process_name
+const FADER_TARGETS_KEY = "streamdesk_fader_targets";
+
+function loadSavedFaderTargets() {
+  try {
+    const raw = localStorage.getItem(FADER_TARGETS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveFaderTarget(sliderId, processName) {
+  targetAppMap[sliderId] = processName;
+  try {
+    const targets = loadSavedFaderTargets();
+    targets[sliderId] = processName;
+    localStorage.setItem(FADER_TARGETS_KEY, JSON.stringify(targets));
+  } catch (e) {}
+}
+
+let targetAppMap = loadSavedFaderTargets(); // sliderId -> process_name
 let isDraggingMap = {}; // sliderId -> boolean
 let masterSliderIds = new Set(); // every master fader on the current page (ids differ per page)
 let lastMaster = null; // last master volume received, to paint faders that are created later
@@ -108,9 +128,10 @@ function showMobileToast(msg, isError = false) {
   t.textContent = msg;
   t.className = isError ? "mobile-toast error show" : "mobile-toast show";
   clearTimeout(showMobileToast.timer); // a second message must not be cut short by the first one's timer
+  const duration = Math.max(2600, 60 * String(msg).length);
   showMobileToast.timer = setTimeout(() => {
     t.classList.remove("show");
-  }, 2600);
+  }, duration);
 }
 
 function haptic(ms = 25) {
@@ -166,6 +187,12 @@ function renderPageNav(config) {
 }
 
 function switchPage(pageIdx) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    haptic([40, 60, 40]);
+    showMobileToast("Sin conexión con el PC. Reconectando...", true);
+    if (!ws || ws.readyState === WebSocket.CLOSED) connectWebSocket();
+    return;
+  }
   if (!currentConfig) return;
   const pages = currentConfig.pages || [];
   if (pageIdx >= 0 && pageIdx < pages.length) {
@@ -175,6 +202,12 @@ function switchPage(pageIdx) {
 }
 
 function goToPrevPage() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    haptic([40, 60, 40]);
+    showMobileToast("Sin conexión con el PC. Reconectando...", true);
+    if (!ws || ws.readyState === WebSocket.CLOSED) connectWebSocket();
+    return;
+  }
   if (!currentConfig) return;
   const curIdx = currentConfig.current_page || 0;
   const total = (currentConfig.pages || []).length;
@@ -185,6 +218,12 @@ function goToPrevPage() {
 }
 
 function goToNextPage() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    haptic([40, 60, 40]);
+    showMobileToast("Sin conexión con el PC. Reconectando...", true);
+    if (!ws || ws.readyState === WebSocket.CLOSED) connectWebSocket();
+    return;
+  }
   if (!currentConfig) return;
   const curIdx = currentConfig.current_page || 0;
   const total = (currentConfig.pages || []).length;
@@ -394,8 +433,8 @@ function sendWS(payload) {
     ws.send(JSON.stringify(payload));
     return;
   }
-  // A button tapped while the connection is down would do nothing and say nothing.
-  if (payload.type === "trigger_button") {
+  // A button tapped or page switched while the connection is down would do nothing and say nothing.
+  if (payload.type === "trigger_button" || payload.type === "switch_page") {
     haptic([40, 60, 40]);
     showMobileToast("Sin conexión con el PC. Reconectando...", true);
     if (!ws || ws.readyState === WebSocket.CLOSED) connectWebSocket();
@@ -480,21 +519,35 @@ function handleServerMessage(data) {
       updateAppMuteState(data.process, data.muted);
       break;
 
-    case "action_result":
+    case "action_result": {
+      const slotId = data.slot_id || data.id;
+      const btnEl = slotId ? document.getElementById(slotId) : null;
+      if (btnEl) {
+        btnEl.classList.remove("btn-busy");
+      }
       if (data.status === "error" || data.success === false) {
         haptic([40, 60, 40]);
         showMobileToast(data.message || data.error || "Error al ejecutar acción", true);
-        if (data.slot_id) {
-          const btnEl = document.getElementById(data.slot_id);
-          if (btnEl) {
-            btnEl.classList.remove("btn-shake-error");
-            void btnEl.offsetWidth;
-            btnEl.classList.add("btn-shake-error");
-            setTimeout(() => btnEl.classList.remove("btn-shake-error"), 400);
+        if (btnEl) {
+          btnEl.classList.remove("btn-shake-error", "btn-error", "btn-success");
+          void btnEl.offsetWidth;
+          btnEl.classList.add(data.busy ? "btn-busy" : "btn-error");
+          if (data.busy) {
+            setTimeout(() => btnEl.classList.remove("btn-busy"), 600);
+          } else {
+            setTimeout(() => btnEl.classList.remove("btn-error"), 500);
           }
+        }
+      } else {
+        if (btnEl) {
+          btnEl.classList.remove("btn-shake-error", "btn-error", "btn-success");
+          void btnEl.offsetWidth;
+          btnEl.classList.add("btn-success");
+          setTimeout(() => btnEl.classList.remove("btn-success"), 450);
         }
       }
       break;
+    }
 
     case "sessions_update":
       currentSessions = data.sessions || [];
@@ -855,6 +908,7 @@ function createButtonElement(btn) {
     if ((btn.confirm || risky) && !(await askConfirm(risky && !btn.confirm
       ? `«${btn.label || "Este botón"}» apaga el PC o lanza un comando. ¿Seguro?`
       : `¿Ejecutar «${btn.label || "este botón"}»?`))) return;
+    keycap.classList.add("btn-busy");
     sendWS(gesture === "tap" ? { type: "trigger_button", id: btn.id } : { type: "trigger_button", id: btn.id, gesture });
   };
   if (btn.disabled) keycap.classList.add("is-disabled");
@@ -944,7 +998,10 @@ function createFaderElement(slider) {
   card.className = `deck-fader-card ${isMaster ? 'master-fader' : 'app-fader'}`;
   card.id = `fader-card-${slider.id}`;
 
-  let targetProcess = slider.target_app || (currentSessions[0] ? currentSessions[0].process_name : "Spotify.exe");
+  const savedTargets = loadSavedFaderTargets();
+  let targetProcess = (!isMaster && (targetAppMap[slider.id] || savedTargets[slider.id]))
+    || slider.target_app
+    || (currentSessions[0] ? currentSessions[0].process_name : "Spotify.exe");
   // Only app faders have a target app. A master fader listed here got the first session's
   // volume painted over it on every audio update, which looked like a broken sync.
   if (!isMaster) targetAppMap[slider.id] = targetProcess;
@@ -1209,7 +1266,7 @@ function updateAppModalList() {
 
     item.addEventListener("click", () => {
       if (activeSelectingSliderId) {
-        targetAppMap[activeSelectingSliderId] = s.process_name;
+        saveFaderTarget(activeSelectingSliderId, s.process_name);
         const btn = document.getElementById(`select-app-${activeSelectingSliderId}`);
         if (btn) btn.textContent = cleanAppName(s.process_name);
 

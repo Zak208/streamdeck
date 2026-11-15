@@ -224,6 +224,9 @@ header {
   color: #10b981;
 }
 .btn-shake-error { animation: shake 0.35s ease-in-out; border-color: var(--danger); }
+.deck-btn.btn-busy { opacity: 0.7; border-color: var(--accent) !important; }
+.deck-btn.btn-success { border-color: #10b981 !important; box-shadow: 0 0 16px rgba(16, 185, 129, 0.45) !important; }
+.deck-btn.btn-error { animation: shake 0.35s ease-in-out; border-color: var(--danger) !important; box-shadow: 0 0 16px rgba(239, 68, 68, 0.45) !important; }
 @keyframes shake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
 
 /* ---------- Faders ---------- */

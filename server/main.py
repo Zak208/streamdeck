@@ -1616,6 +1616,18 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                         task = asyncio.create_task(run_button_action(websocket, slot, gesture))
                         _background_tasks.add(task)
                         task.add_done_callback(_background_tasks.discard)
+                    else:
+                        busy_msg = "La acción anterior de este botón aún sigue en curso."
+                        await websocket.send_text(json.dumps({
+                            "type": "action_result",
+                            "id": btn_id,
+                            "slot_id": btn_id,
+                            "success": False,
+                            "busy": True,
+                            "state": "busy",
+                            "message": busy_msg,
+                            "result": {"success": False, "error": busy_msg, "busy": True},
+                        }))
 
                 elif msg_type == "set_master_volume":
                     vol = int(data.get("volume", 0))

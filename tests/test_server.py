@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import threading
 import time
 import unittest
 import urllib.request
@@ -166,6 +167,40 @@ class ServerTests(unittest.TestCase):
         with mock.patch.object(main, "execute_action", counting_action):
             asyncio.run(scenario())
         self.assertEqual(len(calls), 1)
+
+    def test_button_tapped_while_busy_receives_busy_action_result(self):
+        started = threading.Event()
+        finish = threading.Event()
+
+        def slow_action(*_args):
+            started.set()
+            finish.wait(timeout=3)
+            return {"success": True}
+
+        async def scenario():
+            async with websockets.connect(self.ws_url()) as ws:
+                await receive_until(ws, lambda m: m["type"] == "init_state")
+                await ws.send(json.dumps({"type": "trigger_button", "id": "btn_play"}))
+                await asyncio.to_thread(started.wait, 2)
+                await ws.send(json.dumps({"type": "trigger_button", "id": "btn_play"}))
+                busy_msg = await receive_until(
+                    ws,
+                    lambda m: m["type"] == "action_result" and m.get("busy") is True,
+                    timeout=3,
+                )
+                finish.set()
+                success_msg = await receive_until(
+                    ws,
+                    lambda m: m["type"] == "action_result" and m.get("success") is True,
+                    timeout=3,
+                )
+                return busy_msg, success_msg
+
+        with mock.patch.object(main, "execute_action", slow_action):
+            busy, success = asyncio.run(scenario())
+        self.assertFalse(busy["success"])
+        self.assertTrue(busy["busy"])
+        self.assertTrue(success["success"])
 
     def test_toggle_state_is_broadcast_and_remembered_for_new_phones(self):
         toggle = mock.Mock(return_value={"success": True, "action": "windows_mic_mute", "muted": True, "active": True})
