@@ -14,8 +14,9 @@ def get_version_changelog(version: str) -> Dict[str, Any]:
                 "tag": "Estabilidad",
                 "icon": "shield",
                 "description": (
-                    "Las acciones como «Me gusta» en Spotify y atajos multimedia ya no interfieren "
-                    "ni cambian el foco mientras juegas a Valorant u otras aplicaciones a pantalla completa."
+                    "Las acciones como «Me gusta» en Spotify ahora añaden y quitan canciones de forma exacta "
+                    "en «Canciones que te gustan» (incluso si están en otras listas) sin interferir ni "
+                    "cambiar el foco mientras juegas a Valorant u otras aplicaciones a pantalla completa."
                 ),
             },
             {
