@@ -289,7 +289,7 @@ def toggle_like() -> Dict[str, Any]:
 
 def actions() -> List[Dict[str, Any]]:
     return [
-        {"id": "like", "label": "Me gusta", "sublabel": "Spotify", "icon": "/static/icons/plus.svg", "color": "#1db954",
+        {"id": "like", "label": "Me gusta", "sublabel": "Spotify", "icon": "/static/icons/heart.svg", "color": "#1db954",
          "action_type": "spotify_action", "target": "like", "extra": {}},
         {"id": "play_pause", "label": "Play/Pausa", "sublabel": "Spotify", "icon": "/static/icons/play_pause.svg", "color": "#1db954",
          "action_type": "media", "target": "play_pause", "extra": {}},

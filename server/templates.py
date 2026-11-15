@@ -9,7 +9,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from server import page_library
-from server.connectors import discord, obs, windows
+from server.connectors import discord, obs, spotify, windows
 from server.layouts import LAYOUTS, convert_slots
 
 BASE = LAYOUTS["6x2"]  # the pages below are drawn on the original grid and converted to the profile's one
@@ -101,7 +101,7 @@ def _by_id(templates: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
 def _connector_buttons() -> Dict[str, Dict[str, Any]]:
     """Buttons of the connectors by "connector:id", read now so they carry the user's saved Discord shortcuts."""
     found: Dict[str, Dict[str, Any]] = {}
-    for name, module in (("obs", obs), ("discord", discord), ("windows", windows)):
+    for name, module in (("obs", obs), ("discord", discord), ("windows", windows), ("spotify", spotify)):
         for action in module.actions():
             found[f"{name}:{action['id']}"] = action
     return found
