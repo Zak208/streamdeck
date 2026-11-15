@@ -189,7 +189,16 @@ class LiveBehaviourTests(unittest.TestCase):
         except urllib.error.HTTPError as error:
             return error.code, json.loads(error.read().decode()), dict(error.headers)
 
+    def set_page(self, page_index):
+        async def scenario():
+            async with websockets.connect(f"ws://127.0.0.1:{self.live.port}/ws") as ws:
+                await ws.recv()
+                await ws.send(json.dumps({"type": "switch_page", "page": page_index}))
+                await asyncio.sleep(0.05)
+        asyncio.run(scenario())
+
     def setUp(self):
+        self.set_page(0)
         self.original = self.call("/api/config")[1]
         # Three pages, with a page-jump button on the first one.
         profile = copy.deepcopy(self.original)
@@ -206,6 +215,7 @@ class LiveBehaviourTests(unittest.TestCase):
 
     def tearDown(self):
         self.call("/api/config", self.original)
+        self.set_page(0)
 
     def current_page(self):
         return self.call("/api/config")[1]["current_page"]
