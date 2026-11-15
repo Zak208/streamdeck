@@ -77,7 +77,7 @@ def start_server():
             cert_file, key_file = ensure_ssl_certificates(ip)
             if cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file):
                 ssl_kwargs = {"ssl_certfile": cert_file, "ssl_keyfile": key_file}
-        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning", **ssl_kwargs)
+        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning", http="h11", **ssl_kwargs)
     except BaseException as e:  # SystemExit too: uvicorn exits when it cannot bind the port
         SERVER_ERROR.append(str(e) or type(e).__name__)
         print(f"Server error: {e}")

@@ -161,6 +161,36 @@ class ForegroundIndependenceTests(unittest.TestCase):
             mock_like.assert_called_once()
             mock_send_hotkey.assert_not_called()
 
+    def test_spotify_ui_toggle_like_handles_liked_songs_checkbox(self):
+        """Verifies that _toggle_like toggles the 'Canciones que te gustan' checkbox in the playlist popup and clicks Hecho."""
+        from server import spotify_ui
+
+        mock_elem = mock.MagicMock()
+        mock_toggle = mock.MagicMock()
+        mock_elem.GetCurrentPattern.return_value.QueryInterface.return_value = mock_toggle
+
+        mock_hecho = mock.MagicMock()
+        mock_window = mock.MagicMock()
+        mock_window.hwnd = 1234
+        # Return bottom button, then checkbox and hecho button
+        mock_window._all.side_effect = [
+            [],  # initial check for open cb
+            [(mock.MagicMock(), "Añadir a lista", (-2395, 1337, -2379, 1367))],  # bottom bar button
+            [(mock_elem, "Canciones que te gustan", (-2384, 1232, -2138, 1284))],  # popup checkbox
+            [(mock_hecho, "Hecho", (-2217, 1290, -2149, 1321))],  # hecho button
+        ]
+
+        with mock.patch.object(spotify_ui, "_running", return_value=True), \
+             mock.patch.object(spotify_ui, "_Window", return_value=mock_window), \
+             mock.patch.object(spotify_ui, "_post_click") as mock_post_click, \
+             mock.patch("ctypes.windll.user32.GetWindowRect", side_effect=lambda hwnd, rect: None):
+            res = spotify_ui._toggle_like()
+            self.assertTrue(res)
+            mock_post_click.assert_called_once()
+            mock_toggle.Toggle.assert_called_once()
+            mock_window._invoke.assert_called_with(mock_hecho)
+
+
 
 if __name__ == "__main__":
     unittest.main()

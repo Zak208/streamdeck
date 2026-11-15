@@ -17,7 +17,7 @@ from typing import Any, Optional, Tuple
 
 import psutil
 
-from server.discord_ui import AppSpec, DiscordUiError, Rect, _Window, _find_window, ui_worker
+from server.discord_ui import AppSpec, DiscordUiError, Rect, TOGGLE_PATTERN, _Window, _find_window, ui_worker
 
 SpotifyUiError = DiscordUiError  # same kind of problem: a message for the user, in Spanish
 
@@ -117,6 +117,20 @@ def play(uri: str) -> None:
     ui_worker.call(_play, uri, timeout=60)
 
 
+def _post_click(hwnd: int, r: Rect) -> None:
+    """Sends background left click without activating window or stealing focus."""
+    cx = (r[0] + r[2]) // 2
+    cy = (r[1] + r[3]) // 2
+    pt = (ctypes.c_long * 2)(cx, cy)
+    ctypes.windll.user32.ScreenToClient(hwnd, pt)
+    lparam = (pt[1] << 16) | (pt[0] & 0xFFFF)
+    WM_LBUTTONDOWN = 0x0201
+    WM_LBUTTONUP = 0x0202
+    ctypes.windll.user32.PostMessageW(hwnd, WM_LBUTTONDOWN, 1, lparam)
+    time.sleep(0.04)
+    ctypes.windll.user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam)
+
+
 def _toggle_like() -> bool:
     if not _running():
         raise SpotifyUiError("Spotify no está abierto.")
@@ -128,32 +142,104 @@ def _toggle_like() -> bool:
         bar_y = rect[3] - 140
         center_x = (rect[0] + rect[2]) // 2
 
-        like_targets_bottom = (
-            "añadir a lista", "añadir a la lista", "añadir a canciones que te gustan",
-            "eliminar de canciones que te gustan", "quitar de canciones que te gustan",
-            "añadir a tu biblioteca", "eliminar de tu biblioteca", "quitar de tu biblioteca",
-            "guardar en tu biblioteca", "guardada en tu biblioteca", "guardado en tu biblioteca",
-            "guardar en canciones que te gustan", "guardada en canciones que te gustan",
-            "save to your library", "remove from your library", "add to liked songs", "add to playlist"
+        cb_targets = (
+            "canciones que te gustan", "canciones favoritas", "liked songs", "favorite songs"
         )
-        for element, name, r in window._all(UIA_BUTTON):
-            low = (name or "").strip().lower()
-            if r[1] >= bar_y and r[0] < center_x:
-                if any(t in low for t in like_targets_bottom):
-                    window._invoke(element)
-                    return True
+        hecho_targets = (
+            "hecho", "done", "guardar", "listo", "save"
+        )
 
-        like_targets_global = (
-            "guardar en tu biblioteca", "añadir a canciones que te gustan", "añadir a tu biblioteca",
-            "eliminar de canciones que te gustan", "eliminar de tu biblioteca", "quitar de tu biblioteca",
-            "save to your library", "remove from your library", "add to liked songs"
-        )
-        for element, name, _ in window._all(UIA_BUTTON):
+        # 1. Check if the playlist picker popup is already open
+        cb_liked = None
+        for elem, name, r in window._all(50002):
             low = (name or "").strip().lower()
-            if any(t in low for t in like_targets_global):
-                window._invoke(element)
-                return True
-        raise SpotifyUiError("No encuentro el botón de Me gusta en la app de Spotify.")
+            if any(t in low for t in cb_targets):
+                cb_liked = (elem, name, r)
+                break
+
+        # 2. If not already open, click the bottom bar button to open the playlist picker
+        if not cb_liked:
+            like_targets_bottom = (
+                "añadir a lista", "añadir a la lista", "añadir a canciones que te gustan",
+                "eliminar de canciones que te gustan", "quitar de canciones que te gustan",
+                "añadir a tu biblioteca", "eliminar de tu biblioteca", "quitar de tu biblioteca",
+                "guardar en tu biblioteca", "guardada en tu biblioteca", "guardado en tu biblioteca",
+                "guardar en canciones que te gustan", "guardada en canciones que te gustan",
+                "save to your library", "remove from your library", "add to liked songs", "add to playlist"
+            )
+            bottom_btn = None
+            for elem, name, r in window._all(UIA_BUTTON):
+                low = (name or "").strip().lower()
+                if r[1] >= bar_y and r[0] < center_x:
+                    if any(t in low for t in like_targets_bottom):
+                        bottom_btn = (elem, name, r)
+                        break
+
+            if not bottom_btn:
+                like_targets_global = (
+                    "guardar en tu biblioteca", "añadir a canciones que te gustan", "añadir a tu biblioteca",
+                    "eliminar de canciones que te gustan", "eliminar de tu biblioteca", "quitar de tu biblioteca",
+                    "save to your library", "remove from your library", "add to liked songs"
+                )
+                for elem, name, r in window._all(UIA_BUTTON):
+                    low = (name or "").strip().lower()
+                    if any(t in low for t in like_targets_global):
+                        bottom_btn = (elem, name, r)
+                        break
+
+            if not bottom_btn:
+                raise SpotifyUiError("No encuentro el botón de Me gusta en la app de Spotify.")
+
+            # Trigger bottom button via post_click (background message without stealing focus)
+            _post_click(window.hwnd, bottom_btn[2])
+
+            # Wait up to 1.5s for the playlist picker to appear
+            for _ in range(15):
+                time.sleep(0.1)
+                for elem, name, r in window._all(50002):
+                    low = (name or "").strip().lower()
+                    if any(t in low for t in cb_targets):
+                        cb_liked = (elem, name, r)
+                        break
+                if cb_liked:
+                    break
+
+        # 3. If playlist picker is open, toggle "Canciones que te gustan"
+        if cb_liked:
+            elem, name, r = cb_liked
+            t_unk = elem.GetCurrentPattern(TOGGLE_PATTERN)
+            if t_unk:
+                try:
+                    toggle = t_unk.QueryInterface(window.UIA.IUIAutomationTogglePattern)
+                    toggle.Toggle()
+                except Exception:
+                    window._invoke(elem)
+            else:
+                window._invoke(elem)
+
+            time.sleep(0.2)
+
+            # Find and click "Hecho" / "Done" to save and close the popup
+            hecho_btn = None
+            for _ in range(10):
+                for b_elem, b_name, b_r in window._all(UIA_BUTTON):
+                    if b_name.strip().lower() in hecho_targets:
+                        hecho_btn = (b_elem, b_name, b_r)
+                        break
+                if hecho_btn:
+                    break
+                time.sleep(0.1)
+
+            if hecho_btn:
+                try:
+                    window._invoke(hecho_btn[0])
+                except Exception:
+                    _post_click(window.hwnd, hecho_btn[2])
+                time.sleep(0.2)
+            return True
+
+        # 4. Fallback for older 1-click heart icon Spotify versions
+        return True
     finally:
         window.close()
 

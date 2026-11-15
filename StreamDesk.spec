@@ -9,6 +9,7 @@ a = Analysis(
     hiddenimports=[
         'uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto',
         'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.http.auto',
+        'uvicorn.protocols.http.h11_impl',
         'uvicorn.protocols.websockets', 'uvicorn.protocols.websockets.auto',
         'uvicorn.protocols.ssl', 'uvicorn.protocols.ssl.auto',
         'uvicorn.lifespans', 'uvicorn.lifespans.on',
