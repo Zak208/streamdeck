@@ -236,6 +236,37 @@ class StudioApiTests(unittest.TestCase):
         self.assertFalse(os.path.exists(cm.CONFIG_FILE + ".tmp"))
         json.loads(open(cm.CONFIG_FILE, encoding="utf-8").read())
 
+    def test_save_from_studio_with_stale_current_page_preserves_server_active_page(self):
+        # Switch to page 1 on server
+        self.call("/api/deck/page/switch", {"page_index": 1})
+        self.assertEqual(self.call("/api/deck/config")[1]["current_page"], 1)
+
+        # Studio posts config with current_page: 0
+        cfg = self.call("/api/deck/config")[1]
+        cfg["current_page"] = 0
+        status, body = self.call("/api/deck/config", cfg)
+        self.assertEqual(status, 200)
+        # Active page must remain 1 on server
+        self.assertEqual(self.call("/api/deck/config")[1]["current_page"], 1)
+
+    def test_switching_page_does_not_modify_deck_config_or_create_backups(self):
+        import time
+        from server import config_manager as cm
+        cfg_file = cm.CONFIG_FILE
+        mtime_before = os.path.getmtime(cfg_file) if os.path.exists(cfg_file) else 0
+        folder = os.path.join(cm.CONFIG_DIR, "backups")
+        backups_before = set(os.listdir(folder)) if os.path.exists(folder) else set()
+
+        time.sleep(0.05)
+        # Switch page
+        status, body = self.call("/api/deck/page/switch", {"page_index": 0})
+        self.assertEqual(status, 200)
+
+        mtime_after = os.path.getmtime(cfg_file) if os.path.exists(cfg_file) else 0
+        self.assertEqual(mtime_before, mtime_after)
+        backups_after = set(os.listdir(folder)) if os.path.exists(folder) else set()
+        self.assertEqual(backups_before, backups_after)
+
     def test_bad_template_requests_are_refused(self):
         self.assertEqual(self.call("/api/templates/apply", {"template_id": "nope"})[0], 404)
         self.assertEqual(self.call("/api/templates/apply", {"template_id": "blank", "name": "x" * 60})[0], 422)

@@ -1060,7 +1060,9 @@ async def delete_deck_page(page_index: int = Body(..., embed=True), _: None = De
         current = cfg.get("current_page", 0)
         pages.pop(page_index)
         # Deleting a page before the one you are on shifts it: follow it, so the phone does not jump to another page.
-        cfg["current_page"] = min(current - 1 if page_index < current else current, len(pages) - 1)
+        new_current = min(current - 1 if page_index < current else current, len(pages) - 1)
+        config_manager._current_page = new_current
+        cfg["current_page"] = new_current
         if not config_manager.save_config(cfg):
             raise HTTPException(status_code=422, detail=config_manager.last_error or "No se pudo borrar la página")
         await prune_timers()

@@ -1,3 +1,4 @@
+import copy
 import os
 import re
 import json
@@ -100,47 +101,73 @@ class ConfigManager:
     def __init__(self):
         os.makedirs(CONFIG_DIR, exist_ok=True)
         self.last_error = ""
+        self._current_page = 0
         self.config = self.load_config()
 
     def load_config(self) -> Dict[str, Any]:
+        initial_page = 0
+        runtime = settings.get("runtime")
+        saved_runtime_page = runtime.get("current_page")
+
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    # If config has pages structure, normalise it before exposing it
-                    # to the mobile client. Profiles are also received over HTTP, so
-                    # this is an important security boundary.
-                    if "pages" in data and len(data.get("pages", [])) > 0:
-                        return validate_deck_config(data)
-                    elif "slots" in data and len(data.get("slots", [])) == 12:
-                        # Migrate single page to multi-page format
-                        migrated = dict(DEFAULT_CONFIG)
-                        migrated["pages"][0]["slots"] = data["slots"]
-                        migrated["slots"] = data["slots"]
-                        migrated = validate_deck_config(migrated)
-                        self.save_config(migrated)
-                        return migrated
+                if "pages" in data and len(data.get("pages", [])) > 0:
+                    if saved_runtime_page is not None and isinstance(saved_runtime_page, int) and 0 <= saved_runtime_page < len(data["pages"]):
+                        initial_page = saved_runtime_page
+                    elif "current_page" in data:
+                        raw_page = data.get("current_page", 0)
+                        if isinstance(raw_page, int) and 0 <= raw_page < len(data["pages"]):
+                            initial_page = raw_page
+                        settings.update("runtime", {"current_page": initial_page})
+
+                    data["current_page"] = initial_page
+                    validated = validate_deck_config(data)
+                    self._current_page = validated.get("current_page", 0)
+                    return validated
+                elif "slots" in data and len(data.get("slots", [])) == 12:
+                    migrated = dict(DEFAULT_CONFIG)
+                    migrated["pages"][0]["slots"] = data["slots"]
+                    migrated["slots"] = data["slots"]
+                    migrated["current_page"] = 0
+                    migrated = validate_deck_config(migrated)
+                    self._current_page = 0
+                    self.save_config(migrated)
+                    return migrated
             except Exception as e:
                 print(f"Error loading deck_config.json: {e}")
-                # Never overwrite a profile we could not read: set it aside so the user can recover it.
                 try:
                     os.replace(CONFIG_FILE, f"{CONFIG_FILE}.invalid-{int(time.time())}")
                 except OSError:
                     pass
+
+        self._current_page = 0
         self.save_config(DEFAULT_CONFIG)
         return DEFAULT_CONFIG
 
     def save_config(self, new_config: Dict[str, Any]) -> bool:
         try:
-            new_config = validate_deck_config(new_config)
+            cfg_copy = copy.deepcopy(new_config)
+            pages = cfg_copy.get("pages", [])
+            target_page = min(self._current_page, max(0, len(pages) - 1)) if pages else 0
+            cfg_copy["current_page"] = target_page
+
+            validated = validate_deck_config(cfg_copy)
+            self._current_page = validated["current_page"]
+
+            # Save to disk WITHOUT current_page
+            disk_copy = copy.deepcopy(validated)
+            disk_copy.pop("current_page", None)
+
             os.makedirs(CONFIG_DIR, exist_ok=True)
             self._auto_backup()
-            # Written next to the profile and swapped in whole: a cut during the save cannot leave a half-written profile.
             temporary = CONFIG_FILE + ".tmp"
             with open(temporary, "w", encoding="utf-8") as f:
-                json.dump(new_config, f, indent=2, ensure_ascii=False)
+                json.dump(disk_copy, f, indent=2, ensure_ascii=False)
             os.replace(temporary, CONFIG_FILE)
-            self.config = new_config
+
+            self.config = validated
             self.last_error = ""
             self._mirror()
             return True
@@ -202,11 +229,12 @@ class ConfigManager:
     def set_active_page(self, page_index: int) -> bool:
         pages = self.config.get("pages", [])
         if 0 <= page_index < len(pages):
+            self._current_page = page_index
             self.config["current_page"] = page_index
             self.config["slots"] = pages[page_index]["slots"]
             if pages[page_index].get("layout"):
                 self.config["layout"] = pages[page_index]["layout"]  # each page has its own size
-            self.save_config(self.config)
+            settings.update("runtime", {"current_page": page_index})
             return True
         return False
 

@@ -482,6 +482,7 @@ function renderPageTabs() {
 
 async function switchPage(pageIndex) {
   activePageIndex = pageIndex;
+  if (config) config.current_page = pageIndex;
   selectedSlotIndex = null;
   renderPageTabs();
   renderPhoneScreen();
