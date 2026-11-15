@@ -752,8 +752,17 @@ window.onAndroidBack = function() {
     return true;
   }
   if (pinModal && (pinModal.classList.contains("open") || (pinModal.style && pinModal.style.display !== "none"))) {
-    pinModal.classList.remove("open");
-    pinModal.style.display = "none";
+    const canClose = btnClosePinModal && btnClosePinModal.style.display !== "none";
+    if (canClose) {
+      pinModal.classList.remove("open");
+      pinModal.style.display = "none";
+    } else {
+      if (typeof window.AndroidApp !== "undefined" && typeof window.AndroidApp.showConnect === "function") {
+        window.AndroidApp.showConnect();
+      } else if (typeof nativeCall === "function") {
+        nativeCall("showConnect");
+      }
+    }
     return true;
   }
   if (detailSheet && !detailSheet.hidden) {

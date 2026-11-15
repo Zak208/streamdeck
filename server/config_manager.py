@@ -1,3 +1,4 @@
+import atexit
 import copy
 import os
 import re
@@ -252,17 +253,17 @@ class ConfigManager:
             self._page_save_timer.start()
 
     def flush_active_page(self):
-        """Immediately write any pending active page change to settings.json on disk."""
+        """Immediately write any pending active page change to settings.json on disk if one is scheduled."""
         with self._timer_lock:
             timer = getattr(self, "_page_save_timer", None)
             if timer is not None:
                 timer.cancel()
                 self._page_save_timer = None
-            try:
-                current = getattr(self, "_current_page", 0)
-                settings.update("runtime", {"current_page": current})
-            except Exception:
-                pass
+                try:
+                    current = getattr(self, "_current_page", 0)
+                    settings.update("runtime", {"current_page": current})
+                except Exception:
+                    pass
 
     def get_active_page_index(self) -> int:
         return self._current_page
@@ -288,3 +289,4 @@ class ConfigManager:
         return self.config
 
 config_manager = ConfigManager()
+atexit.register(lambda: config_manager.flush_active_page())

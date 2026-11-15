@@ -113,6 +113,10 @@ public class MainActivity extends AppCompatActivity {
     /** Bumped to cancel whatever search or probe is running. Only touched on the UI thread. */
     private int generation = 0;
     private boolean pageFailed = false;
+    /** Flagged true while actively running startSearch or scheduled to retry. */
+    private boolean searchActive = false;
+    /** Flagged true only when an active network search was interrupted by onPause. */
+    private boolean searchInterruptedByPause = false;
 
     /** The PC shown in the WebView, read from the bridge thread. */
     private volatile String currentId = "";
@@ -148,6 +152,8 @@ public class MainActivity extends AppCompatActivity {
         scanLauncher = registerForActivityResult(new ScanContract(), result -> {
             if (result != null && result.getContents() != null) {
                 openUrl(result.getContents());
+            } else if (connectVisible()) {
+                startSearch(lastServer());
             }
         });
 
@@ -296,6 +302,8 @@ public class MainActivity extends AppCompatActivity {
             webView.onPause();
             webView.pauseTimers();
         }
+        searchInterruptedByPause = searchActive && connectVisible();
+        searchActive = false;
         ui.removeCallbacksAndMessages(null);
     }
 
@@ -306,7 +314,8 @@ public class MainActivity extends AppCompatActivity {
             webView.onResume();
             webView.resumeTimers();
         }
-        if (connectVisible()) {
+        if (searchInterruptedByPause && connectVisible()) {
+            searchInterruptedByPause = false;
             scanAttempt = 0;
             startSearch(lastServer());
         }
@@ -393,12 +402,16 @@ public class MainActivity extends AppCompatActivity {
     /** Loads the PC's page. pin is only set when the address came from Studio's QR. */
     private void loadServer(Server s, boolean verified, String pin) {
         generation++;
+        searchActive = false;
+        searchInterruptedByPause = false;
         ui.removeCallbacksAndMessages(null);
         currentId = s.id;
         currentVerified = verified;
         pinPairingInitiated = (pin != null && !pin.isEmpty());
         pageFailed = false;
-        prefs.edit().putString(KEY_LAST_ID, s.id).apply();
+        if (verified) {
+            prefs.edit().putString(KEY_LAST_ID, s.id).apply();
+        }
         setStatus("Conectando con " + s.name + "...");
         progress.setVisibility(View.VISIBLE);
         String target = s.url + "/" + (pin != null && !pin.isEmpty() ? "?pin=" + Uri.encode(pin) : "");
@@ -409,6 +422,8 @@ public class MainActivity extends AppCompatActivity {
 
     /** Opens what the user scanned or typed, but only after the address proves it is a StreamDesk PC. */
     private void openUrl(String raw) {
+        searchActive = false;
+        searchInterruptedByPause = false;
         final String base = normalizeBase(raw);
         if (base == null) {
             setStatus("Esa dirección no es válida.");
@@ -497,6 +512,7 @@ public class MainActivity extends AppCompatActivity {
     // ------------------------------------------------------------------ searching for the PC
 
     private void scheduleRetry() {
+        searchActive = true;
         int waitMs = SCAN_BACKOFF_MS[Math.min(scanAttempt, SCAN_BACKOFF_MS.length - 1)];
         scanAttempt++;
         ui.postDelayed(() -> {
@@ -513,6 +529,8 @@ public class MainActivity extends AppCompatActivity {
      */
     private void startSearch(final Server wanted) {
         final int my = ++generation;
+        searchActive = true;
+        searchInterruptedByPause = false;
         ui.removeCallbacksAndMessages(null);
         foundList.removeAllViews();
         foundTitle.setVisibility(View.GONE);
@@ -619,7 +637,7 @@ public class MainActivity extends AppCompatActivity {
         button.setTextColor(getResources().getColor(R.color.text_primary, getTheme()));
         Server known = serverById(found.id);
         boolean impostor = known != null && known.token != null && !known.token.isEmpty() && !found.verified;
-        String displayName = impostor ? "PC desconocido con el mismo id" : found.name;
+        String displayName = impostor ? getString(R.string.unknown_pc_same_id_title) : found.name;
         button.setText(displayName + "   " + found.url.replace("http://", ""));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, (int) (48 * getResources().getDisplayMetrics().density));
@@ -802,19 +820,14 @@ public class MainActivity extends AppCompatActivity {
         synchronized (servers) {
             Server s = serverById(found.id);
             if (s != null && s.token != null && !s.token.isEmpty() && !found.verified) {
-                // An unverified PC with the same ID as a paired server must not overwrite the remembered address or token.
-                String separateId = found.id + "_unverified_" + Math.abs(found.url.hashCode());
-                Server separate = serverById(separateId);
-                if (separate == null) {
-                    separate = new Server();
-                    separate.id = separateId;
-                    separate.token = "";
-                    servers.add(separate);
-                }
-                separate.name = getString(R.string.unknown_pc_same_id_title);
-                separate.url = found.url;
-                saveServers();
-                return separate;
+                // An unverified PC with the same ID as a paired server must not overwrite the remembered address or token,
+                // and should not be saved permanently to disk as a known server.
+                Server unverifiedCopy = new Server();
+                unverifiedCopy.id = found.id + "_unverified_" + Math.abs(found.url.hashCode());
+                unverifiedCopy.token = "";
+                unverifiedCopy.name = getString(R.string.unknown_pc_same_id_title);
+                unverifiedCopy.url = found.url;
+                return unverifiedCopy;
             }
             if (s == null) {
                 s = new Server();
@@ -832,6 +845,8 @@ public class MainActivity extends AppCompatActivity {
     // ------------------------------------------------------------------ QR
 
     private void startScan() {
+        searchActive = false;
+        searchInterruptedByPause = false;
         ui.removeCallbacksAndMessages(null); // no automatic search behind the camera
         ScanOptions options = new ScanOptions();
         options.setDesiredBarcodeFormats(ScanOptions.QR_CODE);
@@ -866,7 +881,19 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void saveToken(String token) {
             Server s = serverById(currentId);
-            if (s == null || token == null || token.length() > 128) {
+            if (s == null) {
+                if (pinPairingInitiated && !currentId.isEmpty()) {
+                    s = new Server();
+                    s.id = currentId;
+                    s.name = getString(R.string.unknown_pc_same_id_title);
+                    synchronized (servers) {
+                        servers.add(s);
+                    }
+                } else {
+                    return;
+                }
+            }
+            if (token == null || token.length() > 128) {
                 return;
             }
             if (!currentVerified && !pinPairingInitiated) {
@@ -882,6 +909,7 @@ public class MainActivity extends AppCompatActivity {
                 saveServers();
             }
             currentVerified = true;
+            prefs.edit().putString(KEY_LAST_ID, s.id).apply();
         }
 
         @JavascriptInterface

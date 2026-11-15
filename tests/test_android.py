@@ -102,8 +102,15 @@ class AndroidProjectTests(unittest.TestCase):
         self.assertIn("webView.pauseTimers()", java)
         self.assertIn("webView.onResume()", java)
         self.assertIn("webView.resumeTimers()", java)
-        # 5. OnResume restarts search if connectScreen was active
-        self.assertIn("connectVisible()", java)
+        # 5. OnResume restarts search only if an active search was interrupted by onPause (not on QR scan return)
+        self.assertIn("searchInterruptedByPause = searchActive && connectVisible()", java)
+        self.assertIn("if (searchInterruptedByPause && connectVisible())", java)
+        # 6. QR scan disables searchActive so returning from scanner never bumps generation or cancels openUrl
+        self.assertIn("searchActive = false;", java)
+        # 7. addFound uses string resource for unknown PC label
+        self.assertIn("displayName = impostor ? getString(R.string.unknown_pc_same_id_title)", java)
+        # 8. Mandatory PIN modal back button routes back to connect screen
+        self.assertIn('nativeCall("showConnect")', js)
 
 
 class IdentityTests(unittest.TestCase):

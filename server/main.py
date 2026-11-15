@@ -315,6 +315,7 @@ async def lifespan(app: FastAPI):
     sync_task.cancel()
     telemetry_task.cancel()
     smart_task.cancel()
+    config_manager.flush_active_page()
 
 # No interactive API docs: the schema would list every admin route to anyone on the Wi-Fi.
 app = FastAPI(title="StreamDesk Pro Server", version=VERSION, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
