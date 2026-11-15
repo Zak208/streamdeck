@@ -13,9 +13,10 @@ class ActionCatalogTests(unittest.TestCase):
         self.assertEqual(uri, "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M")
 
     def test_validates_spotify_action(self):
-        action = validate_action("spotify_action", "like")
-        self.assertEqual(action["action_type"], "spotify_action")
-        self.assertEqual(action["target"], "like")
+        for target in ("like", "toggle_like", "shuffle", "toggle_shuffle", "repeat", "cycle_repeat"):
+            action = validate_action("spotify_action", target)
+            self.assertEqual(action["action_type"], "spotify_action")
+            self.assertEqual(action["target"], target.lower())
         with self.assertRaises(ValueError):
             validate_action("spotify_action", "invalid")
 

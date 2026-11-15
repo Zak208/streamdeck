@@ -1220,12 +1220,17 @@ function updateMasterMute(muted) {
   });
 }
 
+function sameProcess(a, b) {
+  if (!a || !b) return false;
+  return a.toLowerCase().replace(/\.exe$/i, "") === b.toLowerCase().replace(/\.exe$/i, "");
+}
+
 function updateAppVolumes() {
   Object.keys(targetAppMap).forEach((sliderId) => {
     if (isDraggingMap[sliderId] || masterSliderIds.has(sliderId)) return;
 
     const proc = targetAppMap[sliderId];
-    const session = currentSessions.find(s => s.process_name?.toLowerCase() === proc?.toLowerCase());
+    const session = currentSessions.find(s => sameProcess(s.process_name, proc));
     // Windows only has an audio session for an app while it plays, so an app that is silent
     // cannot be read. Say so instead of showing a stale value; a volume set meanwhile is applied later.
     document.getElementById(`fader-card-${sliderId}`)?.classList.toggle("is-idle", !session);
@@ -1246,7 +1251,7 @@ function updateSpecificAppVolume(processName, vol) {
   Object.keys(targetAppMap).forEach((sliderId) => {
     if (isDraggingMap[sliderId]) return;
 
-    if (targetAppMap[sliderId]?.toLowerCase() === processName?.toLowerCase()) {
+    if (sameProcess(targetAppMap[sliderId], processName)) {
       const fill = document.getElementById(`fill-${sliderId}`);
       const val = document.getElementById(`val-${sliderId}`);
       if (fill) fill.style.height = `${vol}%`;
@@ -1257,7 +1262,7 @@ function updateSpecificAppVolume(processName, vol) {
 
 function updateAppMuteState(processName, muted) {
   Object.keys(targetAppMap).forEach((sliderId) => {
-    if (targetAppMap[sliderId]?.toLowerCase() === processName?.toLowerCase()) {
+    if (sameProcess(targetAppMap[sliderId], processName)) {
       const muteBtn = document.getElementById(`mute-${sliderId}`);
       if (muteBtn) {
         setMuteBtnVisual(muteBtn, muted);

@@ -140,3 +140,54 @@ def _toggle_like() -> bool:
 def toggle_like() -> bool:
     """Toggles like/favorite on the currently playing track in Spotify desktop without taking window focus."""
     return ui_worker.call(_toggle_like, timeout=15)
+
+
+def _toggle_shuffle() -> bool:
+    if not _running():
+        raise SpotifyUiError("Spotify no está abierto.")
+    window = _Window(guard=True, app=SPOTIFY)
+    try:
+        window._wait_for_tree()
+        shuffle_targets = (
+            "reproducción aleatoria", "aleatorio", "aleatoria", "shuffle"
+        )
+        for ct in (UIA_BUTTON, 50002):
+            for element, name, _ in window._all(ct):
+                low = (name or "").strip().lower()
+                if any(t in low for t in shuffle_targets):
+                    window._invoke(element)
+                    return True
+        raise SpotifyUiError("No encuentro el botón de Aleatorio en la app de Spotify.")
+    finally:
+        window.close()
+
+
+def toggle_shuffle() -> bool:
+    """Toggles shuffle mode in Spotify desktop without taking window focus."""
+    return ui_worker.call(_toggle_shuffle, timeout=15)
+
+
+def _cycle_repeat() -> bool:
+    if not _running():
+        raise SpotifyUiError("Spotify no está abierto.")
+    window = _Window(guard=True, app=SPOTIFY)
+    try:
+        window._wait_for_tree()
+        repeat_targets = (
+            "activar repetir", "desactivar repetir", "repetir una", "repetir", "repeat"
+        )
+        for ct in (50002, UIA_BUTTON):
+            for element, name, _ in window._all(ct):
+                low = (name or "").strip().lower()
+                if any(t in low for t in repeat_targets):
+                    window._invoke(element)
+                    return True
+        raise SpotifyUiError("No encuentro el botón de Repetir en la app de Spotify.")
+    finally:
+        window.close()
+
+
+def cycle_repeat() -> bool:
+    """Cycles repeat mode in Spotify desktop without taking window focus."""
+    return ui_worker.call(_cycle_repeat, timeout=15)
+

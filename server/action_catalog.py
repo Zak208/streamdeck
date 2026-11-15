@@ -217,7 +217,7 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
         clean_extra = {}
     elif action_type == "spotify_action":
         target_text = target_text.lower()
-        if target_text not in {"like", "toggle_like"}:
+        if target_text not in {"like", "toggle_like", "shuffle", "toggle_shuffle", "repeat", "cycle_repeat"}:
             raise ValueError("Acción de Spotify no válida")
         clean_extra = {}
     elif action_type == "discord_hotkey":

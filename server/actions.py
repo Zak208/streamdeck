@@ -406,6 +406,10 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
         if action_type == "spotify_action":
             if target in ("like", "toggle_like"):
                 return spotify.toggle_like()
+            if target in ("shuffle", "toggle_shuffle"):
+                return spotify.toggle_shuffle()
+            if target in ("repeat", "cycle_repeat"):
+                return spotify.cycle_repeat()
             return {"success": False, "error": "Acción de Spotify no válida"}
 
         if action_type == "windows":

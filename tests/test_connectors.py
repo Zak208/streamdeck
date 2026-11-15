@@ -303,6 +303,47 @@ class SpotifyTests(unittest.TestCase):
         with mock.patch.object(spotify, "_api", return_value={"display_name": "Zak", "product": "free"}):
             self.assertEqual(spotify.status()["state"], "limited")
 
+    def test_toggle_shuffle_web_api_and_ui_fallback(self):
+        # Connected: Web API toggles state
+        self.connect()
+        with mock.patch.object(spotify, "_api", side_effect=[{"shuffle_state": False}, None]) as api:
+            result = spotify.toggle_shuffle()
+            self.assertTrue(result["success"])
+            self.assertTrue(result["shuffle"])
+            self.assertEqual(api.call_args_list[1].args, ("PUT", "/me/player/shuffle?state=true"))
+
+        # Disconnected or failure: UI automation fallback
+        settings.clear("spotify")
+        with mock.patch.object(spotify.spotify_ui, "toggle_shuffle", return_value=True) as uia:
+            result = spotify.toggle_shuffle()
+            self.assertTrue(result["success"])
+            self.assertEqual(result["mode"], "ui")
+            uia.assert_called_once()
+
+    def test_cycle_repeat_web_api_and_ui_fallback(self):
+        # Connected: Web API cycles repeat state
+        self.connect()
+        with mock.patch.object(spotify, "_api", side_effect=[{"repeat_state": "off"}, None]) as api:
+            result = spotify.cycle_repeat()
+            self.assertTrue(result["success"])
+            self.assertEqual(result["repeat"], "context")
+            self.assertEqual(api.call_args_list[1].args, ("PUT", "/me/player/repeat?state=context"))
+
+        # Disconnected or failure: UI automation fallback
+        settings.clear("spotify")
+        with mock.patch.object(spotify.spotify_ui, "cycle_repeat", return_value=True) as uia:
+            result = spotify.cycle_repeat()
+            self.assertTrue(result["success"])
+            self.assertEqual(result["mode"], "ui")
+            uia.assert_called_once()
+
+    def test_actions_includes_shuffle_and_repeat(self):
+        action_ids = [a["id"] for a in spotify.actions()]
+        self.assertIn("like", action_ids)
+        self.assertIn("shuffle", action_ids)
+        self.assertIn("repeat", action_ids)
+        self.assertIn("play_pause", action_ids)
+
 
 class WindowsAndDiscordTests(unittest.TestCase):
     DEVICE = "{0.0.0.00000000}.{85bed6a9-4717-4072-8eb1-f2d4943a5d40}"

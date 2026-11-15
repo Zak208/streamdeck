@@ -287,10 +287,62 @@ def toggle_like() -> Dict[str, Any]:
         return {"success": False, "error": "No se pudo pulsar Me gusta en Spotify. Comprueba que la app está abierta."}
 
 
+def toggle_shuffle() -> Dict[str, Any]:
+    """Toggle shuffle mode via Web API or background UI automation."""
+    if settings.get("spotify").get("refresh_token"):
+        try:
+            player = _api("GET", "/me/player")
+            if player:
+                current_state = bool(player.get("shuffle_state", False))
+                new_state = not current_state
+                _api("PUT", f"/me/player/shuffle?state={'true' if new_state else 'false'}")
+                label = "activada" if new_state else "desactivada"
+                return {"success": True, "action": "spotify_action", "shuffle": new_state,
+                        "note": f"Reproducción aleatoria {label}"}
+        except SpotifyError:
+            pass  # Fall back to UI automation
+
+    try:
+        spotify_ui.toggle_shuffle()
+        return {"success": True, "action": "spotify_action", "mode": "ui"}
+    except spotify_ui.SpotifyUiError as exc:
+        return {"success": False, "error": str(exc)}
+    except Exception:
+        return {"success": False, "error": "No se pudo cambiar el modo aleatorio en Spotify. Comprueba que la app está abierta."}
+
+
+def cycle_repeat() -> Dict[str, Any]:
+    """Cycle repeat mode (off -> context -> track -> off) via Web API or background UI automation."""
+    if settings.get("spotify").get("refresh_token"):
+        try:
+            player = _api("GET", "/me/player")
+            if player:
+                current = player.get("repeat_state", "off")
+                next_state = "context" if current == "off" else ("track" if current == "context" else "off")
+                _api("PUT", f"/me/player/repeat?state={next_state}")
+                notes = {"off": "Repetición desactivada", "context": "Repetir lista/álbum", "track": "Repetir canción"}
+                return {"success": True, "action": "spotify_action", "repeat": next_state,
+                        "note": notes.get(next_state, "Modo de repetición cambiado")}
+        except SpotifyError:
+            pass  # Fall back to UI automation
+
+    try:
+        spotify_ui.cycle_repeat()
+        return {"success": True, "action": "spotify_action", "mode": "ui"}
+    except spotify_ui.SpotifyUiError as exc:
+        return {"success": False, "error": str(exc)}
+    except Exception:
+        return {"success": False, "error": "No se pudo cambiar la repetición en Spotify. Comprueba que la app está abierta."}
+
+
 def actions() -> List[Dict[str, Any]]:
     return [
         {"id": "like", "label": "Me gusta", "sublabel": "Spotify", "icon": "/static/icons/heart.svg", "color": "#1db954",
          "action_type": "spotify_action", "target": "like", "extra": {}},
+        {"id": "shuffle", "label": "Aleatorio", "sublabel": "Spotify", "icon": "/static/icons/shuffle.svg", "color": "#1db954",
+         "action_type": "spotify_action", "target": "shuffle", "extra": {}},
+        {"id": "repeat", "label": "Repetir", "sublabel": "Spotify", "icon": "/static/icons/repeat.svg", "color": "#1db954",
+         "action_type": "spotify_action", "target": "repeat", "extra": {}},
         {"id": "play_pause", "label": "Play/Pausa", "sublabel": "Spotify", "icon": "/static/icons/play_pause.svg", "color": "#1db954",
          "action_type": "media", "target": "play_pause", "extra": {}},
         {"id": "next", "label": "Siguiente", "sublabel": "Spotify", "icon": "/static/icons/next.svg", "color": "#1db954",
