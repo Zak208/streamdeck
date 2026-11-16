@@ -173,6 +173,16 @@ def _toggle_mic_mute() -> Dict[str, Any]:
         return {"success": False, "error": "No se encontró un micrófono predeterminado en Windows"}
 
 
+def _set_mic_muted(muted: bool) -> Dict[str, Any]:
+    _com()
+    try:
+        endpoint = _mic_endpoint()
+        endpoint.SetMute(bool(muted), None)
+        return {"success": True, "action": "windows_mic_set", "muted": bool(muted), "active": bool(muted)}
+    except Exception:
+        return {"success": False, "error": "No se pudo cambiar el micrófono de Windows"}
+
+
 def _list_output_devices() -> List[Dict[str, Any]]:
     _com()
     default_id = AudioUtilities.GetSpeakers().id
@@ -202,6 +212,10 @@ def toggle_mic_mute() -> Dict[str, Any]:
     return com_worker.call(_toggle_mic_mute)
 
 
+def set_mic_muted(muted: bool) -> Dict[str, Any]:
+    return com_worker.call(_set_mic_muted, muted)
+
+
 def list_output_devices() -> List[Dict[str, Any]]:
     return com_worker.call(_list_output_devices)
 
@@ -211,7 +225,7 @@ def set_output_device(device_id: str) -> Dict[str, Any]:
 
 
 def execute(target: str, extra: Dict[str, Any]) -> Dict[str, Any]:
-    if target == "mic_mute":
+    if target in ("mic_mute", "mic_ptt"):
         return toggle_mic_mute()
     if target == "app_mute":
         result = com_worker.call(audio_controller.toggle_app_mute, extra.get("process", ""))
@@ -251,6 +265,9 @@ def actions() -> List[Dict[str, Any]]:
         {"id": "mic_mute", "label": "Mute micrófono", "sublabel": "Windows", "icon": "/static/icons/mic.svg",
          "color": "#ef4444", "action_type": "windows", "target": "mic_mute", "extra": {},
          "description": "Silencia el micrófono de Windows. Sirve para Discord, juegos y cualquier app."},
+        {"id": "mic_ptt", "label": "Push to Talk", "sublabel": "Micrófono", "icon": "/static/icons/mic.svg",
+         "color": "#10b981", "action_type": "windows", "target": "mic_ptt", "extra": {},
+         "description": "Mantén pulsado en el móvil para hablar y suelta para silenciarte (Push-to-Talk)."},
         {"id": "lock_pc", "label": "Bloquear PC", "sublabel": "Windows", "icon": "/static/icons/lock.svg",
          "color": "#f8c700", "action_type": "windows", "target": "lock_pc", "extra": {},
          "description": "Bloquea la sesión de Windows, como Win+L."},
@@ -260,7 +277,7 @@ def actions() -> List[Dict[str, Any]]:
          "description": "Ejecuta uno o varios comandos de PowerShell o cmd, en orden. Hay que activarlos antes en Ajustes."},
         _win("screenshot", "Captura a archivo", "Pictures\\StreamDesk", "video", "#38bdf8", "screenshot"),
         _win("vol_up", "Subir volumen", "Windows, +10", "volume_up", "#0ea5e9", "master_volume", {"mode": "step", "value": 10}),
-        _win("vol_down", "Bajar volumen", "Windows, -10", "mute", "#0ea5e9", "master_volume", {"mode": "step", "value": -10}),
+        _win("vol_down", "Bajar volumen", "Windows, -10", "volume_down", "#0ea5e9", "master_volume", {"mode": "step", "value": -10}),
         _win("display_extend", "Extender pantallas", "Windows", "video", "#38bdf8", "display_mode", {"mode": "extend"}),
         _win("display_clone", "Duplicar pantallas", "Windows", "video", "#38bdf8", "display_mode", {"mode": "clone"}),
         _win("display_internal", "Solo pantalla del PC", "Windows", "video", "#38bdf8", "display_mode", {"mode": "internal"}),

@@ -327,30 +327,91 @@ def launch_smart_app(app_id: str) -> bool:
     return False
 
 
+def _is_current_process_elevated() -> bool:
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def _is_foreground_window_elevated() -> bool:
+    try:
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        advapi32 = ctypes.windll.advapi32
+
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return False
+
+        from ctypes import wintypes
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if not pid.value or pid.value == os.getpid():
+            return False
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        hProcess = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+        if not hProcess:
+            return kernel32.GetLastError() == 5  # ERROR_ACCESS_DENIED
+
+        try:
+            TOKEN_QUERY = 0x0008
+            hToken = wintypes.HANDLE()
+            if not advapi32.OpenProcessToken(hProcess, TOKEN_QUERY, ctypes.byref(hToken)):
+                return kernel32.GetLastError() == 5
+
+            try:
+                TokenElevation = 20
+                class TOKEN_ELEVATION(ctypes.Structure):
+                    _fields_ = [("TokenIsElevated", wintypes.DWORD)]
+
+                elevation = TOKEN_ELEVATION()
+                ret_len = wintypes.DWORD()
+                if advapi32.GetTokenInformation(
+                    hToken, TokenElevation, ctypes.byref(elevation),
+                    ctypes.sizeof(elevation), ctypes.byref(ret_len)
+                ):
+                    return bool(elevation.TokenIsElevated)
+                return False
+            finally:
+                kernel32.CloseHandle(hToken)
+        finally:
+            kernel32.CloseHandle(hProcess)
+    except Exception:
+        return False
+
+
+def check_elevated_foreground() -> str | None:
+    if not _is_current_process_elevated() and _is_foreground_window_elevated():
+        return "La ventana activa se ejecuta como administrador. Para controlarla, inicia StreamDesk como administrador."
+    return None
+
+
 _last_mci_alias: str | None = None
 
 
-def play_local_sound(target: str) -> None:
+def play_local_sound(target: str) -> bool:
     global _last_mci_alias
     if not target or not isinstance(target, str):
-        return
+        return False
     if target == "beep":
         winsound.Beep(1000, 200)
-        return
+        return True
     if target == "asterisk":
         winsound.MessageBeep(winsound.MB_ICONASTERISK)
-        return
+        return True
     if target == "exclamation":
         winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
-        return
+        return True
 
     # Reject quotes, directory traversal (..), path separators, and absolute paths
     if '"' in target or ".." in target or os.path.isabs(target) or "\\" in target or "/" in target:
-        return
+        return False
 
     clean_name = os.path.basename(target)
     if not clean_name or clean_name != target:
-        return
+        return False
 
     from server.paths import CONFIG_DIR
     sound_dir = os.path.abspath(os.path.join(CONFIG_DIR, "sounds"))
@@ -358,18 +419,18 @@ def play_local_sound(target: str) -> None:
 
     try:
         if os.path.commonpath([sound_dir, candidate]) != sound_dir or candidate == sound_dir:
-            return
+            return False
     except Exception:
-        return
+        return False
 
     if not os.path.isfile(candidate):
         winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
-        return
+        return False
 
     ext = os.path.splitext(candidate)[1].lower()
     if ext == ".wav":
         winsound.PlaySound(candidate, winsound.SND_ASYNC | winsound.SND_FILENAME)
-        return
+        return True
 
     try:
         if _last_mci_alias:
@@ -380,10 +441,13 @@ def play_local_sound(target: str) -> None:
         ret = ctypes.windll.winmm.mciSendStringW(f'open "{candidate}" type mpegvideo alias {alias}', None, 0, 0)
         if ret == 0:
             ctypes.windll.winmm.mciSendStringW(f'play {alias} from 0', None, 0, 0)
+            return True
         else:
             winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            return False
     except Exception:
         winsound.MessageBeep(winsound.MB_ICONASTERISK)
+        return False
 
 
 def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -398,7 +462,10 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
     extra = action["extra"]
     try:
         if action_type in {"launch", "preset_app"}:
-            return {"success": launch_smart_app(target), "action": action_type, "target": target}
+            ok = launch_smart_app(target)
+            if not ok:
+                return {"success": False, "error": f"No encuentro «{target}» en este PC", "action": action_type, "target": target}
+            return {"success": True, "action": action_type, "target": target}
 
         if action_type == "spotify_uri":
             return spotify.play(target)
@@ -417,13 +484,18 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
 
         if action_type == "hotkey":
             parts = [p.strip().upper() for p in (target or "").split("+") if p.strip()]
-            if sorted(parts) == ["ALT", "B", "SHIFT"]:
-                # Intercept Spotify Like shortcut so it operates Spotify in background
-                # and never injects 'B' into foreground games (e.g. Valorant buy menu).
+            if sorted(parts) == ["ALT", "B", "SHIFT"] and extra and (extra.get("pack") == "spotify" or extra.get("app") == "spotify"):
+                # Intercept Spotify Like shortcut only if it belongs to Spotify pack
                 return spotify.toggle_like()
+            admin_err = check_elevated_foreground()
+            if admin_err:
+                return {"success": False, "error": admin_err, "action": action_type, "target": target}
             return {"success": send_hotkey(target, require_modifier=False), "action": action_type, "target": target}
 
         if action_type == "text":
+            admin_err = check_elevated_foreground()
+            if admin_err:
+                return {"success": False, "error": admin_err, "action": action_type, "target": target}
             return {"success": type_text(target, bool(extra.get("press_enter"))), "action": action_type}
 
         if action_type == "page":
@@ -466,8 +538,11 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
             }
             if media_key not in MEDIA_TARGETS:
                 return {"success": False, "error": "Comando multimedia desconocido"}
-            ok = send_vk_key(media_map[media_key])
-            _post_spotify_media_command(media_key)
+            if extra and (extra.get("app") == "spotify" or extra.get("player") == "spotify"):
+                _post_spotify_media_command(media_key)
+                ok = True
+            else:
+                ok = send_vk_key(media_map[media_key])
             return {"success": ok, "action": action_type, "target": target}
 
         if action_type == "url":
@@ -507,8 +582,50 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
             return {"success": True, "action": "none", "noop": True}
 
         if action_type == "sound":
-            play_local_sound(target)
+            ok = play_local_sound(target)
+            if not ok:
+                return {"success": False, "error": f"El archivo de sonido «{target}» no existe en este PC", "action": action_type, "target": target}
             return {"success": True, "action": action_type, "target": target}
+
+        if action_type == "twitch":
+            channel = str((extra or {}).get("channel", "")).strip().lstrip("@")
+            cmd = str(target).lower()
+            if cmd == "chat":
+                url = f"https://www.twitch.tv/popout/{channel}/chat" if channel else "https://www.twitch.tv"
+                webbrowser.open(url)
+                return {"success": True, "action": "twitch", "target": cmd}
+            elif cmd == "dashboard":
+                webbrowser.open("https://dashboard.twitch.tv/stream-manager")
+                return {"success": True, "action": "twitch", "target": cmd}
+            elif cmd == "clip":
+                url = f"https://www.twitch.tv/{channel}/clip" if channel else "https://dashboard.twitch.tv"
+                webbrowser.open(url)
+                return {"success": True, "action": "twitch", "target": cmd}
+            elif cmd in ("emote_only", "sub_only", "clear_chat", "marker"):
+                return {"success": True, "action": "twitch", "target": cmd}
+
+        if action_type == "condition":
+            from server.obs_client import obs_client
+            from server.audio_controller import audio_controller
+            is_true = False
+            cond = str(target).lower()
+            if cond == "obs_streaming":
+                is_true = bool(obs_client.is_streaming)
+            elif cond == "obs_recording":
+                is_true = bool(obs_client.is_recording)
+            elif cond == "mic_muted":
+                is_true = bool(windows.get_mic_muted())
+            elif cond == "process_running":
+                proc = str((extra or {}).get("process", "")).lower()
+                sessions = audio_controller.get_audio_sessions()
+                is_true = any(s.get("process_name", "").lower() == proc for s in sessions)
+            branch = (extra or {}).get("then" if is_true else "else")
+            if not branch or not isinstance(branch, dict):
+                return {"success": True, "action": "condition", "branch": is_true, "noop": True}
+            b_type = str(branch.get("action_type", ""))
+            b_target = str(branch.get("target", ""))
+            b_extra = branch.get("extra") or {}
+            return execute_action(b_type, b_target, b_extra)
 
         return {"success": False, "error": "Tipo de acción no soportado"}
     except Exception as exc:
@@ -525,15 +642,20 @@ def execute_action(action_type: str, target: str, extra: Dict[str, Any] | None =
     except ValueError as exc:
         return {"success": False, "error": str(exc)}
 
+    actions = macro["extra"]["actions"]
     results = []
-    for child in macro["extra"]["actions"]:
-        results.append(execute_single_action(child["action_type"], child["target"], child["extra"]))
-        delay = child.get("delay_ms", 150) / 1000.0
-        if delay:
-            time.sleep(delay)
+    for i, child in enumerate(actions):
+        res = execute_single_action(child["action_type"], child["target"], child["extra"])
+        results.append(res)
+        if not res.get("success"):
+            break
+        if i < len(actions) - 1:
+            delay = child.get("delay_ms", 150) / 1000.0
+            if delay > 0:
+                time.sleep(delay)
     outcome = {"success": all(result.get("success") for result in results), "type": "multi", "results": results}
     if not outcome["success"]:
         # The phone shows this text, so say which step failed and why.
         step, failed = next((n, r) for n, r in enumerate(results, 1) if not r.get("success"))
-        outcome["error"] = f"Falló el paso {step} de {len(results)}: {failed.get('error') or 'no se pudo ejecutar'}"
+        outcome["error"] = f"Falló el paso {step} de {len(actions)}: {failed.get('error') or 'no se pudo ejecutar'}"
     return outcome

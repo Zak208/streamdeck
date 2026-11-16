@@ -49,7 +49,7 @@ class OBSClient:
     def password(self) -> str:
         return self._password if self._password is not None else settings.get("obs").get("password", "")
 
-    async def _send_request(self, request_type: str, request_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def _send_request(self, request_type: str, request_data: Optional[Dict[str, Any]] = None, timeout: float = 2.0) -> Dict[str, Any]:
         import websockets
         uri = f"ws://{self.host}:{self.port}"
         try:
@@ -78,19 +78,27 @@ class OBSClient:
                     "requestData": request_data or {},
                 }}))
 
-                deadline = asyncio.get_event_loop().time() + 1.5
+                deadline = asyncio.get_event_loop().time() + timeout
                 while True:
-                    resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=max(0.05, deadline - asyncio.get_event_loop().time())))
-                    if resp.get("op") == 7 and resp.get("d", {}).get("requestId") == req_id:
-                        return resp.get("d", {})  # anything else (an event) is not the answer
+                    time_left = deadline - asyncio.get_event_loop().time()
+                    if time_left <= 0:
+                        return {"requestStatus": {"result": False, "comment": "OBS tardó demasiado en responder"}, "timeout": True}
+                    try:
+                        resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=max(0.05, time_left)))
+                        if resp.get("op") == 7 and resp.get("d", {}).get("requestId") == req_id:
+                            return resp.get("d", {})  # anything else (an event) is not the answer
+                    except (asyncio.TimeoutError, TimeoutError):
+                        return {"requestStatus": {"result": False, "comment": "OBS tardó demasiado en responder"}, "timeout": True}
         except Exception as e:
             return {"requestStatus": {"result": False, "comment": str(e)}, "unreachable": True}
 
-    def request(self, request_type: str, request_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        return asyncio.run(self._send_request(request_type, request_data))
+    def request(self, request_type: str, request_data: Optional[Dict[str, Any]] = None, timeout: float = 2.0) -> Dict[str, Any]:
+        return asyncio.run(self._send_request(request_type, request_data, timeout=timeout))
 
     @staticmethod
     def failure(res: Dict[str, Any]) -> Dict[str, Any]:
+        if res.get("timeout"):
+            return {"success": False, "error": "OBS tardó demasiado en responder (el cambio puede seguir en curso)"}
         if res.get("auth_error"):
             return {"success": False, "error": res["requestStatus"]["comment"]}
         if res.get("unreachable"):
@@ -207,7 +215,8 @@ class OBSClient:
                 curr = scenes_res.get("responseData", {}).get("currentProgramSceneName", "")
                 if not scenes:
                     return {"success": False, "error": "OBS no tiene escenas"}
-                names = [s.get("sceneName") for s in scenes]
+                # OBS v5 returns scenes bottom-to-top; reverse to match the OBS UI list top-to-bottom
+                names = [s.get("sceneName") for s in reversed(scenes)]
                 idx = names.index(curr) if curr in names else 0
                 next_idx = (idx + 1) % len(names) if cmd == "next_scene" else (idx - 1) % len(names)
                 res = call("SetCurrentProgramScene", {"sceneName": names[next_idx]})
@@ -328,14 +337,14 @@ class OBSClient:
                 col_name = extra.get("collection_name", "")
                 if not col_name or col_name == "Elige":
                     return {"success": False, "error": "Elige una colección de escenas"}
-                res = call("SetCurrentSceneCollection", {"sceneCollectionName": col_name})
+                res = call("SetCurrentSceneCollection", {"sceneCollectionName": col_name}, timeout=10.0)
                 return {"success": True, "action": "obs_set_scene_collection", "collection": col_name} if _request_ok(res) else failure(res)
 
             elif cmd in ("set_profile", "profile"):
                 prof_name = extra.get("profile_name", "")
                 if not prof_name or prof_name == "Elige":
                     return {"success": False, "error": "Elige un perfil de OBS"}
-                res = call("SetCurrentProfile", {"profileName": prof_name})
+                res = call("SetCurrentProfile", {"profileName": prof_name}, timeout=10.0)
                 return {"success": True, "action": "obs_set_profile", "profile": prof_name} if _request_ok(res) else failure(res)
 
             return {"success": False, "error": f"Acción OBS desconocida: {cmd}"}

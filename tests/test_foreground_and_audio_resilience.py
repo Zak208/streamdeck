@@ -113,32 +113,49 @@ class AudioResilienceTests(unittest.TestCase):
 
 
 class MediaCommandTests(unittest.TestCase):
-    def test_media_action_sends_vk_and_posts_to_spotify(self):
+    def test_media_action_sends_single_command_appropriately(self):
+        # Default media action sends global VK key only
         with mock.patch.object(actions, "send_vk_key", return_value=True) as mock_vk, \
              mock.patch.object(actions, "_post_spotify_media_command") as mock_spotify:
             res = actions.execute_action("media", "play_pause")
             self.assertTrue(res["success"])
             mock_vk.assert_called_once_with(actions.VK_MEDIA_PLAY_PAUSE)
+            mock_spotify.assert_not_called()
+
+        # Spotify media action sends to Spotify only
+        with mock.patch.object(actions, "send_vk_key", return_value=True) as mock_vk, \
+             mock.patch.object(actions, "_post_spotify_media_command") as mock_spotify:
+            res = actions.execute_action("media", "play_pause", {"app": "spotify"})
+            self.assertTrue(res["success"])
             mock_spotify.assert_called_once_with("play_pause")
+            mock_vk.assert_not_called()
 
 
 class ForegroundIndependenceTests(unittest.TestCase):
     def test_hotkey_alt_shift_b_intercepted_without_sending_keys(self):
-        """Verifies that pressing 'Me gusta' bound to ALT+SHIFT+B never sends 'B' to the active window (e.g. Valorant buy menu)."""
+        """Verifies that pressing 'Me gusta' bound to ALT+SHIFT+B with pack='spotify' never sends 'B' to the active window."""
         with mock.patch.object(actions, "send_hotkey") as mock_send_hotkey, \
              mock.patch("server.connectors.spotify.toggle_like", return_value={"success": True, "action": "spotify_action"}) as mock_like:
-            res = actions.execute_action("hotkey", "ALT+SHIFT+B")
+            res = actions.execute_action("hotkey", "ALT+SHIFT+B", {"pack": "spotify"})
             self.assertTrue(res["success"])
             mock_like.assert_called_once()
             mock_send_hotkey.assert_not_called()
 
+        # Without pack='spotify', ordinary ALT+SHIFT+B is not hijacked
+        with mock.patch.object(actions, "send_hotkey", return_value=True) as mock_send_hotkey, \
+             mock.patch("server.connectors.spotify.toggle_like") as mock_like:
+            res = actions.execute_action("hotkey", "ALT+SHIFT+B")
+            self.assertTrue(res["success"])
+            mock_like.assert_not_called()
+            mock_send_hotkey.assert_called_once()
+
     def test_hotkey_permutations_intercepted(self):
-        """Checks various case and ordering permutations of ALT+SHIFT+B."""
+        """Checks various case and ordering permutations of ALT+SHIFT+B for spotify pack."""
         for combo in ("SHIFT+ALT+B", "alt+shift+b", "B+SHIFT+ALT", "Alt+Shift+B"):
             with self.subTest(combo=combo):
                 with mock.patch.object(actions, "send_hotkey") as mock_send_hotkey, \
                      mock.patch("server.connectors.spotify.toggle_like", return_value={"success": True, "action": "spotify_action"}) as mock_like:
-                    res = actions.execute_action("hotkey", combo)
+                    res = actions.execute_action("hotkey", combo, {"pack": "spotify"})
                     self.assertTrue(res["success"])
                     mock_like.assert_called_once()
                     mock_send_hotkey.assert_not_called()
@@ -189,6 +206,23 @@ class ForegroundIndependenceTests(unittest.TestCase):
             mock_post_click.assert_called_once()
             mock_toggle.Toggle.assert_called_once()
             mock_window._invoke.assert_called_with(mock_hecho)
+
+    def test_sound_missing_file_returns_error(self):
+        res = actions.execute_action("sound", "archivo_fantasma.wav")
+        self.assertFalse(res["success"])
+        self.assertIn("no existe", res["error"])
+
+    def test_launch_app_not_found_returns_clear_error(self):
+        with mock.patch.object(actions, "launch_smart_app", return_value=False):
+            res = actions.execute_action("preset_app", "programa_inexistente")
+            self.assertFalse(res["success"])
+            self.assertIn("No encuentro", res["error"])
+
+    def test_hotkey_to_elevated_window_returns_clear_error(self):
+        with mock.patch.object(actions, "check_elevated_foreground", return_value="La ventana activa se ejecuta como administrador. Para controlarla, inicia StreamDesk como administrador."):
+            res = actions.execute_action("hotkey", "CTRL+C")
+            self.assertFalse(res["success"])
+            self.assertIn("administrador", res["error"])
 
 
 

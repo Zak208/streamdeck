@@ -10,13 +10,12 @@ def get_version_changelog(version: str) -> Dict[str, Any]:
         "title": f"Novedades de StreamDesk v{version}",
         "steps": [
             {
-                "title": "Independencia de juegos y aplicaciones activas",
+                "title": "Spotify y juegos sin interferencias",
                 "tag": "Estabilidad",
                 "icon": "shield",
                 "description": (
-                    "Las acciones como «Me gusta» en Spotify ahora añaden y quitan canciones de forma exacta "
-                    "en «Canciones que te gustan» (incluso si están en otras listas) sin interferir ni "
-                    "cambiar el foco mientras juegas a Valorant u otras aplicaciones a pantalla completa."
+                    "«Me gusta», aleatorio y repetir de Spotify funcionan en segundo plano, sin robar el foco "
+                    "ni enviar teclas mientras juegas a pantalla completa."
                 ),
             },
             {
@@ -24,17 +23,17 @@ def get_version_changelog(version: str) -> Dict[str, Any]:
                 "tag": "Studio",
                 "icon": "sliders",
                 "description": (
-                    "Historial cronológico completo con Ctrl+Z y Ctrl+Y / Ctrl+Shift+Z, confirmación "
-                    "antes de sobrescribir casillas ocupadas al pegar y recuperación limpia ante errores."
+                    "Ctrl+Z y Ctrl+Y recorren tus cambios en orden, pegar sobre una casilla ocupada pide "
+                    "confirmación y un guardado rechazado vuelve al último estado válido."
                 ),
             },
             {
-                "title": "Móvil y seguridad de conexión reforzada",
+                "title": "Móvil más claro y conexión más segura",
                 "tag": "Móvil",
                 "icon": "power",
                 "description": (
-                    "Confirmación visual inmediata de acciones («en curso», éxito y error), aviso de "
-                    "falta de conexión al navegar, persistencia de faders y protección contra PCs impostores."
+                    "Cada botón muestra «en curso», éxito o error, avisa si no hay conexión, recuerda la app de "
+                    "cada fader y la app de Android rechaza PCs que se hagan pasar por el tuyo."
                 ),
             },
         ],

@@ -53,7 +53,7 @@ from server.actions import execute_action, play_local_sound
 from server.auth import auth_manager
 from server.release_notes import get_version_changelog
 from server import app_icons, audit, desktop, diagnostics, discord_ui, firewall, layouts, live_buttons, page_library, permissions, program_packs, shell_actions, steam, templates, updater, webhooks
-from server.action_catalog import GESTURES, validate_deck_config
+from server.action_catalog import COUNTER_TARGETS, GESTURES, PAGE_KEYWORDS, validate_deck_config
 from server.config_manager import CONFIG_FILE, config_manager
 from server.connectors import discord as discord_connector, spotify, windows
 from server.settings_store import settings
@@ -171,8 +171,8 @@ def merge_sessions(sessions: list) -> list:
 def read_audio_state() -> Dict[str, Any]:
     sessions = audio_controller.get_audio_sessions()
     for process, volume in list(_pending_app_volumes.items()):
-        proc_clean = process.replace(".exe", "")
-        if any(s["process_name"].lower() == process or s["process_name"].lower().replace(".exe", "") == proc_clean for s in sessions):
+        proc_clean = process.lower().replace(".exe", "")
+        if any(s["process_name"].lower() == process.lower() or s["process_name"].lower().replace(".exe", "") == proc_clean for s in sessions):
             audio_controller.set_app_volume(process, volume)
             _pending_app_volumes.pop(process, None)
             sessions = audio_controller.get_audio_sessions()
@@ -258,7 +258,14 @@ def page_for_discord(pages: list, server: str):
 
 async def _open_page(index: int) -> None:
     if index != config_manager.get_config().get("current_page", 0) and config_manager.set_active_page(index):
-        await ws_manager.broadcast(sync_message())
+        msg = sync_message()
+        msg["page"] = index
+        await ws_manager.broadcast(msg)
+        await ws_manager.broadcast({
+            "type": "page_switched",
+            "page": index,
+            "config": config_manager.get_config()
+        })
 
 
 DISCORD_POLL_EVERY = 3  # loop ticks (seconds) between looks at Discord's voice bar
@@ -526,9 +533,10 @@ def regenerate_pin(request: Request, _: None = Depends(require_local_request)):
 async def verify_pin(payload: Dict[str, Any] = Body(...), request: Request = None):
     pin = str(payload.get("pin", ""))
     device_name = payload.get("device_name", "Smartphone")
+    old_token = str(payload.get("old_token", ""))
     client_ip = request.client.host if request and request.client else ""
     user_agent = request.headers.get("user-agent") if request else None
-    result = auth_manager.verify_pin_and_issue_token(pin, device_name, client_ip)
+    result = auth_manager.verify_pin_and_issue_token(pin, device_name, client_ip, old_token=old_token)
     if result.get("valid") or result.get("success"):
         diagnostics.record("ok", "Emparejado correctamente", client_ip, user_agent)
         return result
@@ -565,8 +573,36 @@ def firewall_allow(_: None = Depends(require_local_request)):
 @app.post("/api/actions/test")
 async def test_action(values: Dict[str, Any] = Body(...), _: None = Depends(require_local_request)):
     """Run one button's action once from Studio, to check it works. Same allow-list as a real button."""
+    action_type = str(values.get("action_type", ""))
+    target = str(values.get("target", ""))
+    extra = values.get("extra") or {}
+
+    if permissions.is_dangerous(action_type, target, extra):
+        return {"success": False, "error": "Las acciones de apagado o comandos no se pueden probar aquí."}
+
+    if action_type == "page":
+        config = config_manager.get_config()
+        pages = config.get("pages", [])
+        if target in PAGE_KEYWORDS or any(p.get("id") == target for p in pages) or target.isdigit():
+            return {"success": True, "action": "page", "target": target}
+        return {"success": False, "error": f"La página de destino «{target}» no existe"}
+
+    if action_type == "counter":
+        if target in COUNTER_TARGETS:
+            return {"success": True, "action": "counter", "target": target}
+        return {"success": False, "error": "Acción de contador no válida (inc, dec, reset)"}
+
+    if action_type == "timer":
+        try:
+            secs = int(extra.get("seconds", 60))
+            if secs > 0:
+                return {"success": True, "action": "timer", "seconds": secs}
+        except Exception:
+            pass
+        return {"success": False, "error": "Segundos de temporizador no válidos"}
+
     result = await asyncio.to_thread(
-        execute_action, str(values.get("action_type", "")), str(values.get("target", "")), values.get("extra")
+        execute_action, action_type, target, extra
     )
     return {"success": bool(result.get("success")), "error": result.get("error", "")}
 
@@ -629,7 +665,23 @@ def diagnostics_report(_: None = Depends(require_local_request)):
 
 @app.get("/api/auth/devices")
 def list_paired_devices(_: None = Depends(require_local_request)):
-    return {"devices": auth_manager.list_devices()}
+    devices = auth_manager.list_devices()
+    active_tokens = {getattr(conn.state, "token", None) for conn in ws_manager.active_connections if hasattr(conn, "state")}
+    for d in devices:
+        t = auth_manager.token_for_device(d["id"])
+        d["online"] = t in active_tokens
+    return {"devices": devices}
+
+
+@app.post("/api/auth/devices/cleanup")
+def cleanup_paired_devices(_: None = Depends(require_local_request)):
+    removed = auth_manager.cleanup_devices()
+    devices = auth_manager.list_devices()
+    active_tokens = {getattr(conn.state, "token", None) for conn in ws_manager.active_connections if hasattr(conn, "state")}
+    for d in devices:
+        t = auth_manager.token_for_device(d["id"])
+        d["online"] = t in active_tokens
+    return {"success": True, "removed": removed, "devices": devices}
 
 
 @app.post("/api/auth/devices/revoke")
@@ -1024,8 +1076,12 @@ async def update_configuration(new_config: Dict[str, Any] = Body(...), _: None =
 async def switch_deck_page(page_index: int = Body(..., embed=True), _: None = Depends(require_local_request)):
     success = config_manager.set_active_page(page_index)
     if success:
+        msg = sync_message()
+        msg["page"] = page_index
+        await ws_manager.broadcast(msg)
         await ws_manager.broadcast({
-            "type": "config_sync",
+            "type": "page_switched",
+            "page": page_index,
             "config": config_manager.get_config()
         })
     return {"success": success, "current_page": config_manager.get_config().get("current_page", 0)}
@@ -1392,7 +1448,14 @@ async def navigate_pages(target: str) -> Dict[str, Any]:
         wanted = _page_history.pop()
         index = next(i for i, page in enumerate(pages) if page["id"] == wanted)
         if index != current and config_manager.set_active_page(index):
-            await ws_manager.broadcast(sync_message())
+            msg = sync_message()
+            msg["page"] = index
+            await ws_manager.broadcast(msg)
+            await ws_manager.broadcast({
+                "type": "page_switched",
+                "page": index,
+                "config": config_manager.get_config()
+            })
         return {"success": True, "action": "page"}
     if target == "next":
         index = (current + 1) % len(pages)
@@ -1410,7 +1473,14 @@ async def navigate_pages(target: str) -> Dict[str, Any]:
             if previous:
                 _page_history.append(previous)
                 del _page_history[:-20]
-            await ws_manager.broadcast(sync_message())
+            msg = sync_message()
+            msg["page"] = index
+            await ws_manager.broadcast(msg)
+            await ws_manager.broadcast({
+                "type": "page_switched",
+                "page": index,
+                "config": config_manager.get_config()
+            })
     return {"success": True, "action": "page"}
 
 
@@ -1551,10 +1621,23 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                 if msg_type == "switch_page":
                     page_idx = int(data.get("page", 0))
                     if config_manager.set_active_page(page_idx):
+                        msg = sync_message()
+                        msg["page"] = page_idx
+                        await ws_manager.broadcast(msg)
                         await ws_manager.broadcast({
-                            "type": "config_sync",
+                            "type": "page_switched",
+                            "page": page_idx,
                             "config": config_manager.get_config()
                         })
+
+                elif msg_type == "ptt_state":
+                    pressed = bool(data.get("pressed"))
+                    btn_id = data.get("id")
+                    target_muted = not pressed
+                    await run_audio(windows.set_mic_muted, target_muted)
+                    if btn_id:
+                        button_states[btn_id] = pressed
+                        await ws_manager.broadcast({"type": "button_state", "id": btn_id, "active": pressed})
 
                 elif msg_type == "trigger_button":
                     btn_id = data.get("id")
@@ -1642,11 +1725,18 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                     proc = data.get("process")
                     if proc:
                         res = await run_audio(audio_controller.toggle_app_mute, proc)
-                        await ws_manager.broadcast({
-                            "type": "app_mute_updated",
-                            "process": proc,
-                            "muted": res.get("muted", False)
-                        })
+                        if res.get("success"):
+                            await ws_manager.broadcast({
+                                "type": "app_mute_updated",
+                                "process": proc,
+                                "muted": res.get("muted", False)
+                            })
+                        else:
+                            await websocket.send_text(json.dumps({
+                                "type": "action_result",
+                                "success": False,
+                                "error": res.get("error", "No se pudo cambiar el silencio de la app")
+                            }))
 
                 elif msg_type == "refresh_sessions":
                     sessions = (await run_audio(read_audio_state))["sessions"]

@@ -242,7 +242,7 @@ class FakeObs:
         self.calls = []
         self.data = data or {}
 
-    def __call__(self, request_type, request_data=None):
+    def __call__(self, request_type, request_data=None, *args, **kwargs):
         self.calls.append((request_type, request_data or {}))
         return {"requestStatus": {"result": True}, "responseData": self.data.get(request_type, {})}
 

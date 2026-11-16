@@ -553,27 +553,40 @@ function openSettings() {
     body: `
       <div class="settings-tabs" role="tablist">
         <button type="button" class="settings-tab" role="tab" data-tab-btn="mobile">Móvil</button>
+        <button type="button" class="settings-tab" role="tab" data-tab-btn="devices">Dispositivos</button>
+        <button type="button" class="settings-tab" role="tab" data-tab-btn="activity">Historial</button>
         <button type="button" class="settings-tab" role="tab" data-tab-btn="general">General</button>
         <button type="button" class="settings-tab" role="tab" data-tab-btn="advanced">Avanzado</button>
       </div>
       <section class="settings-section" data-tab="mobile">
         <h3>Conexión del móvil</h3>
-        <p>Lo último que ha intentado un móvil. Si algo falla, aquí se ve en qué punto.</p>
+        <p>Diagnóstico de conexión del móvil con este PC. Si algo falla, aquí se ve en qué punto.</p>
         <div id="settings-diagnostics"><span class="integration-hint">Cargando...</span></div>
         <div class="inline-row">
           <button class="btn-secondary" id="settings-check-connection" type="button">Comprobar la conexión</button>
           <button class="btn-secondary" id="settings-copy-report" type="button">Copiar el diagnóstico</button>
         </div>
         <div id="settings-connection-checks"></div>
+        <h4 class="settings-sub" style="margin-top: 14px;">Sincronización de páginas</h4>
+        <label class="check-row">
+          <input type="checkbox" id="settings-sync-pages" ${localStorage.getItem("streamdesk_sync_pages") !== "0" ? "checked" : ""}>
+          Sincronizar páginas entre este PC y los móviles/tabletas conectados
+        </label>
+        <p class="integration-hint">Si está activado, cambiar de página en Studio cambia también la pantalla del móvil, y viceversa.</p>
       </section>
-      <section class="settings-section" data-tab="mobile">
-        <h3>Móviles emparejados</h3>
-        <p>Cada móvil que introdujo tu PIN queda aquí. Quita los que ya no uses.</p>
+      <section class="settings-section" data-tab="devices">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px;">
+          <div>
+            <h3 style="margin:0;">Dispositivos emparejados</h3>
+            <p style="margin:4px 0 0; color:var(--text-3); font-size:12px;">Móviles y tabletas autorizados con PIN para controlar StreamDesk.</p>
+          </div>
+          <button class="btn-secondary" id="btn-cleanup-devices" type="button" title="Elimina duplicados y dispositivos que ya no se usan">Limpiar duplicados</button>
+        </div>
         <div id="settings-devices"><span class="integration-hint">Cargando...</span></div>
       </section>
-      <section class="settings-section" data-tab="mobile">
+      <section class="settings-section" data-tab="activity">
         <h3>Botones pulsados desde los móviles</h3>
-        <p>Los últimos botones que se pulsaron: qué móvil, cuál y cuándo. No guarda lo que hace el botón por dentro.</p>
+        <p>Los últimos botones que se pulsaron: qué dispositivo, cuál y cuándo. No guarda lo que hace el botón por dentro.</p>
         <div id="settings-audit"><span class="integration-hint">Cargando...</span></div>
       </section>
       <section class="settings-section" data-tab="general" id="settings-programs">
@@ -719,6 +732,19 @@ function openSettings() {
       renderSettingsDiagnostics(m.el.querySelector("#settings-diagnostics"));
       renderSettingsAudit(m.el.querySelector("#settings-audit"));
       wireConnectionChecks(m.el);
+      m.el.querySelector("#settings-sync-pages")?.addEventListener("change", (e) => {
+        try { localStorage.setItem("streamdesk_sync_pages", e.target.checked ? "1" : "0"); } catch (err) {}
+        showToast(e.target.checked ? "Sincronización de páginas activada" : "Sincronización de páginas desactivada (modo independiente)");
+      });
+      m.el.querySelector("#btn-cleanup-devices")?.addEventListener("click", async () => {
+        try {
+          const res = await postJson("/api/auth/devices/cleanup", {});
+          showToast(res.removed > 0 ? `Se eliminaron ${res.removed} duplicado(s)` : "No había dispositivos duplicados");
+          renderSettingsDevices(m.el.querySelector("#settings-devices"));
+        } catch (err) {
+          showToast(err.message);
+        }
+      });
     },
   });
   return modal;
@@ -816,14 +842,25 @@ async function renderSettingsDevices(container) {
       container.innerHTML = `<span class="integration-hint">Todavía no hay ningún móvil emparejado. Escanea el QR del panel lateral.</span>`;
       return;
     }
-    container.innerHTML = devices.map(d => `
-      <div class="device-row">
-        <div><strong>${escapeHtml(d.name)}${d.restricted ? " (limitado)" : ""}</strong><span>Emparejado el ${escapeHtml(d.created_at)}${d.last_seen ? ` · último uso ${escapeHtml(d.last_seen)}` : ""}${d.restricted ? " · no puede apagar el PC ni lanzar comandos" : ""}</span></div>
-        <div class="inline-row">
-          <button class="btn-secondary" data-restrict="${escapeHtml(d.id)}" data-on="${d.restricted ? "false" : "true"}" title="Un móvil limitado no puede apagar el PC ni lanzar comandos de consola">${d.restricted ? "Quitar límite" : "Limitar"}</button>
-          <button class="btn-secondary" data-revoke="${escapeHtml(d.id)}">Quitar</button>
-        </div>
-      </div>`).join("");
+    container.innerHTML = `
+      <div class="scrollable-settings-list" style="max-height: 360px; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 8px;">
+        ${devices.map(d => `
+          <div class="device-row">
+            <div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <strong>${escapeHtml(d.name)}${d.restricted ? " (limitado)" : ""}</strong>
+                <span class="status-pill status-${d.online ? "connected" : "disabled"}" style="font-size: 11px; padding: 2px 6px;">
+                  ${d.online ? "En línea" : "Desconectado"}
+                </span>
+              </div>
+              <span>Emparejado el ${escapeHtml(d.created_at)}${d.last_seen ? ` · último uso ${escapeHtml(d.last_seen)}` : ""}${d.restricted ? " · no puede apagar el PC ni lanzar comandos" : ""}</span>
+            </div>
+            <div class="inline-row">
+              <button class="btn-secondary" data-restrict="${escapeHtml(d.id)}" data-on="${d.restricted ? "false" : "true"}" title="Un móvil limitado no puede apagar el PC ni lanzar comandos de consola">${d.restricted ? "Quitar límite" : "Limitar"}</button>
+              <button class="btn-secondary" data-revoke="${escapeHtml(d.id)}">Quitar</button>
+            </div>
+          </div>`).join("")}
+      </div>`;
     container.querySelectorAll("[data-restrict]").forEach(button => button.addEventListener("click", async () => {
       try {
         await postJson("/api/auth/devices/restrict", { id: button.dataset.restrict, restricted: button.dataset.on === "true" });
@@ -858,10 +895,13 @@ async function renderSettingsAudit(container) {
       container.innerHTML = `<span class="integration-hint">Todavía no se ha pulsado ningún botón desde un móvil.</span>`;
       return;
     }
-    container.innerHTML = entries.slice(0, 10).map(e => `
-      <div class="device-row">
-        <div><strong>${escapeHtml(e.button || "Botón")}${e.ok ? "" : " (falló)"}</strong><span>${escapeHtml(e.time)} · ${escapeHtml(e.device)}</span></div>
-      </div>`).join("");
+    container.innerHTML = `
+      <div class="scrollable-settings-list" style="max-height: 360px; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 8px;">
+        ${entries.slice(0, 30).map(e => `
+          <div class="device-row">
+            <div><strong>${escapeHtml(e.button || "Botón")}${e.ok ? "" : " (falló)"}</strong><span>${escapeHtml(e.time)} · ${escapeHtml(e.device)}</span></div>
+          </div>`).join("")}
+      </div>`;
   } catch (err) {
     container.innerHTML = `<span class="integration-hint">${escapeHtml(err.message)}</span>`;
   }

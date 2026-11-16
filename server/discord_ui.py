@@ -104,44 +104,54 @@ DISCORD = AppSpec("discord.exe", "Discord", lambda title: title.endswith("Discor
 def _find_window(app: AppSpec = DISCORD) -> int:
     """Handle of the program's main window (the biggest visible one), or an error saying why there is none."""
     user32 = ctypes.windll.user32
+    hwinsta = None
+    hdesk = None
     try:
-        hwinsta = user32.OpenWindowStationW("WinSta0", False, 0x037F)
-        if hwinsta:
-            user32.SetProcessWindowStation(hwinsta)
-            hdesk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
-            if hdesk:
-                user32.SetThreadDesktop(hdesk)
-    except Exception:
-        pass
-    pids = {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() == app.process}
-    if not pids:
-        raise DiscordUiError(f"{app.name} no está abierto.")
-    found: List[int] = []
-
-    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    def visit(hwnd, _):
-        pid = wintypes.DWORD()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        if pid.value not in pids or not user32.IsWindowVisible(hwnd):
-            return True
-        title, cls = ctypes.create_unicode_buffer(200), ctypes.create_unicode_buffer(80)
-        user32.GetWindowTextW(hwnd, title, 200)
-        user32.GetClassNameW(hwnd, cls, 80)
-        if cls.value == "Chrome_WidgetWin_1" and app.title_ok(title.value):
-            found.append(hwnd)
-        return True
-
-    user32.EnumWindows(visit, 0)
-    if not found:
         try:
-            hinput = user32.OpenInputDesktop(0, False, 0x01FF)
-            if hinput:
-                user32.EnumDesktopWindows(hinput, visit, 0)
-                user32.CloseDesktop(hinput)
+            hwinsta = user32.OpenWindowStationW("WinSta0", False, 0x037F)
+            if hwinsta:
+                user32.SetProcessWindowStation(hwinsta)
+                hdesk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
+                if hdesk:
+                    user32.SetThreadDesktop(hdesk)
         except Exception:
             pass
-    if not found:
-        raise DiscordUiError(f"No encuentro la ventana de {app.name}. Ábrela (puede quedar detrás de otras ventanas).")
+        pids = {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() == app.process}
+        if not pids:
+            raise DiscordUiError(f"{app.name} no está abierto.")
+        found: List[int] = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def visit(hwnd, _):
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value not in pids or not user32.IsWindowVisible(hwnd):
+                return True
+            title, cls = ctypes.create_unicode_buffer(200), ctypes.create_unicode_buffer(80)
+            user32.GetWindowTextW(hwnd, title, 200)
+            user32.GetClassNameW(hwnd, cls, 80)
+            if cls.value == "Chrome_WidgetWin_1" and app.title_ok(title.value):
+                found.append(hwnd)
+            return True
+
+        user32.EnumWindows(visit, 0)
+        if not found:
+            try:
+                hinput = user32.OpenInputDesktop(0, False, 0x01FF)
+                if hinput:
+                    try:
+                        user32.EnumDesktopWindows(hinput, visit, 0)
+                    finally:
+                        user32.CloseDesktop(hinput)
+            except Exception:
+                pass
+        if not found:
+            raise DiscordUiError(f"No encuentro la ventana de {app.name}. Ábrela (puede quedar detrás de otras ventanas).")
+    finally:
+        if hdesk:
+            user32.CloseDesktop(hdesk)
+        if hwinsta:
+            user32.CloseWindowStation(hwinsta)
 
     def area(hwnd: int) -> int:
         r = wintypes.RECT()
@@ -417,15 +427,19 @@ def _voice_server() -> Optional[str]:
         window = _Window()
     except DiscordUiError:
         return None  # Discord closed or minimized: nothing to read, and nothing to react to
-    if len(window._all(UIA_BUTTON)) <= 5:
-        return None  # the accessibility tree is only built after the first look; the next one finds it
-    status = next((r for _, n, r in window._all(UIA_BUTTON) if n == VOICE_STATUS), None)
-    if status is None:
-        return None  # not connected to a voice channel
-    for _, name, r in window._all(UIA_HYPERLINK):
-        if abs(r[0] - status[0]) <= 8 and 0 <= r[1] - status[1] <= 40:
-            return parse_voice_link(name)
-    return None
+    try:
+        if len(window._all(UIA_BUTTON)) <= 5:
+            return None  # the accessibility tree is only built after the first look; the next one finds it
+        status = next((r for _, n, r in window._all(UIA_BUTTON) if n == VOICE_STATUS), None)
+        if status is None:
+            return None  # not connected to a voice channel
+        for _, name, r in window._all(UIA_HYPERLINK):
+            if abs(r[0] - status[0]) <= 8 and 0 <= r[1] - status[1] <= 40:
+                return parse_voice_link(name)
+        return None
+    finally:
+        if hasattr(window, "close"):
+            window.close()
 
 
 def _is_alias(name: str) -> bool:
@@ -548,7 +562,8 @@ def _press_voice_button(kind: str) -> Optional[bool]:
         time.sleep(0.35)  # Discord redraws the button a moment after the press
         return _toggle_state(window, element)
     finally:
-        window.close()
+        if hasattr(window, "close"):
+            window.close()
 
 
 def toggle_voice(kind: str) -> Optional[bool]:

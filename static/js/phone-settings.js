@@ -97,6 +97,11 @@ function renderPanelOptions() {
       <input type="checkbox" role="switch" id="sheet-swipe" ${swipeEnabled() ? "checked" : ""}>
       <i aria-hidden="true"></i>
     </label>
+    <label class="sheet-switch" style="margin-top: 10px;">
+      <span><strong>Sincronizar páginas con el PC</strong><small>Al moverte en el PC cambia el móvil, y viceversa</small></span>
+      <input type="checkbox" role="switch" id="sheet-sync-pages" ${syncPagesEnabled() ? "checked" : ""}>
+      <i aria-hidden="true"></i>
+    </label>
     <div class="sheet-field">
       <span class="sheet-label">Vibración al tocar</span>
       <div class="sheet-segment">
@@ -107,6 +112,12 @@ function renderPanelOptions() {
   container.querySelector("#sheet-swipe").addEventListener("change", (event) => {
     try { localStorage.setItem("streamdesk_swipe", event.target.checked ? "1" : "0"); } catch (e) { /* private mode */ }
     if (typeof showMobileToast === "function") showMobileToast(event.target.checked ? "Deslizar para cambiar de página: activado" : "Deslizar para cambiar de página: desactivado");
+  });
+  container.querySelector("#sheet-sync-pages")?.addEventListener("change", (event) => {
+    try { localStorage.setItem("streamdesk_sync_pages", event.target.checked ? "1" : "0"); } catch (e) { /* private mode */ }
+    if (typeof showMobileToast === "function") {
+      showMobileToast(event.target.checked ? "Sincronización con el PC activada" : "Sincronización con el PC desactivada (independiente)");
+    }
   });
   container.querySelectorAll(".sheet-haptic-btn").forEach(btn => {
     btn.addEventListener("click", () => {

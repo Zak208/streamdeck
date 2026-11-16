@@ -375,6 +375,9 @@ function loadSystemApps(refresh = false) {
 // An app placed on a button: with its own icon (the real one from Windows, or a lettered square).
 async function assignApp(btn, index, app) {
   let icon = app.icon || "/static/icons/power.svg";
+  if (icon && !icon.startsWith("/")) {
+    icon = `/static/icons/${icon}.svg`;
+  }
   if (icon === "/static/icons/power.svg" && app.id) {
     try { icon = (await postJson("/api/system/apps/icon", { app_id: app.id })).url || icon; } catch (e) { /* the generic icon will do */ }
   }
@@ -476,10 +479,38 @@ function renderPageTabs() {
     phonePreviewPageName.textContent = pages[activePageIndex].name || `Página ${activePageIndex + 1}`;
   }
 
+  const previewDots = document.getElementById("phone-preview-dots");
+  if (previewDots) {
+    previewDots.innerHTML = "";
+    pages.forEach((p, idx) => {
+      const dot = document.createElement("span");
+      dot.className = `phone-preview-dot ${idx === activePageIndex ? "active" : ""}`;
+      dot.title = p.name || `Página ${idx + 1}`;
+      dot.addEventListener("click", () => switchPage(idx));
+      previewDots.appendChild(dot);
+    });
+  }
+
   if (btnDeletePage) {
     btnDeletePage.style.display = pages.length > 1 ? "inline-flex" : "none";
   }
 }
+
+document.getElementById("preview-prev-page")?.addEventListener("click", () => {
+  const pages = config?.pages || [];
+  if (pages.length > 1) {
+    const nextIdx = (activePageIndex - 1 + pages.length) % pages.length;
+    switchPage(nextIdx);
+  }
+});
+
+document.getElementById("preview-next-page")?.addEventListener("click", () => {
+  const pages = config?.pages || [];
+  if (pages.length > 1) {
+    const nextIdx = (activePageIndex + 1) % pages.length;
+    switchPage(nextIdx);
+  }
+});
 
 async function switchPage(pageIndex) {
   activePageIndex = pageIndex;
@@ -489,13 +520,15 @@ async function switchPage(pageIndex) {
   renderPhoneScreen();
   resetInspectorDrawer();
 
-  try {
-    await fetch("/api/deck/page/switch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ page_index: pageIndex })
-    });
-  } catch (e) {}
+  if (localStorage.getItem("streamdesk_sync_pages") !== "0") {
+    try {
+      await fetch("/api/deck/page/switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page_index: pageIndex })
+      });
+    } catch (e) {}
+  }
 }
 
 btnAddPage?.addEventListener("click", async () => {
@@ -699,6 +732,17 @@ function handleStudioMessage(message) {
       liveTelemetry = message;
       paintStudioMonitors();
       return;
+    case "page_switched":
+      if (localStorage.getItem("streamdesk_sync_pages") === "0") return;
+      if (typeof message.page === "number" && message.page !== activePageIndex) {
+        activePageIndex = message.page;
+        if (config) config.current_page = message.page;
+        selectedSlotIndex = null;
+        renderPageTabs();
+        renderPhoneScreen();
+        resetInspectorDrawer();
+      }
+      return;
     default:
       return;
   }
@@ -892,9 +936,6 @@ function clearColumn(slots, col) {
 
 // Takes a fader out (all the cells it covers), keeping it for Ctrl+Z.
 function removeFader(slots, col) {
-  const cells = faderCells(slots, col);
-  const targets = cells.length ? cells : [col, col + gridCols()];
-  rememberDeleted(activePageIndex, slots, targets);
   clearColumn(slots, col);
 }
 
@@ -903,7 +944,6 @@ function placeFader(slots, col, fader, span = 2) {
   span = Math.max(1, Math.min(span, gridRows()));
   const cols = gridCols();
   const affected = new Set([...faderCells(slots, col), ...Array.from({ length: span }, (_, k) => col + k * cols)]);
-  if ([...affected].some(i => slots[i] && slots[i].type !== "empty")) rememberDeleted(activePageIndex, slots, [...affected].sort((a, b) => a - b));
   affected.forEach(i => { slots[i] = { index: i, type: "empty" }; });
   slots[col] = { ...fader, index: col, row_span: span };
   for (let k = 1; k < span; k++) {
@@ -1141,7 +1181,6 @@ function handleDropOnSlot(targetIndex) {
   } else if (dragSourceType === "palette_btn") {
     // A key dropped on a fader replaces it (Ctrl+Z brings it back).
     if (inFaderColumn(currentSlots, targetIndex)) removeFader(currentSlots, col);
-    else if (currentSlots[targetIndex] && currentSlots[targetIndex].type !== "empty") rememberDeleted(activePageIndex, currentSlots, [targetIndex]);
     currentSlots[targetIndex] = newEmptyButton(targetIndex);
 
     renderPhoneScreen();
@@ -1159,8 +1198,8 @@ function handleDropOnSlot(targetIndex) {
         const tCol = targetIndex % gridCols();
         if (sCol !== tCol) {
           const sourceSlider = JSON.parse(JSON.stringify(currentSlots[sCol]));
-          clearColumn(currentSlots, sCol);
           placeFader(currentSlots, tCol, sourceSlider, faderSpan(sourceSlider));
+          clearColumn(currentSlots, sCol);
 
           renderPhoneScreen();
           selectSlot(tCol);
@@ -1403,7 +1442,7 @@ function renderEmptySlotInspector(index) {
 // what it does, how it looks, and the extras (long press, double tap, confirmation, off).
 // The actions are chosen in one dialog (see openActionPicker).
 // Actions that are safe to try from Studio: they open or play something. Power, lock, typing and counters are not tried here.
-const TESTABLE_ACTIONS = new Set(["preset_app", "launch", "url", "folder", "media", "sound", "spotify_uri", "spotify_action", "obs_action", "discord_hotkey", "discord_sound"]);
+const TESTABLE_ACTIONS = new Set(["preset_app", "launch", "url", "folder", "media", "sound", "spotify_uri", "spotify_action", "obs_action", "discord_hotkey", "discord_sound", "hotkey", "windows", "steam", "multi", "page"]);
 const INSPECTOR_TABS = [
   ["apps", "Apps"],
   ["integrations", "Conectores"],
@@ -1411,6 +1450,89 @@ const INSPECTOR_TABS = [
   ["design", "Aspecto"],
 ];
 let openSections = { what: true, look: false, more: false, states: false };
+
+function openIconGalleryModal(btn) {
+  const categories = [
+    { id: "all", name: "Todos" },
+    { id: "games", name: "Juegos", test: id => /valorant|cs2|league|fortnite|minecraft|roblox|steam|battlenet|epic|gamepad|crosshair/.test(id) },
+    { id: "stream", name: "Streaming", test: id => /obs|twitch|youtube|tiktok|broadcast|video|camera|screenshot|record/.test(id) },
+    { id: "audio", name: "Audio", test: id => /spotify|music|volume|mute|mic|headset|soundboard/.test(id) },
+    { id: "media", name: "Multimedia", test: id => /play|pause|stop|next|prev|shuffle|repeat/.test(id) },
+    { id: "system", name: "Sistema", test: id => /cpu|ram|gpu|disk|network|wifi|bluetooth|power|lock|shield|brightness|moon/.test(id) },
+    { id: "actions", name: "Herramientas", test: id => /folder|link|macro|sliders|gear|notes|calc|keyboard|clock|bell|brush|pencil|trash/.test(id) },
+  ];
+
+  let activeCat = "all";
+  let searchTerm = "";
+
+  openModal({
+    title: "Galería de iconos",
+    description: "Elige un icono vectorizado para tu botón",
+    body: `
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <input type="search" id="gallery-search-input" placeholder="Buscar icono (ej. juego, micrófono, play, ajustes...)" style="width: 100%; padding: 8px 12px; font-size: 13px;">
+        <div class="chip-list" id="gallery-cat-chips" style="gap: 6px;">
+          ${categories.map(c => `<button type="button" class="chip ${c.id === activeCat ? "active" : ""}" data-cat="${c.id}">${c.name}</button>`).join("")}
+        </div>
+        <div id="gallery-icons-container" style="max-height: 400px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 8px; padding: 4px;"></div>
+      </div>
+    `,
+    actions: [{ label: "Cerrar", kind: "secondary" }],
+    onMount: (m) => {
+      const container = m.el.querySelector("#gallery-icons-container");
+      const searchInput = m.el.querySelector("#gallery-search-input");
+      const chips = m.el.querySelectorAll("#gallery-cat-chips .chip");
+
+      const render = () => {
+        const catObj = categories.find(c => c.id === activeCat);
+        const filtered = SVG_ICONS.filter(icon => {
+          if (activeCat !== "all" && catObj?.test && !catObj.test(icon)) return false;
+          if (!searchTerm) return true;
+          const tags = ICON_TAGS[icon] || "";
+          return icon.toLowerCase().includes(searchTerm) || tags.toLowerCase().includes(searchTerm);
+        });
+
+        if (!filtered.length) {
+          container.innerHTML = `<p class="integration-hint" style="grid-column: 1/-1; text-align: center; padding: 20px;">No se encontraron iconos que coincidan.</p>`;
+          return;
+        }
+
+        container.innerHTML = filtered.map(icon => `
+          <button type="button" class="gallery-icon-card ${btn.icon === icon || btn.image?.includes(icon) ? "selected" : ""}" data-icon="${icon}" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 10px 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; transition: all 0.15s;">
+            <img src="/static/icons/${icon}.svg" width="28" height="28" style="pointer-events: none;">
+            <span style="font-size: 10px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;">${icon}</span>
+          </button>
+        `).join("");
+
+        container.querySelectorAll("[data-icon]").forEach(btnEl => {
+          btnEl.addEventListener("click", () => {
+            const chosen = btnEl.dataset.icon;
+            btn.icon = chosen;
+            btn.image = `/static/icons/${chosen}.svg`;
+            renderPhoneScreen();
+            saveConfigToServer();
+            renderButtonInspector(btn, selectedSlotIndex !== null ? selectedSlotIndex : 0);
+            m.close();
+            showToast(`Icono «${chosen}» aplicado`);
+          });
+        });
+      };
+
+      chips.forEach(chip => chip.addEventListener("click", () => {
+        activeCat = chip.dataset.cat;
+        chips.forEach(c => c.classList.toggle("active", c === chip));
+        render();
+      }));
+
+      searchInput.addEventListener("input", (e) => {
+        searchTerm = e.target.value.trim().toLowerCase();
+        render();
+      });
+
+      render();
+    }
+  });
+}
 
 function renderButtonInspector(btn, index) {
   const currentSlots = config.pages[activePageIndex].slots;
@@ -1485,6 +1607,16 @@ function renderButtonInspector(btn, index) {
   document.getElementById("btn-test-action")?.addEventListener("click", () => withToast(async () => {
     const result = await postJson("/api/actions/test", { action_type: btn.action_type, target: btn.target, extra: btn.extra || {} });
     if (!result.success) throw new Error(result.error || "No se pudo probar. Revisa que el programa esté instalado.");
+    if (btn.action_type === "page" && result.target) {
+      const pages = config?.pages || [];
+      let targetIdx = -1;
+      if (result.target === "next") targetIdx = Math.min(activePageIndex + 1, pages.length - 1);
+      else if (result.target === "prev") targetIdx = Math.max(activePageIndex - 1, 0);
+      else if (result.target === "first") targetIdx = 0;
+      else if (result.target === "back") targetIdx = Math.max(activePageIndex - 1, 0);
+      else targetIdx = pages.findIndex(p => p.id === result.target || String(p.id) === String(result.target));
+      if (targetIdx >= 0) switchPage(targetIdx);
+    }
   }, "Listo: así reaccionará el botón al tocarlo en el móvil"));
   if (wantedPicker) openActionPicker(btn, index, wantedPicker);
 
@@ -1511,12 +1643,14 @@ function openAppHub(host, app, btn, index, onBack) {
     return;
   }
 
+  const appIcon = app.icon ? (app.icon.startsWith("/") ? app.icon : `/static/icons/${app.icon}.svg`) : "/static/icons/power.svg";
+
   host.innerHTML = `
     <div style="margin-bottom: 12px;">
       <button type="button" class="btn-secondary prog-back" id="apphub-btn-back">← Volver</button>
     </div>
     <div class="apphub-header">
-      <img src="${escapeHtml(app.icon || '/static/icons/power.svg')}" class="apphub-icon" alt="">
+      <img src="${escapeHtml(appIcon)}" class="apphub-icon" alt="">
       <div class="apphub-title-box">
         <span class="apphub-name" title="${escapeHtml(app.name)}">${escapeHtml(app.name)}</span>
         <span class="apphub-cat">${escapeHtml(app.category || 'Aplicación')}</span>
@@ -1721,6 +1855,12 @@ function openActionPicker(btn, index, startTab = "apps", session = null) {
     body.querySelectorAll("[data-omni-lib]").forEach(el => {
       el.addEventListener("click", () => {
         const item = libMatches[Number(el.dataset.omniLib)];
+        if (item.opensTab === "apps" || item.id === "open_app") {
+          omniInput.value = "";
+          tabsBar.style.display = "";
+          show("apps");
+          return;
+        }
         if (item.openConnector || item.opensTab) {
           const connCard = CONNECTOR_CARDS.find(c => c.id === (item.openConnector || item.opensTab));
           if (connCard) {
@@ -1761,6 +1901,10 @@ function openActionPicker(btn, index, startTab = "apps", session = null) {
         }).join("") || `<div class="empty-note">Ninguna acción coincide.</div>`;
       list.querySelectorAll("[data-pick]").forEach(el => el.addEventListener("click", () => {
         const item = libraryCategories.flatMap(c => c.items).find(i => i.id === el.dataset.pick);
+        if (item.opensTab === "apps" || item.id === "open_app") {
+          show("apps");
+          return;
+        }
         if (item.openConnector || item.opensTab) {
           const connCard = CONNECTOR_CARDS.find(c => c.id === (item.openConnector || item.opensTab));
           if (connCard) {
@@ -2183,9 +2327,11 @@ function connectorBodyObs(c, body, ctx) {
       <div style="margin-top: 10px;">
         <label for="obs-password">Contraseña del servidor WebSocket</label>
         <input id="obs-password" type="password" autocomplete="off" placeholder="${s.password_set ? "Guardada (escribe para cambiarla)" : "Vacío si OBS no pide contraseña"}">
-        <label for="obs-port">Puerto</label>
+        <label for="obs-port" style="margin-top: 8px; display: block;">Puerto</label>
         <input id="obs-port" type="number" min="1024" max="65535" value="${Number(s.port) || 4455}">
-        <button class="btn-primary" id="obs-save">Guardar y probar</button>
+        <div style="margin-top: 14px;">
+          <button class="btn-primary" id="obs-save">Guardar y probar</button>
+        </div>
       </div>
     </details>`;
 
@@ -2769,7 +2915,10 @@ function renderTabDesign(container, btn, index) {
     <div class="form-group">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <label style="margin:0;">Icono (${SVG_ICONS.length})</label>
-        <input type="search" id="icon-filter-input" placeholder="Filtrar iconos..." aria-label="Filtrar iconos" style="font-size:11px;padding:3px 8px;width:110px;height:26px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);">
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button type="button" class="btn-secondary" id="btn-open-icon-gallery" style="font-size:11px;padding:2px 8px;height:26px;">Galería</button>
+          <input type="search" id="icon-filter-input" placeholder="Filtrar..." aria-label="Filtrar iconos" style="font-size:11px;padding:3px 8px;width:90px;height:26px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);">
+        </div>
       </div>
       <div class="icon-picker-grid" id="icon-picker-grid">${iconsHtml}</div>
     </div>
@@ -2838,6 +2987,10 @@ function renderTabDesign(container, btn, index) {
       renderPhoneScreen();
       saveConfigToServer();
     });
+  });
+
+  document.getElementById("btn-open-icon-gallery")?.addEventListener("click", () => {
+    openIconGalleryModal(btn);
   });
 
   document.getElementById("btn-custom-icon-upload")?.addEventListener("change", async (e) => {
@@ -3049,7 +3202,7 @@ async function persistConfig() {
         if (selectedSlotIndex !== null && config.pages?.[activePageIndex]?.slots?.[selectedSlotIndex]) {
           selectSlot(selectedSlotIndex);
         } else {
-          clearInspector();
+          resetInspectorDrawer();
         }
         lastSavedSnapshot = JSON.stringify({
           config,
@@ -3141,7 +3294,7 @@ async function performUndo() {
     if (typeof state.selectedSlotIndex === "number" && config.pages[activePageIndex]?.slots?.[state.selectedSlotIndex]) {
       selectSlot(state.selectedSlotIndex);
     } else {
-      clearInspector();
+      resetInspectorDrawer();
     }
     lastSavedSnapshot = snapshotJson;
     await saveConfigToServer({ immediate: true, skipUndo: true });
@@ -3177,7 +3330,7 @@ async function performRedo() {
     if (typeof state.selectedSlotIndex === "number" && config.pages[activePageIndex]?.slots?.[state.selectedSlotIndex]) {
       selectSlot(state.selectedSlotIndex);
     } else {
-      clearInspector();
+      resetInspectorDrawer();
     }
     lastSavedSnapshot = snapshotJson;
     await saveConfigToServer({ immediate: true, skipUndo: true });

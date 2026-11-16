@@ -129,8 +129,20 @@ class TestEndpoint(unittest.TestCase):
                                                            "extra": {"hotkey": "CTRL+ALT+F1"}}), {"success": True, "error": ""})
             run.assert_called_once()
             refused = self.post(live.base_url, {"action_type": "shell", "target": "whoami"})
-        self.assertFalse(refused["success"])
-        self.assertTrue(refused["error"])
+            self.assertFalse(refused["success"])
+            self.assertTrue(refused["error"])
+
+            # Page, counter and timer testing
+            page_res = self.post(live.base_url, {"action_type": "page", "target": "next"})
+            self.assertTrue(page_res["success"])
+            counter_res = self.post(live.base_url, {"action_type": "counter", "target": "inc"})
+            self.assertTrue(counter_res["success"])
+            timer_res = self.post(live.base_url, {"action_type": "timer", "target": "", "extra": {"seconds": 30}})
+            self.assertTrue(timer_res["success"])
+
+            # Dangerous power actions cannot be triggered from test button
+            danger_res = self.post(live.base_url, {"action_type": "windows", "target": "power", "extra": {"mode": "shutdown"}})
+            self.assertFalse(danger_res["success"])
 
 
 class PhoneAndStudioMarkupTests(unittest.TestCase):

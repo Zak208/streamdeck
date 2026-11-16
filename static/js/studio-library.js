@@ -30,11 +30,21 @@ function builtInLibrary() {
       { id: "steam_game", label: "Lanzar un juego de Steam", sub: "Elige de tu biblioteca", icon: "/static/icons/steam.svg", color: "#171a21", action_type: "steam", target: "0", configure: true },
     ] },
     { category: "Páginas", items: [
+      { id: "page_folder", label: "Carpeta / Subpágina", sub: "Agrupa botones dentro", icon: "/static/icons/folder.svg", color: "#f59e0b", action_type: "page", target: "first", configure: true },
       { id: "page_next", label: "Página siguiente", sub: "Navegación", icon: "/static/icons/chevron_right.svg", color: LIBRARY_ACCENT, action_type: "page", target: "next" },
       { id: "page_prev", label: "Página anterior", sub: "Navegación", icon: "/static/icons/chevron_left.svg", color: LIBRARY_ACCENT, action_type: "page", target: "prev" },
       { id: "page_first", label: "Primera página", sub: "Inicio", icon: "/static/icons/folder.svg", color: LIBRARY_ACCENT, action_type: "page", target: "first" },
       { id: "page_back", label: "Volver a la página anterior", sub: "Navegación", icon: "/static/icons/prev.svg", color: LIBRARY_ACCENT, action_type: "page", target: "back" },
       { id: "page_goto", label: "Ir a una página", sub: "Elige cuál", icon: "/static/icons/folder.svg", color: LIBRARY_ACCENT, action_type: "page", target: "first", configure: true },
+    ] },
+    { category: "Streaming y Twitch", items: [
+      { id: "twitch_clip", label: "Crear Clip de Twitch", sub: "Captura los últimos 30 s", icon: "/static/icons/video.svg", color: "#9146ff", action_type: "twitch", target: "clip", extra: { channel: "" }, configure: true },
+      { id: "twitch_chat", label: "Abrir Chat Pop-out", sub: "Ventana flotante de chat", icon: "/static/icons/broadcast.svg", color: "#9146ff", action_type: "twitch", target: "chat", extra: { channel: "" }, configure: true },
+      { id: "twitch_dash", label: "Panel de Creador", sub: "Stream Manager", icon: "/static/icons/sliders.svg", color: "#9146ff", action_type: "twitch", target: "dashboard" },
+      { id: "twitch_marker", label: "Marcador de Stream", sub: "Marca un momento clave", icon: "/static/icons/bookmark.svg", color: "#9146ff", action_type: "twitch", target: "marker" },
+    ] },
+    { category: "Automatización y Lógica", items: [
+      { id: "logic_condition", label: "Acción Condicional (If / Else)", sub: "Comprueba un estado antes de actuar", icon: "/static/icons/sliders.svg", color: "#06b6d4", action_type: "condition", target: "obs_streaming", extra: {}, configure: true },
     ] },
     { category: "Efectos y Soundboard", items: [
       { id: "local_sound", label: "Efecto de sonido / Soundboard", sub: "Reproduce audio en tu PC", icon: "/static/icons/soundboard.svg", color: "#ec4899", action_type: "sound", target: "beep", configure: true },
@@ -222,6 +232,14 @@ function describeAction(a) {
     case "spotify_uri": return `Spotify: ${t}`;
     case "hardware_monitor": return `Muestra ${t.toUpperCase()} en vivo`;
     case "sound": return t === "beep" ? "Pitido del sistema" : (t === "asterisk" ? "Sonido Información" : (t === "exclamation" ? "Sonido Alerta" : `Sonido «${t}»`));
+    case "twitch": {
+      const names = { clip: "Crear clip de Twitch", chat: "Abrir chat flotante de Twitch", dashboard: "Panel de control de Twitch", marker: "Marcador de stream" };
+      return names[t] || `Twitch ${t}`;
+    }
+    case "condition": {
+      const condNames = { obs_streaming: "Si OBS está en directo", obs_recording: "Si OBS está grabando", mic_muted: "Si el micro está silenciado", process_running: "Si la app está abierta" };
+      return condNames[t] || `Condición ${t}`;
+    }
     case "multi": return `Multiacción de ${a.extra?.actions?.length || 0} pasos`;
     case "none": return "";
     default: return a.action_type || "";
@@ -260,7 +278,17 @@ const ACTION_EDITORS = {
       <p class="integration-hint">Pulsa «Grabar» y después la combinación en tu teclado. Se envía al PC como si la pulsaras tú.</p>`;
     const input = el.querySelector("#hk-input");
     const record = el.querySelector("#hk-record");
-    input.addEventListener("input", () => { btn.target = input.value.trim(); commitAction(btn); });
+    const checkAndSaveHk = () => {
+      const val = input.value.trim().toUpperCase().replace(/\s+/g, "");
+      const parts = val.split("+").filter(Boolean);
+      const mods = new Set(["CTRL", "ALT", "SHIFT", "WIN"]);
+      if (parts.length > 0 && parts.some(p => !mods.has(p))) {
+        btn.target = val;
+        commitAction(btn);
+      }
+    };
+    input.addEventListener("input", checkAndSaveHk);
+    input.addEventListener("change", checkAndSaveHk);
     const stop = () => { document.removeEventListener("keydown", onKey, true); record.textContent = "Grabar"; };
     const onKey = (event) => {
       // The editor was rebuilt (another cell was picked) while recording: stop listening, keep the key.
@@ -292,6 +320,12 @@ const ACTION_EDITORS = {
     el.querySelector("#tx-input").addEventListener("input", (event) => {
       btn.target = event.target.value;
       el.querySelector("#tx-count").textContent = btn.target.length;
+      if (btn.target.trim().length > 0) {
+        commitAction(btn);
+      }
+    });
+    el.querySelector("#tx-input").addEventListener("change", (event) => {
+      btn.target = event.target.value.trim() ? event.target.value : "Texto";
       commitAction(btn);
     });
     el.querySelector("#tx-enter").addEventListener("change", (event) => { btn.extra.press_enter = event.target.checked; commitAction(btn); });
@@ -302,7 +336,16 @@ const ACTION_EDITORS = {
       <label for="url-input">Dirección web</label>
       <input id="url-input" type="url" maxlength="300" value="${escapeHtml(btn.target)}" placeholder="https://...">
       <p class="integration-hint">Se abre en el navegador predeterminado de tu PC. Tiene que empezar por http:// o https://.</p>`;
-    el.querySelector("#url-input").addEventListener("input", (event) => { btn.target = event.target.value.trim(); commitAction(btn); });
+    const urlInput = el.querySelector("#url-input");
+    const checkUrlAndSave = () => {
+      const val = urlInput.value.trim();
+      if (/^https?:\/\/[^\s<>\x00-\x1f]{3,}/i.test(val)) {
+        btn.target = val;
+        commitAction(btn);
+      }
+    };
+    urlInput.addEventListener("input", checkUrlAndSave);
+    urlInput.addEventListener("change", checkUrlAndSave);
   },
 
   command(el, btn) { renderCommandEditor(el, btn); },
@@ -315,7 +358,16 @@ const ACTION_EDITORS = {
       <label for="fd-input">Carpeta del PC</label>
       <input id="fd-input" type="text" maxlength="240" value="${escapeHtml(btn.target)}" placeholder="D:\\Proyectos">
       <p class="integration-hint">Ruta de un disco del PC, por ejemplo C:\\Users\\tu-nombre\\Documents. Se abre en el Explorador. No se admiten rutas de red.</p>`;
-    el.querySelector("#fd-input").addEventListener("input", (event) => { btn.target = event.target.value.trim(); commitAction(btn); });
+    const folderInput = el.querySelector("#fd-input");
+    const checkFolderAndSave = () => {
+      const val = folderInput.value.trim();
+      if (/^[a-zA-Z]:\\[^<>:"/|?*\x00-\x1f]*$/.test(val)) {
+        btn.target = val;
+        commitAction(btn);
+      }
+    };
+    folderInput.addEventListener("input", checkFolderAndSave);
+    folderInput.addEventListener("change", checkFolderAndSave);
   },
 
   page(el, btn) {
@@ -324,8 +376,99 @@ const ACTION_EDITORS = {
     el.innerHTML = `
       <label for="pg-select">Dónde lleva este botón</label>
       <select id="pg-select">${options.map(([value, text]) => `<option value="${escapeHtml(value)}" ${btn.target === value ? "selected" : ""}>${escapeHtml(text)}</option>`).join("")}</select>
-      <p class="integration-hint">Úsalo para montar carpetas: una página con un botón que vuelve a la primera.</p>`;
+      <div style="margin-top: 10px;">
+        <button type="button" class="btn-secondary" id="btn-create-subfolder" style="width: 100%; justify-content: center;">
+          📁 Crear nueva subpágina / carpeta
+        </button>
+      </div>
+      <p class="integration-hint">Crea una nueva página con un botón «Atrás» automático para volver aquí al tocarlo.</p>`;
     el.querySelector("#pg-select").addEventListener("change", (event) => { btn.target = event.target.value; commitAction(btn); });
+    el.querySelector("#btn-create-subfolder")?.addEventListener("click", async () => {
+      const folderName = `Carpeta ${btn.label && btn.label !== "Botón" ? btn.label : (config.pages?.length || 1)}`;
+      try {
+        await postJson("/api/deck/page/add", { name: folderName });
+        await loadConfig();
+        const newPageIdx = config.pages.length - 1;
+        if (config.pages[newPageIdx]) {
+          config.pages[newPageIdx].slots[0] = {
+            index: 0,
+            type: "button",
+            id: `btn_back_${Date.now()}`,
+            label: "Atrás",
+            sublabel: "Volver",
+            icon: "/static/icons/prev.svg",
+            image: "/static/icons/prev.svg",
+            color: "#f59e0b",
+            action_type: "page",
+            target: "back",
+          };
+          await saveConfigToServer({ immediate: true });
+        }
+        btn.target = config.pages[newPageIdx].id;
+        if (!btn.label || btn.label === "Botón") btn.label = folderName;
+        btn.icon = "folder";
+        btn.image = "/static/icons/folder.svg";
+        btn.color = "#f59e0b";
+        commitAction(btn);
+        showToast(`Subpágina «${folderName}» creada con botón Atrás`);
+        renderPhoneScreen();
+      } catch (err) {
+        showToast(err.message);
+      }
+    });
+  },
+
+  twitch(el, btn) {
+    btn.extra = btn.extra || {};
+    const options = [
+      ["clip", "Crear Clip de stream (últimos 30 s)"],
+      ["chat", "Abrir chat en ventana flotante (pop-out)"],
+      ["dashboard", "Abrir Panel de Creador (Stream Manager)"],
+      ["marker", "Añadir marcador de stream"],
+    ];
+    el.innerHTML = `
+      <label for="tw-target">Acción de Twitch</label>
+      <select id="tw-target">${options.map(([v, t]) => `<option value="${v}" ${btn.target === v ? "selected" : ""}>${t}</option>`).join("")}</select>
+      <label for="tw-channel" style="margin-top: 10px; display: block;">Nombre de tu canal de Twitch (opcional)</label>
+      <input type="text" id="tw-channel" value="${escapeHtml(btn.extra.channel || "")}" placeholder="Ej. tu_canal">
+      <p class="integration-hint">Abre directamente el clip o el chat flotante de tu stream.</p>
+    `;
+    el.querySelector("#tw-target").addEventListener("change", (e) => {
+      btn.target = e.target.value;
+      commitAction(btn);
+    });
+    el.querySelector("#tw-channel").addEventListener("input", (e) => {
+      btn.extra.channel = e.target.value.trim();
+      commitAction(btn);
+    });
+  },
+
+  condition(el, btn) {
+    btn.extra = btn.extra || {};
+    const conds = [
+      ["obs_streaming", "OBS: Si está emitiendo en directo (streaming)"],
+      ["obs_recording", "OBS: Si está grabando"],
+      ["mic_muted", "Windows: Si el micrófono está silenciado"],
+      ["process_running", "Sistema: Si una aplicación está abierta"],
+    ];
+    el.innerHTML = `
+      <label for="cond-target">Condición a comprobar</label>
+      <select id="cond-target">${conds.map(([v, t]) => `<option value="${v}" ${btn.target === v ? "selected" : ""}>${t}</option>`).join("")}</select>
+      <div id="cond-process-box" style="margin-top: 8px; ${btn.target === "process_running" ? "" : "display:none;"}">
+        <label for="cond-process">Proceso ejecutable</label>
+        <input type="text" id="cond-process" value="${escapeHtml(btn.extra.process || "")}" placeholder="Ej. obs64.exe o Spotify.exe">
+      </div>
+      <p class="integration-hint">La macro inteligente ejecuta una acción distinta si la condición se cumple o si no.</p>
+    `;
+    el.querySelector("#cond-target").addEventListener("change", (e) => {
+      btn.target = e.target.value;
+      el.querySelector("#cond-process-box").style.display = btn.target === "process_running" ? "" : "none";
+      commitAction(btn);
+    });
+    el.querySelector("#cond-process")?.addEventListener("input", (e) => {
+      btn.extra.process = e.target.value.trim();
+      commitAction(btn);
+    });
   },
 
   multi(el, btn) { renderMacroEditor(el, btn); },
@@ -723,7 +866,11 @@ function renderFieldsEditor(el, btn, { fields, connector }) {
     const asText = (reason) => {
       box.innerHTML = `<input type="text" id="fld-${escapeHtml(field.name)}" maxlength="80" value="${escapeHtml(current)}" placeholder="Escríbelo aquí">
         ${reason ? `<p class="integration-hint">${escapeHtml(reason)}</p>` : ""}`;
-      box.querySelector("input").addEventListener("input", (event) => set(field, event.target.value.trim()));
+      const textInput = box.querySelector("input");
+      textInput.addEventListener("input", (event) => {
+        if (event.target.value.trim().length > 0) set(field, event.target.value.trim());
+      });
+      textInput.addEventListener("change", (event) => set(field, event.target.value.trim()));
     };
     if (!field.options) return asText("");
     box.innerHTML = `<select disabled><option>Cargando...</option></select>`;

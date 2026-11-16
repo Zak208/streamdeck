@@ -81,6 +81,40 @@ class MobileAuthTests(unittest.TestCase):
             self.assertEqual(message["type"], "init_state")
             self.assertIn("button_states", message)
 
+    def test_old_token_revocation_and_cleanup(self):
+        manager = AuthManager()
+        pin = manager.current_pin
+        res1 = manager.verify_pin_and_issue_token(pin, "iPad", "10.0.0.10")
+        self.assertTrue(res1["valid"])
+        token1 = res1["token"]
+
+        # Re-pairing with old_token should revoke token1
+        pin = manager.current_pin
+        res2 = manager.verify_pin_and_issue_token(pin, "iPad", "10.0.0.10", old_token=token1)
+        self.assertTrue(res2["valid"])
+        token2 = res2["token"]
+
+        self.assertFalse(manager.is_token_authorized(token1))
+        self.assertTrue(manager.is_token_authorized(token2))
+
+        # Cleanup should report 0 removed since old_token was already cleanly revoked
+        removed = manager.cleanup_devices()
+        self.assertEqual(removed, 0)
+
+        # Now simulate manual duplicate entry for same device name
+        manager.authorized_tokens.add("extra_duplicate_token")
+        manager.paired_devices["extra_duplicate_token"] = {
+            "id": "dev_dup_1",
+            "name": "iPad",
+            "created_at": "2026-01-01 10:00:00",
+            "created_ts": 1000.0,
+            "restricted": False,
+        }
+        removed2 = manager.cleanup_devices()
+        self.assertGreaterEqual(removed2, 1)
+        self.assertTrue(manager.is_token_authorized(token2))
+        self.assertFalse(manager.is_token_authorized("extra_duplicate_token"))
+
 
 if __name__ == "__main__":
     unittest.main()

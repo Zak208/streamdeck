@@ -139,6 +139,39 @@ class PageAndLockActionTests(unittest.TestCase):
         self.assertIn("paso 2 de 2", result["error"])
         self.assertIn("Enlace no permitido", result["error"])
 
+    def test_failed_macro_stops_and_does_not_run_later_steps(self):
+        steps = [
+            {"action_type": "sound", "target": "beep", "extra": {}, "delay_ms": 100},
+            {"action_type": "sound", "target": "beep", "extra": {}, "delay_ms": 100},
+            {"action_type": "sound", "target": "beep", "extra": {}, "delay_ms": 100},
+        ]
+        outcomes = [
+            {"success": False, "error": "Fallo inicial"},
+            {"success": True},
+            {"success": True},
+        ]
+        with mock.patch.object(actions, "validate_action", return_value={"extra": {"actions": steps}}), \
+             mock.patch.object(actions, "execute_single_action", side_effect=outcomes) as mock_exec, \
+             mock.patch("time.sleep") as mock_sleep:
+            result = actions.execute_action("multi", "m", {})
+            self.assertFalse(result["success"])
+            self.assertEqual(mock_exec.call_count, 1)
+            mock_sleep.assert_not_called()
+
+    def test_macro_does_not_sleep_after_last_step(self):
+        steps = [
+            {"action_type": "sound", "target": "beep", "extra": {}, "delay_ms": 200},
+            {"action_type": "sound", "target": "beep", "extra": {}, "delay_ms": 500},
+        ]
+        outcomes = [{"success": True}, {"success": True}]
+        with mock.patch.object(actions, "validate_action", return_value={"extra": {"actions": steps}}), \
+             mock.patch.object(actions, "execute_single_action", side_effect=outcomes), \
+             mock.patch("time.sleep") as mock_sleep:
+            result = actions.execute_action("multi", "m", {})
+            self.assertTrue(result["success"])
+            # Only 1 sleep between step 1 and step 2, NOT after step 2
+            mock_sleep.assert_called_once_with(0.2)
+
     def test_a_page_button_cannot_run_outside_the_phone_connection(self):
         self.assertFalse(actions.execute_action("page", "next")["success"])
 

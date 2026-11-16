@@ -20,13 +20,15 @@ from server.layouts import layout_dict, layout_name, size_of
 ACTION_TYPES = frozenset({
     "preset_app", "launch", "media", "url", "obs_action", "hardware_monitor",
     "sound", "multi", "spotify_uri", "spotify_action", "discord_hotkey", "discord_sound", "windows", "hotkey", "text", "page", "folder", "command", "counter", "timer", "webhook",
-    "none", "steam",
+    "none", "steam", "twitch", "condition",
 })
 # These need the button they belong to (its own value or timer), so a macro step cannot be one.
 SLOT_ONLY_TYPES = frozenset({"counter", "timer", "none"})
 COUNTER_TARGETS = frozenset({"inc", "dec", "reset"})
+TWITCH_TARGETS = frozenset({"chat", "dashboard", "clip", "marker", "emote_only", "sub_only", "clear_chat"})
+CONDITION_TARGETS = frozenset({"obs_streaming", "obs_recording", "mic_muted", "process_running"})
 GESTURES = ("long_press", "double_tap")  # extra actions a button can run on a long press or a double tap
-WINDOWS_TARGETS = frozenset({"mic_mute", "app_mute", "output_device", "lock_pc", "power", "power_plan", "display_mode", "screenshot", "master_volume"})
+WINDOWS_TARGETS = frozenset({"mic_mute", "mic_ptt", "app_mute", "output_device", "lock_pc", "power", "power_plan", "display_mode", "screenshot", "master_volume"})
 POWER_MODES = frozenset({"sleep", "hibernate", "restart", "shutdown", "logoff", "cancel"})
 DISPLAY_MODES = frozenset({"internal", "clone", "extend", "external"})
 STEAM_APP_ID = re.compile(r"^[0-9]{1,10}$")
@@ -177,6 +179,8 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
             raise ValueError("Acción multimedia no válida")
         target_text = target_text.lower()
         clean_extra = {}
+        if action_extra.get("app"):
+            clean_extra["app"] = _text(action_extra["app"], "aplicación", 40, allow_empty=False)
     elif action_type == "url":
         parsed = urlparse(target_text)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc or any(not char.isprintable() or char.isspace() for char in target_text):
@@ -238,6 +242,8 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
     elif action_type == "hotkey":
         target_text = validate_hotkey(target_text, require_modifier=False)
         clean_extra = {}
+        if action_extra.get("pack"):
+            clean_extra["pack"] = _text(action_extra["pack"], "paquete", 40, allow_empty=False)
     elif action_type == "page":
         if target_text.lower() in PAGE_KEYWORDS:
             target_text = target_text.lower()
@@ -325,6 +331,27 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
         else:
             raise ValueError("Sonido no válido")
         clean_extra = {}
+    elif action_type == "twitch":
+        target_text = target_text.lower().strip()
+        if target_text not in TWITCH_TARGETS:
+            raise ValueError("Acción de Twitch no válida")
+        clean_extra = {}
+        if action_extra.get("channel"):
+            clean_extra["channel"] = _text(action_extra["channel"], "canal de Twitch", 50, allow_empty=True)
+    elif action_type == "condition":
+        target_text = target_text.lower().strip()
+        if target_text not in CONDITION_TARGETS:
+            raise ValueError("Condición no válida")
+        clean_extra = {}
+        if action_extra.get("process"):
+            clean_extra["process"] = _text(action_extra["process"], "proceso", 128, allow_empty=True)
+        for branch_key in ("then", "else"):
+            branch = action_extra.get(branch_key)
+            if branch and isinstance(branch, dict):
+                b_type = _text(branch.get("action_type", ""), "tipo condicional", 32, allow_empty=False)
+                b_target = str(branch.get("target", ""))
+                b_extra = branch.get("extra") or {}
+                clean_extra[branch_key] = {"action_type": b_type, "target": b_target, "extra": b_extra}
     else:  # multi
         actions = action_extra.get("actions")
         if not isinstance(actions, list) or not 1 <= len(actions) <= 8:

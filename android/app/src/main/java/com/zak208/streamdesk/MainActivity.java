@@ -767,16 +767,25 @@ public class MainActivity extends AppCompatActivity {
             try {
                 JSONArray array = new JSONArray(prefs.getString(KEY_SERVERS, "[]"));
                 for (int i = 0; i < array.length(); i++) {
-                    JSONObject o = array.getJSONObject(i);
-                    Server s = new Server();
-                    s.id = o.getString("id");
-                    s.name = o.optString("name", "PC");
-                    s.url = o.getString("url");
-                    s.token = o.optString("token", "");
-                    servers.add(s);
+                    try {
+                        JSONObject o = array.getJSONObject(i);
+                        String id = o.optString("id", "").trim();
+                        String url = o.optString("url", "").trim();
+                        if (id.isEmpty() || url.isEmpty()) {
+                            continue;
+                        }
+                        Server s = new Server();
+                        s.id = id;
+                        s.name = o.optString("name", "PC");
+                        s.url = url;
+                        s.token = o.optString("token", "");
+                        servers.add(s);
+                    } catch (Exception ignored) {
+                        // Skip malformed entry
+                    }
                 }
             } catch (Exception ignored) {
-                servers.clear();
+                // If entire JSON string was corrupt, don't crash
             }
         }
     }
@@ -786,6 +795,9 @@ public class MainActivity extends AppCompatActivity {
             JSONArray array = new JSONArray();
             try {
                 for (Server s : servers) {
+                    if (s.id == null || s.id.isEmpty() || s.url == null || s.url.isEmpty()) {
+                        continue;
+                    }
                     JSONObject o = new JSONObject();
                     o.put("id", s.id);
                     o.put("name", s.name);
@@ -882,10 +894,13 @@ public class MainActivity extends AppCompatActivity {
         public void saveToken(String token) {
             Server s = serverById(currentId);
             if (s == null) {
-                if (pinPairingInitiated && !currentId.isEmpty()) {
+                String webUrl = webView != null ? webView.getUrl() : null;
+                String normalizedUrl = normalizeBase(webUrl);
+                if (pinPairingInitiated && !currentId.isEmpty() && normalizedUrl != null && !normalizedUrl.isEmpty()) {
                     s = new Server();
                     s.id = currentId;
                     s.name = getString(R.string.unknown_pc_same_id_title);
+                    s.url = normalizedUrl;
                     synchronized (servers) {
                         servers.add(s);
                     }

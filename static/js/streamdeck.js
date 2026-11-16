@@ -201,6 +201,16 @@ function switchPage(pageIdx) {
   const pages = currentConfig.pages || [];
   if (pageIdx >= 0 && pageIdx < pages.length) {
     haptic(20);
+    if (!syncPagesEnabled()) {
+      currentConfig.current_page = pageIdx;
+      if (pages[pageIdx]) {
+        currentConfig.slots = pages[pageIdx].slots;
+        if (pages[pageIdx].layout) currentConfig.layout = pages[pageIdx].layout;
+      }
+      renderDeck(currentConfig);
+      renderPageNav(currentConfig);
+      return;
+    }
     sendWS({ type: "switch_page", page: pageIdx });
   }
 }
@@ -250,6 +260,10 @@ deckContainer?.addEventListener("touchstart", (e) => {
 // Swiping sideways to change page can be switched off in Settings (default: on).
 function swipeEnabled() {
   try { return localStorage.getItem("streamdesk_swipe") !== "0"; } catch (e) { return true; }
+}
+
+function syncPagesEnabled() {
+  try { return localStorage.getItem("streamdesk_sync_pages") !== "0"; } catch (e) { return true; }
 }
 
 deckContainer?.addEventListener("touchend", (e) => {
@@ -450,6 +464,27 @@ function handleServerMessage(data) {
       currentConfig = data.config;
       renderDeck(currentConfig);
       renderPageNav(currentConfig);
+      break;
+
+    case "page_switched":
+      if (!syncPagesEnabled()) {
+        if (data.config && currentConfig) currentConfig.pages = data.config.pages;
+        break;
+      }
+      if (typeof data.page === "number") {
+        if (data.config) currentConfig = data.config;
+        else if (currentConfig) {
+          currentConfig.current_page = data.page;
+          if (currentConfig.pages && currentConfig.pages[data.page]) {
+            currentConfig.slots = currentConfig.pages[data.page].slots;
+            if (currentConfig.pages[data.page].layout) currentConfig.layout = currentConfig.pages[data.page].layout;
+          }
+        }
+        if (currentConfig) {
+          renderDeck(currentConfig);
+          renderPageNav(currentConfig);
+        }
+      }
       break;
 
     case "initial_state":
@@ -938,11 +973,20 @@ function createButtonElement(btn) {
   const doubleAction = !!btn.double_tap;
   const fire = async (gesture) => {
     if (btn.disabled) return showMobileToast("Este botón está desactivado", true);
-    const action = gesture === "tap" ? btn : (btn[gesture] || btn);
+    let action = gesture === "tap" ? btn : (btn[gesture] || btn);
+    let label = btn.label || "este botón";
+    let needsConfirm = btn.confirm;
+
+    if (gesture === "tap" && btn.toggle && buttonStates[btn.id] && btn.alt) {
+      if (btn.alt.action) action = btn.alt.action;
+      if (btn.alt.label) label = btn.alt.label;
+      if (btn.alt.confirm !== undefined) needsConfirm = btn.alt.confirm;
+    }
+
     const risky = isDangerousAction(action);
-    if ((btn.confirm || risky) && !(await askConfirm(risky && !btn.confirm
-      ? `«${btn.label || "Este botón"}» apaga el PC o lanza un comando. ¿Seguro?`
-      : `¿Ejecutar «${btn.label || "este botón"}»?`))) return;
+    if ((needsConfirm || risky) && !(await askConfirm(risky && !needsConfirm
+      ? `«${label}» apaga el PC o lanza un comando. ¿Seguro?`
+      : `¿Ejecutar «${label}»?`))) return;
     keycap.classList.add("btn-busy");
     sendWS(gesture === "tap" ? { type: "trigger_button", id: btn.id } : { type: "trigger_button", id: btn.id, gesture });
   };
@@ -955,6 +999,12 @@ function createButtonElement(btn) {
   let holdTimer = null, tapTimer = null, longFired = false, secondPress = false, moved = false, startX = 0, startY = 0, pressed = false;
   keycap.addEventListener("pointerdown", (event) => {
     if (btn.action_type === "none") return; // an empty key: nothing to press yet
+    if (btn.target === "mic_ptt" || btn.action_type === "ptt") {
+      haptic(30);
+      keycap.classList.add("triggered");
+      sendWS({ type: "ptt_state", id: btn.id, pressed: true });
+      return;
+    }
     if (!plain) haptic(25);
     keycap.classList.add("triggered");
     keycap.style.borderColor = btnColor;
@@ -986,6 +1036,12 @@ function createButtonElement(btn) {
       clearTimeout(holdTimer);
     }
   });
+  keycap.addEventListener("pointercancel", () => {
+    if (btn.target === "mic_ptt" || btn.action_type === "ptt") {
+      keycap.classList.remove("triggered");
+      sendWS({ type: "ptt_state", id: btn.id, pressed: false });
+    }
+  });
   keycap.addEventListener("contextmenu", (event) => event.preventDefault()); // no image menu competing with a long press
   // Screen readers (TalkBack, VoiceOver) name the key and press it with a plain click, without pointer events.
   keycap.setAttribute("role", "button");
@@ -996,6 +1052,12 @@ function createButtonElement(btn) {
     if (btn.action_type !== "none" && Date.now() - lastPointerUpAt > 500) fire("tap"); // a click with no touch before it
   });
   keycap.addEventListener("pointerup", () => {
+    if (btn.target === "mic_ptt" || btn.action_type === "ptt") {
+      haptic(20);
+      keycap.classList.remove("triggered");
+      sendWS({ type: "ptt_state", id: btn.id, pressed: false });
+      return;
+    }
     clearTimeout(holdTimer);
     if (plain) {
       if (pressed && !moved) { haptic(25); fire("tap"); }
@@ -1095,7 +1157,7 @@ function createFaderElement(slider) {
 
 function cleanAppName(name) {
   if (!name) return "App";
-  return name.replace(".exe", "").capitalizeFirst();
+  return name.replace(/\.exe$/i, "").capitalizeFirst();
 }
 
 String.prototype.capitalizeFirst = function() {
@@ -1507,6 +1569,17 @@ async function autoPairWithPin(pinCode) {
   }
 }
 
+function detectClientDeviceName() {
+  const ua = navigator.userAgent || "";
+  const isIPad = /iPad/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIPad) return "iPad";
+  if (/iPhone/i.test(ua)) return "iPhone";
+  if (/Android/i.test(ua)) return /Mobile/i.test(ua) ? "Móvil Android" : "Tablet Android";
+  if (/Windows/i.test(ua)) return "PC Windows";
+  if (/Macintosh/i.test(ua)) return "Mac";
+  return "Navegador Web";
+}
+
 async function autoPairWithPinNow(pinCode) {
   const pinInput = document.getElementById("pin-input");
   const pinError = document.getElementById("pin-error");
@@ -1521,7 +1594,8 @@ async function autoPairWithPinNow(pinCode) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         pin: pinCode.trim(),
-        device_name: /iPhone|iPad/i.test(navigator.userAgent) ? "iPhone" : (/Android/i.test(navigator.userAgent) ? "Android" : "Móvil")
+        device_name: detectClientDeviceName(),
+        old_token: token || undefined
       })
     });
 
@@ -1583,7 +1657,8 @@ document.getElementById("btn-verify-pin")?.addEventListener("click", async () =>
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         pin: enteredPin,
-        device_name: /iPhone|iPad/i.test(navigator.userAgent) ? "iPhone" : (/Android/i.test(navigator.userAgent) ? "Android" : "Móvil")
+        device_name: detectClientDeviceName(),
+        old_token: token || undefined
       })
     });
 

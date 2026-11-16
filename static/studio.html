@@ -8,8 +8,8 @@
     // Apply the saved theme before first paint so the window does not flash the wrong colours.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.20.3">
-  <link rel="stylesheet" href="/static/css/studio.css?v=2.20.3">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.20.1">
+  <link rel="stylesheet" href="/static/css/studio.css?v=2.20.1">
 </head>
 <body>
 
@@ -82,9 +82,11 @@
             <div class="info-url" id="server-url">Cargando IP...</div>
             <details class="android-app" id="android-app">
               <summary>¿No tienes la app en el móvil? (Android)</summary>
-              <p class="panel-hint">Escanea este QR con la cámara del móvil, descarga el archivo y ábrelo para instalar. La app recuerda este PC: si cambias de Wi-Fi lo vuelve a buscar sola, y si no lo encuentra te deja escanear el QR de arriba.</p>
-              <div class="qr-wrapper"><img id="android-qr" class="qr-image" alt="QR para descargar la app de Android"></div>
-              <div class="info-url" id="android-url"></div>
+              <div class="android-app-content">
+                <p class="panel-hint">Escanea este QR con la cámara del móvil, descarga el archivo y ábrelo para instalar. La app recuerda este PC: si cambias de Wi-Fi lo vuelve a buscar sola, y si no lo encuentra te deja escanear el QR de arriba.</p>
+                <div class="qr-wrapper"><img id="android-qr" class="qr-image" alt="QR para descargar la app de Android"></div>
+                <div class="info-url" id="android-url"></div>
+              </div>
             </details>
           </div>
         </details>
@@ -140,9 +142,12 @@
           <div class="drag-delete-hint" id="drag-delete-hint" aria-hidden="true">Suelta fuera de la cuadrícula para eliminar</div>
           <div class="phone-screen-wrapper">
             <div class="phone-status-bar">
-              <span>StreamDesk</span>
-              <span id="phone-preview-page-name">Página 1</span>
-              <span>Vista previa</span>
+              <button class="preview-page-nav-btn" id="preview-prev-page" title="Página anterior" type="button">‹</button>
+              <div class="phone-preview-center">
+                <span id="phone-preview-page-name">Página 1</span>
+                <div class="phone-preview-dots" id="phone-preview-dots"></div>
+              </div>
+              <button class="preview-page-nav-btn" id="preview-next-page" title="Página siguiente" type="button">›</button>
             </div>
             <div class="phone-screen" id="phone-screen"></div>
           </div>
@@ -175,9 +180,9 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/monitors.js?v=2.20.3"></script>
-  <script src="/static/js/studio.js?v=2.20.3"></script>
-  <script src="/static/js/studio-library.js?v=2.20.3"></script>
-  <script src="/static/js/studio-ui.js?v=2.20.3"></script>
+  <script src="/static/js/monitors.js?v=2.20.1"></script>
+  <script src="/static/js/studio.js?v=2.20.1"></script>
+  <script src="/static/js/studio-library.js?v=2.20.1"></script>
+  <script src="/static/js/studio-ui.js?v=2.20.1"></script>
 </body>
 </html>

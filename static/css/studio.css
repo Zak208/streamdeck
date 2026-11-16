@@ -214,10 +214,11 @@ body.resizing-sidebar, body.resizing-inspector {
 .firewall-note .btn-primary { min-height: 34px; padding: 6px 10px; font-size: 12px; }
 .pin-expiry { color: var(--text-3); font-size: 11px; }
 .info-url { font: 11px var(--mono); color: var(--text-3); overflow-wrap: anywhere; text-align: center; }
-.android-app { width: 100%; font-size: 12px; }
+.android-app { width: 100%; font-size: 12px; margin-top: 10px; }
 .android-app summary { cursor: pointer; color: var(--text-2, var(--text-3)); text-align: center; }
-.android-app[open] { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.android-app[open] summary { align-self: stretch; }
+.android-app .android-app-content { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 8px; text-align: center; }
+.android-app .qr-wrapper { margin: 0 auto; display: inline-flex; align-items: center; justify-content: center; }
+.android-app .qr-image { display: block; margin: 0 auto; }
 .android-app .panel-hint { margin: 0; text-align: center; }
 
 .drag-palette-box { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: stretch; }
@@ -293,7 +294,13 @@ main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overf
 .phone-mockup { width: min(100%, 720px); }
 .preview-label { margin-bottom: 12px; color: var(--text-3); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-align: center; text-transform: uppercase; }
 .phone-screen-wrapper { padding: 14px; background: var(--bg-raised); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow); }
-.phone-status-bar { display: flex; justify-content: space-between; padding: 0 6px 12px; color: var(--text-3); font-size: 11px; }
+.phone-status-bar { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 12px; color: var(--text-3); font-size: 11px; user-select: none; }
+.phone-preview-center { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.preview-page-nav-btn { background: transparent; border: 1px solid var(--line); border-radius: 6px; color: var(--text-2); width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; transition: all 0.15s; }
+.preview-page-nav-btn:hover { background: var(--surface-2); border-color: var(--accent); color: var(--text); }
+.phone-preview-dots { display: flex; align-items: center; gap: 4px; }
+.phone-preview-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); cursor: pointer; transition: all 0.15s; }
+.phone-preview-dot.active { background: var(--accent); transform: scale(1.2); }
 .phone-screen { display: grid; grid-template-columns: repeat(var(--cols, 6), minmax(0, 1fr)); grid-template-rows: repeat(var(--rows, 2), minmax(110px, 1fr)); gap: 10px; }
 .phone-mockup.is-wide { width: min(100%, 1040px); }
 .phone-screen.is-dense { gap: 6px; grid-template-rows: repeat(var(--rows, 2), minmax(72px, 1fr)); }
@@ -1022,6 +1029,8 @@ a.template-card { text-decoration: none; color: inherit; }
 .setup-optional { margin-top: 12px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
 .setup-optional > summary { cursor: pointer; font-weight: 700; color: var(--text-2); }
 .setup-optional[open] > summary { margin-bottom: 8px; color: var(--text); }
+.setup-optional input { margin-bottom: 8px; }
+.setup-optional button { margin-top: 8px; }
 
 /* The pairing panel folds itself away after the first phone: show that it can be opened again. */
 .panel-pairing > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

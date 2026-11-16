@@ -344,11 +344,11 @@ def actions() -> List[Dict[str, Any]]:
         {"id": "repeat", "label": "Repetir", "sublabel": "Spotify", "icon": "/static/icons/repeat.svg", "color": "#1db954",
          "action_type": "spotify_action", "target": "repeat", "extra": {}},
         {"id": "play_pause", "label": "Play/Pausa", "sublabel": "Spotify", "icon": "/static/icons/play_pause.svg", "color": "#1db954",
-         "action_type": "media", "target": "play_pause", "extra": {}},
+         "action_type": "media", "target": "play_pause", "extra": {"app": "spotify"}},
         {"id": "next", "label": "Siguiente", "sublabel": "Spotify", "icon": "/static/icons/next.svg", "color": "#1db954",
-         "action_type": "media", "target": "next", "extra": {}},
+         "action_type": "media", "target": "next", "extra": {"app": "spotify"}},
         {"id": "prev", "label": "Anterior", "sublabel": "Spotify", "icon": "/static/icons/prev.svg", "color": "#1db954",
-         "action_type": "media", "target": "prev", "extra": {}},
+         "action_type": "media", "target": "prev", "extra": {"app": "spotify"}},
     ]
 
 

@@ -74,5 +74,27 @@ class ProfileSafetyTests(unittest.TestCase):
         self.assertEqual(len(manager.get_config()["pages"]), len(DEFAULT_CONFIG["pages"]))
 
 
+    def test_validates_twitch_and_condition_actions(self):
+        tw = validate_action("twitch", "clip", {"channel": "test_streamer"})
+        self.assertEqual(tw["action_type"], "twitch")
+        self.assertEqual(tw["target"], "clip")
+        self.assertEqual(tw["extra"]["channel"], "test_streamer")
+
+        cond = validate_action("condition", "obs_streaming", {"then": {"action_type": "sound", "target": "beep"}})
+        self.assertEqual(cond["action_type"], "condition")
+        self.assertEqual(cond["target"], "obs_streaming")
+        self.assertEqual(cond["extra"]["then"]["action_type"], "sound")
+
+        win_ptt = validate_action("windows", "mic_ptt")
+        self.assertEqual(win_ptt["action_type"], "windows")
+        self.assertEqual(win_ptt["target"], "mic_ptt")
+
+        with self.assertRaises(ValueError):
+            validate_action("twitch", "invalid_target")
+
+        with self.assertRaises(ValueError):
+            validate_action("condition", "invalid_cond")
+
+
 if __name__ == "__main__":
     unittest.main()

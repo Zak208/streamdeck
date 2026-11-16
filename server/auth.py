@@ -8,7 +8,7 @@ import hmac
 import re
 import secrets
 import socket
-from typing import Callable, Dict, Any, Optional, Set
+from typing import Callable, Dict, Any, Optional, Set, List, Tuple
 import qrcode
 
 from server.paths import CONFIG_DIR
@@ -198,12 +198,18 @@ class AuthManager:
 
         return "127.0.0.1"
 
-    def verify_pin_and_issue_token(self, pin: str, device_name: str = "Mobile Device", client_ip: str = "") -> Dict[str, Any]:
+    def verify_pin_and_issue_token(self, pin: str, device_name: str = "Mobile Device", client_ip: str = "", old_token: str = "") -> Dict[str, Any]:
         """Validates pairing PIN and returns permanent token for the mobile client."""
         if not self._rate_limit_allows_attempt(client_ip):
             return {"valid": False, "success": False, "error": "Demasiados intentos. Espera unos minutos y genera un PIN nuevo."}
         clean_pin = str(pin).strip()
         if clean_pin and self._pin_matches(clean_pin):
+            # If replacing an existing token from this device, revoke it so we don't accumulate duplicates
+            clean_old = (old_token or "").strip()
+            if clean_old and clean_old in self.authorized_tokens:
+                self.authorized_tokens.remove(clean_old)
+                self.paired_devices.pop(clean_old, None)
+
             new_token = secrets.token_hex(20)
             self.authorized_tokens.add(new_token)
             self.paired_devices[new_token] = {
@@ -267,6 +273,32 @@ class AuthManager:
             self._save_tokens()
             return True
         return False
+
+    def cleanup_devices(self) -> int:
+        """Deduplicates paired devices, keeping only the most recently active token per device name,
+        and removes orphaned entries. Returns count of removed devices."""
+        initial_count = len(self.paired_devices)
+        by_name: Dict[str, List[Tuple[str, float]]] = {}
+        for token in list(self.authorized_tokens):
+            info = self.paired_devices.get(token)
+            if not info:
+                continue
+            name = (info.get("name") or "Dispositivo móvil").strip().lower()
+            last_seen = float(info.get("last_seen") or 0)
+            by_name.setdefault(name, []).append((token, last_seen))
+
+        for name, items in by_name.items():
+            if len(items) > 1:
+                items.sort(key=lambda x: x[1], reverse=True)
+                for token, _ in items[1:]:
+                    if token in self.authorized_tokens:
+                        self.authorized_tokens.remove(token)
+                    self.paired_devices.pop(token, None)
+
+        removed = initial_count - len(self.paired_devices)
+        if removed > 0:
+            self._save_tokens()
+        return removed
 
     @staticmethod
     def device_id(token: str) -> str:

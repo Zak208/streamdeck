@@ -1,5 +1,5 @@
 // StreamDesk Service Worker for PWA installation & caching
-const CACHE_NAME = 'streamdesk-v2.20.3';
+const CACHE_NAME = 'streamdesk-v2.20.1';
 const ASSETS_TO_CACHE = [
   '/',
   '/static/css/tokens.css',
@@ -7,7 +7,7 @@ const ASSETS_TO_CACHE = [
   '/static/js/streamdeck.js',
   '/static/js/monitors.js',
   '/static/js/phone-settings.js',
-  '/static/manifest.json',
+  '/manifest.json',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png',
   '/static/icons/icon-maskable-192.png',
@@ -23,7 +23,8 @@ const ASSETS_TO_CACHE = [
   '/static/icons/mic_off.svg',
   '/static/icons/mute.svg',
   '/static/icons/power.svg',
-  '/static/icons/volume_up.svg'
+  '/static/icons/volume_up.svg',
+  '/static/icons/volume_down.svg'
 ];
 
 self.addEventListener('install', (event) => {

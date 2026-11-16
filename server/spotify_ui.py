@@ -255,16 +255,23 @@ def _toggle_shuffle() -> bool:
     window = _Window(guard=True, app=SPOTIFY)
     try:
         window._wait_for_tree()
+        rect = (ctypes.c_long * 4)()
+        ctypes.windll.user32.GetWindowRect(window.hwnd, rect)
+        bar_y = rect[3] - 140
+
         shuffle_targets = (
             "reproducción aleatoria", "aleatorio", "aleatoria", "shuffle"
         )
         for ct in (UIA_BUTTON, 50002):
-            for element, name, _ in window._all(ct):
+            for element, name, r in window._all(ct):
+                if r[1] < bar_y:
+                    continue
                 low = (name or "").strip().lower()
                 if any(t in low for t in shuffle_targets):
                     window._invoke(element)
+                    time.sleep(0.15)
                     return True
-        raise SpotifyUiError("No encuentro el botón de Aleatorio en la app de Spotify.")
+        raise SpotifyUiError("No encuentro el botón de Aleatorio en la barra de reproducción de Spotify.")
     finally:
         window.close()
 
@@ -280,16 +287,23 @@ def _cycle_repeat() -> bool:
     window = _Window(guard=True, app=SPOTIFY)
     try:
         window._wait_for_tree()
+        rect = (ctypes.c_long * 4)()
+        ctypes.windll.user32.GetWindowRect(window.hwnd, rect)
+        bar_y = rect[3] - 140
+
         repeat_targets = (
             "activar repetir", "desactivar repetir", "repetir una", "repetir", "repeat"
         )
         for ct in (50002, UIA_BUTTON):
-            for element, name, _ in window._all(ct):
+            for element, name, r in window._all(ct):
+                if r[1] < bar_y:
+                    continue
                 low = (name or "").strip().lower()
                 if any(t in low for t in repeat_targets):
                     window._invoke(element)
+                    time.sleep(0.15)
                     return True
-        raise SpotifyUiError("No encuentro el botón de Repetir en la app de Spotify.")
+        raise SpotifyUiError("No encuentro el botón de Repetir en la barra de reproducción de Spotify.")
     finally:
         window.close()
 
