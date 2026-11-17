@@ -24,6 +24,7 @@ TOKEN_IDLE_DAYS = 90
 SECONDS_PER_DAY = 24 * 3600
 MAX_PIN_ATTEMPTS = 5
 PIN_ATTEMPT_WINDOW_SECONDS = 10 * 60
+GLOBAL_MAX_PIN_FAILURES = 10
 
 
 class AuthManager:
@@ -35,6 +36,7 @@ class AuthManager:
         self.previous_pin = ""
         self.previous_pin_until = 0.0
         self.pin_attempts: Dict[str, list[float]] = {}
+        self.global_pin_failures: list[float] = []
         self.authorized_tokens: Set[str] = set()
         self.paired_devices: Dict[str, Dict[str, Any]] = {}
         self.on_paired: Optional[Callable[[str], None]] = None  # told the phone's name when one pairs
@@ -219,8 +221,12 @@ class AuthManager:
                 "last_seen": time.time(),
             }
             self._save_tokens()
-            # Optional: Rotate PIN after successful pairing for extra security
-            self.refresh_pin()
+            # Invalidate PIN immediately upon successful pairing to prevent replay window attacks
+            self.current_pin = self._generate_pin()
+            self.pin_issued_at = time.monotonic()
+            self.previous_pin = ""
+            self.previous_pin_until = 0.0
+            self.global_pin_failures.clear()
             self.pin_attempts.pop(client_ip or "unknown", None)
             if self.on_paired:
                 try:
@@ -228,6 +234,17 @@ class AuthManager:
                 except Exception:
                     pass  # a notification that fails must not undo a pairing
             return {"valid": True, "success": True, "token": new_token, "server_id": self.server_id}
+        now = time.monotonic()
+        self.global_pin_failures = [t for t in self.global_pin_failures if now - t < PIN_ATTEMPT_WINDOW_SECONDS]
+        self.global_pin_failures.append(now)
+        if len(self.global_pin_failures) >= GLOBAL_MAX_PIN_FAILURES:
+            self.current_pin = self._generate_pin()
+            self.pin_issued_at = now
+            self.previous_pin = ""
+            self.previous_pin_until = 0.0
+            self.global_pin_failures.clear()
+            return {"valid": False, "success": False,
+                    "error": "Demasiados intentos fallidos globales. Se ha generado un PIN nuevo por seguridad."}
         return {"valid": False, "success": False,
                 "error": "PIN incorrecto o caducado. Escribe el que StreamDesk Studio muestra ahora."}
 
@@ -282,6 +299,7 @@ class AuthManager:
         for token in list(self.authorized_tokens):
             info = self.paired_devices.get(token)
             if not info:
+                self.authorized_tokens.remove(token)
                 continue
             name = (info.get("name") or "Dispositivo móvil").strip().lower()
             last_seen = float(info.get("last_seen") or 0)

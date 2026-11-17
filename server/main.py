@@ -53,7 +53,7 @@ from server.actions import execute_action, play_local_sound
 from server.auth import auth_manager
 from server.release_notes import get_version_changelog
 from server import app_icons, audit, desktop, diagnostics, discord_ui, firewall, layouts, live_buttons, page_library, permissions, program_packs, shell_actions, steam, templates, updater, webhooks
-from server.action_catalog import COUNTER_TARGETS, GESTURES, PAGE_KEYWORDS, validate_deck_config
+from server.action_catalog import COUNTER_TARGETS, GESTURES, PAGE_KEYWORDS, SAFE_PROCESS, validate_deck_config
 from server.config_manager import CONFIG_FILE, config_manager
 from server.connectors import discord as discord_connector, spotify, windows
 from server.settings_store import settings
@@ -152,6 +152,7 @@ async def run_audio(fn, *args):
 # Volumes asked for an app that makes no sound yet: Windows only has an audio session for an app
 # while it is playing, so the volume is remembered and applied the moment the app shows up.
 _pending_app_volumes: Dict[str, int] = {}
+MAX_PENDING_APP_VOLUMES = 50
 
 
 def merge_sessions(sessions: list) -> list:
@@ -170,7 +171,7 @@ def merge_sessions(sessions: list) -> list:
 
 def read_audio_state() -> Dict[str, Any]:
     sessions = audio_controller.get_audio_sessions()
-    for process, volume in list(_pending_app_volumes.items()):
+    for process, volume in list(_pending_app_volumes.items())[:MAX_PENDING_APP_VOLUMES]:
         proc_clean = process.lower().replace(".exe", "")
         if any(s["process_name"].lower() == process.lower() or s["process_name"].lower().replace(".exe", "") == proc_clean for s in sessions):
             audio_controller.set_app_volume(process, volume)
@@ -331,7 +332,10 @@ app.add_middleware(
     CORSMiddleware,
     # The desktop Studio is intentionally a localhost-only administration
     # surface. The paired PWA communicates over its authenticated WebSocket.
-    allow_origins=[f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}", f"https://localhost:{PORT}", f"https://127.0.0.1:{PORT}"],
+    allow_origins=[
+        f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}", f"http://[::1]:{PORT}",
+        f"https://localhost:{PORT}", f"https://127.0.0.1:{PORT}", f"https://[::1]:{PORT}"
+    ],
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
@@ -1614,6 +1618,8 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
 
         while True:
             raw_data = await websocket.receive_text()
+            if len(raw_data) > 65536:
+                continue
             try:
                 data = json.loads(raw_data)
                 msg_type = data.get("type")
@@ -1635,9 +1641,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                     btn_id = data.get("id")
                     target_muted = not pressed
                     await run_audio(windows.set_mic_muted, target_muted)
-                    if btn_id:
-                        button_states[btn_id] = pressed
-                        await ws_manager.broadcast({"type": "button_state", "id": btn_id, "active": pressed})
+                    if btn_id and isinstance(btn_id, str):
+                        slots = config_manager.get_config().get("slots", [])
+                        if any(s.get("id") == btn_id for s in slots):
+                            button_states[btn_id] = pressed
+                            await ws_manager.broadcast({"type": "button_state", "id": btn_id, "active": pressed})
 
                 elif msg_type == "trigger_button":
                     btn_id = data.get("id")
@@ -1709,34 +1717,40 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                     proc = data.get("process")
                     vol = int(data.get("volume", 0))
                     vol = max(0, min(100, vol))
-                    if proc:
-                        applied = await run_audio(audio_controller.set_app_volume, proc, vol)
-                        if applied.get("success"):
-                            _pending_app_volumes.pop(proc.lower(), None)
-                        else:
-                            _pending_app_volumes[proc.lower()] = vol
-                        await ws_manager.broadcast({
-                            "type": "app_volume_updated",
-                            "process": proc,
-                            "volume": vol
-                        }, exclude=websocket)
+                    if isinstance(proc, str):
+                        proc = proc.strip()
+                        if 1 <= len(proc) <= 128 and SAFE_PROCESS.fullmatch(proc):
+                            applied = await run_audio(audio_controller.set_app_volume, proc, vol)
+                            if applied.get("success"):
+                                _pending_app_volumes.pop(proc.lower(), None)
+                            else:
+                                if len(_pending_app_volumes) >= MAX_PENDING_APP_VOLUMES:
+                                    _pending_app_volumes.pop(next(iter(_pending_app_volumes)), None)
+                                _pending_app_volumes[proc.lower()] = vol
+                            await ws_manager.broadcast({
+                                "type": "app_volume_updated",
+                                "process": proc,
+                                "volume": vol
+                            }, exclude=websocket)
 
                 elif msg_type == "toggle_app_mute":
                     proc = data.get("process")
-                    if proc:
-                        res = await run_audio(audio_controller.toggle_app_mute, proc)
-                        if res.get("success"):
-                            await ws_manager.broadcast({
-                                "type": "app_mute_updated",
-                                "process": proc,
-                                "muted": res.get("muted", False)
-                            })
-                        else:
-                            await websocket.send_text(json.dumps({
-                                "type": "action_result",
-                                "success": False,
-                                "error": res.get("error", "No se pudo cambiar el silencio de la app")
-                            }))
+                    if isinstance(proc, str):
+                        proc = proc.strip()
+                        if 1 <= len(proc) <= 128 and SAFE_PROCESS.fullmatch(proc):
+                            res = await run_audio(audio_controller.toggle_app_mute, proc)
+                            if res.get("success"):
+                                await ws_manager.broadcast({
+                                    "type": "app_mute_updated",
+                                    "process": proc,
+                                    "muted": res.get("muted", False)
+                                })
+                            else:
+                                await websocket.send_text(json.dumps({
+                                    "type": "action_result",
+                                    "success": False,
+                                    "error": res.get("error", "No se pudo cambiar el silencio de la app")
+                                }))
 
                 elif msg_type == "refresh_sessions":
                     sessions = (await run_audio(read_audio_state))["sessions"]
@@ -1776,6 +1790,14 @@ async def serve_library(_: None = Depends(require_local_request)):
     if os.path.exists(library_path):
         return FileResponse(library_path)
     return "<h1>Library not found</h1>"
+
+@app.get("/static/studio.html", response_class=HTMLResponse)
+async def serve_static_studio(_: None = Depends(require_local_request)):
+    return await serve_studio(_)
+
+@app.get("/static/library.html", response_class=HTMLResponse)
+async def serve_static_library(_: None = Depends(require_local_request)):
+    return await serve_library(_)
 
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

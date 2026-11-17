@@ -151,7 +151,7 @@ def ensure_ssl_certificates(preferred_ip: Optional[str] = None) -> Tuple[Optiona
                 .public_key(server_key.public_key())
                 .serial_number(x509.random_serial_number())
                 .not_valid_before(now - datetime.timedelta(days=1))
-                .not_valid_after(now + datetime.timedelta(days=3650))
+                .not_valid_after(now + datetime.timedelta(days=365))
                 .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
                 .add_extension(
                     x509.KeyUsage(

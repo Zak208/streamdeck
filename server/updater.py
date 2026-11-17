@@ -162,6 +162,7 @@ class Updater:
 
     def _run(self, current_version: str) -> None:
         folder = None
+        launched = False
         try:
             info = self.release_info(current_version, force=True)
             if not info["update_available"]:
@@ -179,11 +180,16 @@ class Updater:
                 raise UpdateError("La descarga no coincide con la huella SHA-256 publicada y se descartó")
             self._set(state="installing", progress=1.0, message="Instalando: StreamDesk se cerrará y se abrirá de nuevo")
             _launch(path)
+            launched = True
             _exit_soon()
         except UpdateError as exc:
             self._set(state="error", message=str(exc))
         except Exception as exc:  # no network, GitHub down, disk full...
             self._set(state="error", message=f"No se pudo actualizar: {exc}")
+        finally:
+            if not launched and folder and os.path.exists(folder):
+                import shutil
+                shutil.rmtree(folder, ignore_errors=True)
 
 
 updater = Updater()

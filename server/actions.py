@@ -17,7 +17,7 @@ from server.action_catalog import (
     validate_action,
     validate_hotkey,
 )
-from server import discord_ui, shell_actions, webhooks
+from server import com_worker, discord_ui, shell_actions, webhooks
 from server.connectors import discord as discord_connector, spotify, windows
 from server.system_scanner import system_scanner
 
@@ -617,7 +617,7 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
                 is_true = bool(windows.get_mic_muted())
             elif cond == "process_running":
                 proc = str((extra or {}).get("process", "")).lower()
-                sessions = audio_controller.get_audio_sessions()
+                sessions = com_worker.com_worker.call(audio_controller.get_audio_sessions) or []
                 is_true = any(s.get("process_name", "").lower() == proc for s in sessions)
             branch = (extra or {}).get("then" if is_true else "else")
             if not branch or not isinstance(branch, dict):

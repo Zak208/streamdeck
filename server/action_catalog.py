@@ -129,6 +129,8 @@ def validate_hotkey(value: Any, *, require_modifier: bool = True) -> str:
         raise ValueError("El atajo necesita una tecla además de los modificadores")
     if require_modifier and not any(key in HOTKEY_MODIFIERS for key in keys):
         raise ValueError("El atajo debe incluir un modificador y una tecla, por ejemplo CTRL+SHIFT+M")
+    if "WIN" in keys and any(k in ("R", "X") for k in keys):
+        raise ValueError("Los atajos del sistema con la tecla Windows (como WIN+R) no están permitidos por seguridad")
     return "+".join(keys)
 
 
@@ -348,10 +350,16 @@ def validate_action(action_type: Any, target: Any, extra: Any = None, *, allow_m
         for branch_key in ("then", "else"):
             branch = action_extra.get(branch_key)
             if branch and isinstance(branch, dict):
-                b_type = _text(branch.get("action_type", ""), "tipo condicional", 32, allow_empty=False)
-                b_target = str(branch.get("target", ""))
-                b_extra = branch.get("extra") or {}
-                clean_extra[branch_key] = {"action_type": b_type, "target": b_target, "extra": b_extra}
+                clean_branch = validate_action(
+                    branch.get("action_type"),
+                    branch.get("target"),
+                    branch.get("extra"),
+                    allow_multi=False,
+                )
+                if clean_branch["action_type"] == "condition":
+                    raise ValueError("No se permiten condiciones anidadas")
+                if clean_branch["action_type"] != "none":
+                    clean_extra[branch_key] = clean_branch
     else:  # multi
         actions = action_extra.get("actions")
         if not isinstance(actions, list) or not 1 <= len(actions) <= 8:

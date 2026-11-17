@@ -84,7 +84,17 @@ def _is_streamdesk_api(hostname: str | None, port: int | None) -> bool:
         ip = ipaddress.ip_address(h)
         return ip.is_loopback or ip.is_unspecified
     except ValueError:
-        return False
+        pass
+    try:
+        import socket
+        addr_info = socket.getaddrinfo(h, port, proto=socket.IPPROTO_TCP)
+        for _, _, _, _, sockaddr in addr_info:
+            ip_obj = ipaddress.ip_address(sockaddr[0])
+            if ip_obj.is_loopback or ip_obj.is_unspecified:
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def run(url: str, extra: Dict[str, Any]) -> Dict[str, Any]:

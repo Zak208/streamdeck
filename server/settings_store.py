@@ -50,7 +50,11 @@ def _dpapi(data: bytes, encrypt: bool) -> Optional[bytes]:
 def seal(value: str) -> str:
     """The text to write to disk for a secret: encrypted for this Windows user when possible."""
     sealed = _dpapi(value.encode("utf-8"), True)
-    return SECRET_PREFIX + base64.b64encode(sealed).decode("ascii") if sealed else value
+    if sealed is None:
+        if hasattr(ctypes, "windll"):
+            raise RuntimeError("No se pudo cifrar el secreto con Windows DPAPI")
+        return value
+    return SECRET_PREFIX + base64.b64encode(sealed).decode("ascii")
 
 
 def unseal(value: str) -> str:

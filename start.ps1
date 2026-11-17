@@ -8,10 +8,7 @@ Write-Host "========================================================" -Foregroun
 if (-Not (Test-Path ".venv")) {
     Write-Host "[*] Configurando entorno virtual..." -ForegroundColor Gray
     python -m venv .venv
-    & ".\.venv\Scripts\Activate.ps1"
-    pip install -r requirements.txt
-} else {
-    & ".\.venv\Scripts\Activate.ps1"
+    & ".\.venv\Scripts\python.exe" -m pip install -r requirements.txt
 }
 
 Start-Process "http://localhost:48291/studio"

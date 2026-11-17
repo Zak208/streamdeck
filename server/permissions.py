@@ -23,4 +23,11 @@ def is_dangerous(action_type: Any, target: Any = "", extra: Optional[Dict[str, A
         return isinstance(children, list) and any(
             isinstance(child, dict) and is_dangerous(child.get("action_type"), child.get("target"), child.get("extra"))
             for child in children)
+    if kind == "condition":
+        return any(
+            isinstance(extra.get(b), dict) and is_dangerous(
+                extra[b].get("action_type"), extra[b].get("target"), extra[b].get("extra")
+            )
+            for b in ("then", "else")
+        )
     return False
