@@ -10,30 +10,30 @@ def get_version_changelog(version: str) -> Dict[str, Any]:
         "title": f"Novedades de StreamDesk v{version}",
         "steps": [
             {
-                "title": "Spotify y juegos sin interferencias",
-                "tag": "Estabilidad",
+                "title": "Blindaje y seguridad integral",
+                "tag": "Seguridad",
                 "icon": "shield",
                 "description": (
-                    "«Me gusta», aleatorio y repetir de Spotify funcionan en segundo plano, sin robar el foco "
-                    "ni enviar teclas mientras juegas a pantalla completa."
+                    "Bloqueo estricto de atajos de sistema peligrosos, protección anti-replay y límite de fuerza bruta en PIN, "
+                    "cifrado robusto con Windows DPAPI y protección contra SSRF en webhooks."
                 ),
             },
             {
-                "title": "Deshacer, rehacer y edición segura en Studio",
-                "tag": "Studio",
-                "icon": "sliders",
-                "description": (
-                    "Ctrl+Z y Ctrl+Y recorren tus cambios en orden, pegar sobre una casilla ocupada pide "
-                    "confirmación y un guardado rechazado vuelve al último estado válido."
-                ),
-            },
-            {
-                "title": "Móvil más claro y conexión más segura",
-                "tag": "Móvil",
+                "title": "Control de acceso y privacidad reforzada",
+                "tag": "Privacidad",
                 "icon": "power",
                 "description": (
-                    "Cada botón muestra «en curso», éxito o error, avisa si no hay conexión, recuerda la app de "
-                    "cada fader y la app de Android rechaza PCs que se hagan pasar por el tuyo."
+                    "Validación recursiva de permisos en acciones condicionales para móviles limitados y protección de acceso local "
+                    "a StreamDesk Studio en la red Wi-Fi."
+                ),
+            },
+            {
+                "title": "Resiliencia y estabilidad del sistema",
+                "tag": "Estabilidad",
+                "icon": "sliders",
+                "description": (
+                    "Control de volumen optimizado contra saturación de memoria, validación de estado en Push-to-Talk y sincronización "
+                    "segura de hilos COM en segundo plano."
                 ),
             },
         ],
