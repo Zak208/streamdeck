@@ -1534,8 +1534,25 @@ async def run_button_action(websocket: WebSocket, slot: Dict[str, Any], gesture:
             elif slot.get("action_type") == "timer":
                 result = await run_timer(btn_id, int((slot.get("extra") or {}).get("seconds", 60)))
             else:
+                a_type = slot.get("action_type")
+                tgt = slot.get("target")
+                extra = dict(slot.get("extra") or {})
+                if a_type == "hotkey" and tgt:
+                    sorted_t = sorted(p.strip().upper() for p in tgt.split("+") if p.strip())
+                    if sorted_t == ["ALT", "B", "SHIFT"]:
+                        lbl = (slot.get("label") or "").lower()
+                        sub = (slot.get("sublabel") or "").lower()
+                        col = (slot.get("color") or "").lower()
+                        if col == "#1db954" or "spotify" in sub or "gusta" in lbl or not extra.get("pack"):
+                            extra.setdefault("pack", "spotify")
+                            extra.setdefault("app", "spotify")
+                elif a_type == "media":
+                    sub = (slot.get("sublabel") or "").lower()
+                    col = (slot.get("color") or "").lower()
+                    if col == "#1db954" or "spotify" in sub:
+                        extra.setdefault("app", "spotify")
                 result = await asyncio.to_thread(
-                    execute_action, slot.get("action_type"), slot.get("target"), slot.get("extra")
+                    execute_action, a_type, tgt, extra
                 )
         except Exception as exc:
             result = {"success": False, "error": str(exc)}

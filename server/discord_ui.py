@@ -134,7 +134,13 @@ def _find_window(app: AppSpec = DISCORD) -> int:
                 found.append(hwnd)
             return True
 
-        user32.EnumWindows(visit, 0)
+        if hdesk:
+            try:
+                user32.EnumDesktopWindows(hdesk, visit, 0)
+            except Exception:
+                pass
+        if not found:
+            user32.EnumWindows(visit, 0)
         if not found:
             try:
                 hinput = user32.OpenInputDesktop(0, False, 0x01FF)
@@ -160,8 +166,11 @@ def _find_window(app: AppSpec = DISCORD) -> int:
 
     main = max(found, key=area)
     if user32.IsIconic(main):
-        # Never restored by StreamDesk: showing a minimized window can pull the focus away from the user's game.
-        raise DiscordUiError(f"{app.name} está minimizado. Déjalo abierto sin minimizar, por ejemplo en tu otra pantalla o detrás de tu programa, y no te quitará el foco.")
+        # Restore in background without activating or stealing focus from the active game
+        user32.ShowWindow(main, 4)  # SW_SHOWNOACTIVATE
+        time.sleep(0.15)
+        if user32.IsIconic(main):
+            raise DiscordUiError(f"{app.name} está minimizado. Déjalo abierto sin minimizar, por ejemplo en tu otra pantalla o detrás de tu programa, y no te quitará el foco.")
     return main
 
 
@@ -560,7 +569,11 @@ def _press_voice_button(kind: str) -> Optional[bool]:
         else:
             window._invoke(element)
         time.sleep(0.35)  # Discord redraws the button a moment after the press
-        return _toggle_state(window, element)
+        try:
+            new_mute, new_deafen = _voice_buttons(window)
+            return _toggle_state(window, (new_mute if kind == "mute" else new_deafen)[0])
+        except Exception:
+            return _toggle_state(window, element)
     finally:
         if hasattr(window, "close"):
             window.close()

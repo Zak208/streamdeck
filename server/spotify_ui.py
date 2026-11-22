@@ -117,18 +117,39 @@ def play(uri: str) -> None:
     ui_worker.call(_play, uri, timeout=60)
 
 
+def _render_hwnd(hwnd: int) -> int:
+    """Find the Chromium RenderWidgetHostHWND child window that actually accepts mouse input messages."""
+    children = []
+    user32 = ctypes.windll.user32
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def enum_child(h, _):
+        cls = ctypes.create_unicode_buffer(80)
+        user32.GetClassNameW(h, cls, 80)
+        if cls.value == "Chrome_RenderWidgetHostHWND":
+            children.append(h)
+        return True
+
+    try:
+        user32.EnumChildWindows(hwnd, enum_child, 0)
+    except Exception:
+        pass
+    return children[0] if children else hwnd
+
+
 def _post_click(hwnd: int, r: Rect) -> None:
     """Sends background left click without activating window or stealing focus."""
+    target_hwnd = _render_hwnd(hwnd)
     cx = (r[0] + r[2]) // 2
     cy = (r[1] + r[3]) // 2
     pt = (ctypes.c_long * 2)(cx, cy)
-    ctypes.windll.user32.ScreenToClient(hwnd, pt)
+    ctypes.windll.user32.ScreenToClient(target_hwnd, pt)
     lparam = (pt[1] << 16) | (pt[0] & 0xFFFF)
     WM_LBUTTONDOWN = 0x0201
     WM_LBUTTONUP = 0x0202
-    ctypes.windll.user32.PostMessageW(hwnd, WM_LBUTTONDOWN, 1, lparam)
+    ctypes.windll.user32.PostMessageW(target_hwnd, WM_LBUTTONDOWN, 1, lparam)
     time.sleep(0.04)
-    ctypes.windll.user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam)
+    ctypes.windll.user32.PostMessageW(target_hwnd, WM_LBUTTONUP, 0, lparam)
 
 
 def _toggle_like() -> bool:
@@ -146,7 +167,7 @@ def _toggle_like() -> bool:
             "canciones que te gustan", "canciones favoritas", "liked songs", "favorite songs"
         )
         hecho_targets = (
-            "hecho", "done", "guardar", "listo", "save"
+            "hecho", "done", "guardar", "listo", "save", "cancelar", "cancel"
         )
 
         # 1. Check if the playlist picker popup is already open
@@ -158,6 +179,7 @@ def _toggle_like() -> bool:
                 break
 
         # 2. If not already open, click the bottom bar button to open the playlist picker
+        bottom_btn = None
         if not cb_liked:
             like_targets_bottom = (
                 "añadir a lista", "añadir a la lista", "añadir a canciones que te gustan",
@@ -167,7 +189,6 @@ def _toggle_like() -> bool:
                 "guardar en canciones que te gustan", "guardada en canciones que te gustan",
                 "save to your library", "remove from your library", "add to liked songs", "add to playlist"
             )
-            bottom_btn = None
             for elem, name, r in window._all(UIA_BUTTON):
                 low = (name or "").strip().lower()
                 if r[1] >= bar_y and r[0] < center_x:
@@ -207,6 +228,7 @@ def _toggle_like() -> bool:
         # 3. If playlist picker is open, toggle "Canciones que te gustan"
         if cb_liked:
             elem, name, r = cb_liked
+            _post_click(window.hwnd, r)
             t_unk = elem.GetCurrentPattern(TOGGLE_PATTERN)
             if t_unk:
                 try:
@@ -219,27 +241,33 @@ def _toggle_like() -> bool:
 
             time.sleep(0.2)
 
-            # Find and click "Hecho" / "Done" to save and close the popup
-            hecho_btn = None
+            # Find and click "Hecho" / "Done" / "Cancelar" to save and close the popup
+            close_btn = None
             for _ in range(10):
                 for b_elem, b_name, b_r in window._all(UIA_BUTTON):
-                    if b_name.strip().lower() in hecho_targets:
-                        hecho_btn = (b_elem, b_name, b_r)
+                    low = b_name.strip().lower()
+                    if low in hecho_targets or any(t == low for t in hecho_targets):
+                        close_btn = (b_elem, b_name, b_r)
                         break
-                if hecho_btn:
+                if close_btn:
                     break
                 time.sleep(0.1)
 
-            if hecho_btn:
+            if close_btn:
                 try:
-                    window._invoke(hecho_btn[0])
+                    window._invoke(close_btn[0])
                 except Exception:
-                    _post_click(window.hwnd, hecho_btn[2])
-                time.sleep(0.2)
+                    _post_click(window.hwnd, close_btn[2])
+            elif bottom_btn:
+                # Re-click bottom button to close popup
+                _post_click(window.hwnd, bottom_btn[2])
+            time.sleep(0.2)
             return True
 
         # 4. Fallback for older 1-click heart icon Spotify versions
-        return True
+        if bottom_btn:
+            return True
+        raise SpotifyUiError("No encuentro el botón de Me gusta en Spotify.")
     finally:
         window.close()
 

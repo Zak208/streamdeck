@@ -60,10 +60,35 @@ SPOTIFY_APPCOMMANDS = {
 }
 
 
+_DESKTOP_HANDLES = None
+
+
+def _ensure_desktop_access() -> tuple:
+    """Ensure current thread can enumerate and interact with interactive desktop windows."""
+    global _DESKTOP_HANDLES
+    if _DESKTOP_HANDLES is not None:
+        return _DESKTOP_HANDLES
+    user32 = ctypes.windll.user32
+    hwinsta = None
+    hdesk = None
+    try:
+        hwinsta = user32.OpenWindowStationW("WinSta0", False, 0x037F)
+        if hwinsta:
+            user32.SetProcessWindowStation(hwinsta)
+            hdesk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
+            if hdesk:
+                user32.SetThreadDesktop(hdesk)
+    except Exception:
+        pass
+    _DESKTOP_HANDLES = (hwinsta, hdesk)
+    return _DESKTOP_HANDLES
+
+
 def _find_spotify_hwnds() -> list:
     """Find top-level Spotify windows to deliver media commands directly."""
     try:
         user32 = ctypes.windll.user32
+        _, hdesk = _ensure_desktop_access()
         pids = {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() == "spotify.exe"}
         if not pids:
             return []
@@ -76,11 +101,17 @@ def _find_spotify_hwnds() -> list:
             if pid.value in pids:
                 cls_buff = ctypes.create_unicode_buffer(80)
                 user32.GetClassNameW(hwnd, cls_buff, 80)
-                if "Chrome_WidgetWin" in cls_buff.value:
+                if "Chrome_WidgetWin" in cls_buff.value and (user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd)):
                     found.append(hwnd)
             return True
 
-        user32.EnumWindows(enum_proc, 0)
+        if hdesk:
+            try:
+                user32.EnumDesktopWindows(hdesk, enum_proc, 0)
+            except Exception:
+                pass
+        if not found:
+            user32.EnumWindows(enum_proc, 0)
         return found
     except Exception:
         return []
@@ -92,8 +123,9 @@ def _post_spotify_media_command(media_key: str) -> None:
         return
     try:
         user32 = ctypes.windll.user32
+        hwnds = _find_spotify_hwnds()
         lParam = cmd << 16
-        for hwnd in _find_spotify_hwnds():
+        for hwnd in hwnds:
             user32.PostMessageW(hwnd, WM_APPCOMMAND, 0, lParam)
     except Exception:
         pass
@@ -103,8 +135,9 @@ def send_vk_key(vk_code: int) -> bool:
     """Simulate a dedicated media key press and release in Windows."""
     try:
         user32 = ctypes.windll.user32
-        user32.keybd_event(vk_code, 0, 0, 0)
-        user32.keybd_event(vk_code, 0, KEYEVENTF_KEYUP, 0)
+        scan = user32.MapVirtualKeyW(vk_code, 0)
+        user32.keybd_event(vk_code, scan, KEYEVENTF_EXTENDEDKEY, 0)
+        user32.keybd_event(vk_code, scan, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
         return True
     except Exception as exc:
         print(f"Error sending virtual key {vk_code}: {exc}")
@@ -203,6 +236,7 @@ def bring_window_to_front(hwnd: int) -> bool:
     if not user32.IsWindow(hwnd):
         return False
     try:
+        _ensure_desktop_access()
         user32.AllowSetForegroundWindow(-1)
         if user32.IsIconic(hwnd):
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE
@@ -235,6 +269,7 @@ def _find_running_app_window(exe_names: list) -> int:
     """Find the main top-level visible window for given executable name(s)."""
     try:
         user32 = ctypes.windll.user32
+        _, hdesk = _ensure_desktop_access()
         names = {name.lower() for name in exe_names}
         pids = {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() in names}
         if not pids:
@@ -254,7 +289,13 @@ def _find_running_app_window(exe_names: list) -> int:
                     candidates.append((area, hwnd))
             return True
 
-        user32.EnumWindows(enum_proc, 0)
+        if hdesk:
+            try:
+                user32.EnumDesktopWindows(hdesk, enum_proc, 0)
+            except Exception:
+                pass
+        if not candidates:
+            user32.EnumWindows(enum_proc, 0)
         if candidates:
             candidates.sort(key=lambda x: x[0], reverse=True)
             return candidates[0][1]
@@ -484,9 +525,14 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
 
         if action_type == "hotkey":
             parts = [p.strip().upper() for p in (target or "").split("+") if p.strip()]
-            if sorted(parts) == ["ALT", "B", "SHIFT"] and extra and (extra.get("pack") == "spotify" or extra.get("app") == "spotify"):
+            sorted_parts = sorted(parts)
+            if sorted_parts == ["ALT", "B", "SHIFT"] and extra and (extra.get("pack") == "spotify" or extra.get("app") == "spotify"):
                 # Intercept Spotify Like shortcut only if it belongs to Spotify pack
                 return spotify.toggle_like()
+            if sorted_parts == ["CTRL", "S"] and extra and (extra.get("pack") == "spotify" or extra.get("app") == "spotify"):
+                return spotify.toggle_shuffle()
+            if sorted_parts == ["CTRL", "R"] and extra and (extra.get("pack") == "spotify" or extra.get("app") == "spotify"):
+                return spotify.cycle_repeat()
             admin_err = check_elevated_foreground()
             if admin_err:
                 return {"success": False, "error": admin_err, "action": action_type, "target": target}
@@ -505,17 +551,17 @@ def execute_single_action(action_type: str, target: str, extra: Dict[str, Any] |
         if action_type == "discord_hotkey":
             if target not in DISCORD_TARGETS:
                 return {"success": False, "error": "Acción de Discord no válida"}
-            if target in ("mute", "deafen") and discord_connector.method() == "button":
-                # Pressing Discord's own button needs no shortcut set up, and tells whether it is now on (the key lights up).
-                try:
-                    state = discord_ui.toggle_voice(target)
-                except discord_ui.DiscordUiError as exc:
-                    return {"success": False, "error": str(exc)}
-                result = {"success": True, "action": action_type, "target": target}
-                if state is not None:
-                    result["active"] = state
-                return result
-            return {"success": send_hotkey(extra["hotkey"]), "action": action_type, "target": target}
+            if target in ("mute", "deafen"):
+                if discord_connector.method() == "button":
+                    try:
+                        state = discord_ui.toggle_voice(target)
+                        result = {"success": True, "action": action_type, "target": target}
+                        if state is not None:
+                            result["active"] = state
+                        return result
+                    except discord_ui.DiscordUiError as exc:
+                        return {"success": False, "error": str(exc)}
+                return {"success": send_hotkey(extra["hotkey"]), "action": action_type, "target": target}
 
         if action_type == "discord_sound":
             if extra.get("hotkey"):

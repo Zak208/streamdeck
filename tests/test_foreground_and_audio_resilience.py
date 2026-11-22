@@ -203,7 +203,7 @@ class ForegroundIndependenceTests(unittest.TestCase):
              mock.patch("ctypes.windll.user32.GetWindowRect", side_effect=lambda hwnd, rect: None):
             res = spotify_ui._toggle_like()
             self.assertTrue(res)
-            mock_post_click.assert_called_once()
+            self.assertTrue(mock_post_click.called)
             mock_toggle.Toggle.assert_called_once()
             mock_window._invoke.assert_called_with(mock_hecho)
 

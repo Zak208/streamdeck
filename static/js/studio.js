@@ -1691,20 +1691,34 @@ function openAppHub(host, app, btn, index, onBack) {
       if (pack.id === "spotify" && chosen.id === "like") {
         assignFromTemplate(btn, index, {
           label: chosen.label, sublabel: "Spotify", icon: `/static/icons/${chosen.icon}.svg`,
-          color: pack.color || "#1db954", action_type: "spotify_action", target: "like", extra: {},
+          color: pack.color || "#1db954", action_type: "spotify_action", target: "like", extra: { pack: "spotify", app: "spotify" },
+        });
+        return;
+      }
+      if (pack.id === "spotify" && chosen.id === "shuffle") {
+        assignFromTemplate(btn, index, {
+          label: chosen.label, sublabel: "Spotify", icon: `/static/icons/${chosen.icon}.svg`,
+          color: pack.color || "#1db954", action_type: "spotify_action", target: "shuffle", extra: { pack: "spotify", app: "spotify" },
+        });
+        return;
+      }
+      if (pack.id === "spotify" && chosen.id === "repeat") {
+        assignFromTemplate(btn, index, {
+          label: chosen.label, sublabel: "Spotify", icon: `/static/icons/${chosen.icon}.svg`,
+          color: pack.color || "#1db954", action_type: "spotify_action", target: "repeat", extra: { pack: "spotify", app: "spotify" },
         });
         return;
       }
       if (pack.id === "spotify" && chosen.id === "play_pause") {
         assignFromTemplate(btn, index, {
           label: chosen.label, sublabel: "Spotify", icon: `/static/icons/${chosen.icon}.svg`,
-          color: pack.color || "#1db954", action_type: "media", target: "play_pause", extra: {},
+          color: pack.color || "#1db954", action_type: "media", target: "play_pause", extra: { app: "spotify" },
         });
         return;
       }
       assignFromTemplate(btn, index, {
         label: chosen.label, sublabel: chosen.sub || chosen.keys, icon: `/static/icons/${chosen.icon}.svg`,
-        color: pack.color || "#f8c700", action_type: "hotkey", target: chosen.keys, extra: {},
+        color: pack.color || "#f8c700", action_type: "hotkey", target: chosen.keys, extra: { pack: pack.id, app: pack.id },
       });
     });
   }
@@ -1779,14 +1793,19 @@ function openActionPicker(btn, index, startTab = "apps", session = null) {
       (pack.actions || []).forEach(action => {
         const matchScore = `${action.label} ${action.sub || ""} ${pack.name} ${pack.category || ""} ${action.keys || ""}`.toLowerCase();
         if (matchScore.includes(t)) {
+          const isSpotify = pack.id === "spotify";
+          const isLike = isSpotify && action.id === "like";
+          const isShuffle = isSpotify && action.id === "shuffle";
+          const isRepeat = isSpotify && action.id === "repeat";
+          const isPlayPause = isSpotify && action.id === "play_pause";
           progMatches.push({
             label: action.label,
             sublabel: `${pack.name} • ${action.sub || action.keys}`,
             icon: `/static/icons/${action.icon}.svg`,
             color: pack.color || "#f8c700",
-            action_type: "hotkey",
-            target: action.keys,
-            extra: {},
+            action_type: (isLike || isShuffle || isRepeat) ? "spotify_action" : (isPlayPause ? "media" : "hotkey"),
+            target: isLike ? "like" : (isShuffle ? "shuffle" : (isRepeat ? "repeat" : (isPlayPause ? "play_pause" : action.keys))),
+            extra: isSpotify ? { pack: "spotify", app: "spotify" } : { pack: pack.id, app: pack.id },
             packName: pack.name,
           });
         }
@@ -1990,9 +2009,37 @@ function renderTabPrograms(host, btn, index, pick) {
     body.querySelector("#prog-actions").addEventListener("click", (event) => {
       const chosen = pack.actions.find(a => a.id === event.target.closest("[data-action]")?.dataset.action);
       if (!chosen) return;
+      if (pack.id === "spotify" && chosen.id === "like") {
+        assignFromTemplate(btn, index, {
+          label: chosen.label, sublabel: "Spotify", icon: `/static/icons/${chosen.icon}.svg`,
+          color: pack.color || "#1db954", action_type: "spotify_action", target: "like", extra: { pack: "spotify", app: "spotify" },
+        });
+        return;
+      }
+      if (pack.id === "spotify" && chosen.id === "shuffle") {
+        assignFromTemplate(btn, index, {
+          label: chosen.label, sublabel: "Spotify", icon: `/static/icons/${chosen.icon}.svg`,
+          color: pack.color || "#1db954", action_type: "spotify_action", target: "shuffle", extra: { pack: "spotify", app: "spotify" },
+        });
+        return;
+      }
+      if (pack.id === "spotify" && chosen.id === "repeat") {
+        assignFromTemplate(btn, index, {
+          label: chosen.label, sublabel: "Spotify", icon: `/static/icons/${chosen.icon}.svg`,
+          color: pack.color || "#1db954", action_type: "spotify_action", target: "repeat", extra: { pack: "spotify", app: "spotify" },
+        });
+        return;
+      }
+      if (pack.id === "spotify" && chosen.id === "play_pause") {
+        assignFromTemplate(btn, index, {
+          label: chosen.label, sublabel: "Spotify", icon: `/static/icons/${chosen.icon}.svg`,
+          color: pack.color || "#1db954", action_type: "media", target: "play_pause", extra: { app: "spotify" },
+        });
+        return;
+      }
       assignFromTemplate(btn, index, {
         label: chosen.label, sublabel: chosen.sub, icon: `/static/icons/${chosen.icon}.svg`, color: pack.color,
-        action_type: "hotkey", target: chosen.keys, extra: {},
+        action_type: "hotkey", target: chosen.keys, extra: { pack: pack.id, app: pack.id },
       });
     });
     draw("");
