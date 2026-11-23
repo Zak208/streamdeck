@@ -8,8 +8,8 @@
     // Apply the saved theme before first paint so the window does not flash the wrong colours.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.20.3">
-  <link rel="stylesheet" href="/static/css/studio.css?v=2.20.3">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.20.4">
+  <link rel="stylesheet" href="/static/css/studio.css?v=2.20.4">
 </head>
 <body>
 
@@ -47,6 +47,9 @@
         <span id="update-status-text">Comprobando versión...</span>
         <button class="update-btn-action" id="btn-apply-update" style="display: none;">Actualizar</button>
       </div>
+      <button class="icon-button" id="btn-logs" title="Registro de logs y errores">
+        <img src="/static/icons/notes.svg" alt="Logs">
+      </button>
       <button class="icon-button" id="btn-settings" title="Ajustes">
         <img src="/static/icons/gear.svg" alt="Ajustes">
       </button>
@@ -180,9 +183,9 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/monitors.js?v=2.20.3"></script>
-  <script src="/static/js/studio.js?v=2.20.3"></script>
-  <script src="/static/js/studio-library.js?v=2.20.3"></script>
-  <script src="/static/js/studio-ui.js?v=2.20.3"></script>
+  <script src="/static/js/monitors.js?v=2.20.4"></script>
+  <script src="/static/js/studio.js?v=2.20.4"></script>
+  <script src="/static/js/studio-library.js?v=2.20.4"></script>
+  <script src="/static/js/studio-ui.js?v=2.20.4"></script>
 </body>
 </html>

@@ -546,7 +546,8 @@ updateGridChip();
 
 let settingsTab = "mobile"; // the tab Ajustes opens on; it remembers the last one used
 
-function openSettings() {
+function openSettings(initialTab) {
+  if (typeof initialTab === "string") settingsTab = initialTab;
   const currentTheme = document.documentElement.dataset.theme;
   const modal = openModal({
     title: "Ajustes",
@@ -555,6 +556,7 @@ function openSettings() {
         <button type="button" class="settings-tab" role="tab" data-tab-btn="mobile">Móvil</button>
         <button type="button" class="settings-tab" role="tab" data-tab-btn="devices">Dispositivos</button>
         <button type="button" class="settings-tab" role="tab" data-tab-btn="activity">Historial</button>
+        <button type="button" class="settings-tab" role="tab" data-tab-btn="logs">Logs y Errores</button>
         <button type="button" class="settings-tab" role="tab" data-tab-btn="general">General</button>
         <button type="button" class="settings-tab" role="tab" data-tab-btn="advanced">Avanzado</button>
       </div>
@@ -588,6 +590,33 @@ function openSettings() {
         <h3>Botones pulsados desde los móviles</h3>
         <p>Los últimos botones que se pulsaron: qué dispositivo, cuál y cuándo. No guarda lo que hace el botón por dentro.</p>
         <div id="settings-audit"><span class="integration-hint">Cargando...</span></div>
+      </section>
+      <section class="settings-section" data-tab="logs">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px;">
+          <div>
+            <h3 style="margin:0;">Registro de logs y errores</h3>
+            <p style="margin:4px 0 0; color:var(--text-3); font-size:12px;">Consulta qué botones se han pulsado, las llamadas y por qué ha fallado alguna acción.</p>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button class="btn-secondary" id="btn-refresh-logs" type="button" title="Actualizar logs">Actualizar</button>
+            <button class="btn-secondary" id="btn-copy-logs" type="button" title="Copiar logs al portapapeles">Copiar logs</button>
+            <button class="btn-secondary" id="btn-download-logs" type="button" title="Descargar log en texto">Descargar</button>
+            <button class="btn-secondary" id="btn-clear-logs" type="button" title="Limpiar logs">Limpiar</button>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+          <span style="font-size:12px; color:var(--text-2);">Nivel:</span>
+          <select id="select-log-level" style="padding:4px 8px; border-radius:6px; background:var(--bg, #222); color:var(--text-1, #fff); border:1px solid var(--line, #444); font-size:12px;">
+            <option value="ALL">Todos los eventos</option>
+            <option value="ERROR">Solo errores</option>
+            <option value="WARNING">Advertencias y errores</option>
+            <option value="INFO" selected>Información y errores</option>
+          </select>
+          <span id="logs-count-badge" style="font-size:12px; color:var(--text-3); margin-left:auto;"></span>
+        </div>
+        <div id="settings-logs-container" style="max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px;">
+          <span class="integration-hint">Cargando logs...</span>
+        </div>
       </section>
       <section class="settings-section" data-tab="general" id="settings-programs">
         <h3>Programas conectados</h3>
@@ -731,6 +760,7 @@ function openSettings() {
       renderSettingsDevices(m.el.querySelector("#settings-devices"));
       renderSettingsDiagnostics(m.el.querySelector("#settings-diagnostics"));
       renderSettingsAudit(m.el.querySelector("#settings-audit"));
+      wireSettingsLogs(m.el);
       wireConnectionChecks(m.el);
       m.el.querySelector("#settings-sync-pages")?.addEventListener("change", (e) => {
         try { localStorage.setItem("streamdesk_sync_pages", e.target.checked ? "1" : "0"); } catch (err) {}
@@ -899,12 +929,103 @@ async function renderSettingsAudit(container) {
       <div class="scrollable-settings-list" style="max-height: 360px; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 8px;">
         ${entries.slice(0, 30).map(e => `
           <div class="device-row">
-            <div><strong>${escapeHtml(e.button || "Botón")}${e.ok ? "" : " (falló)"}</strong><span>${escapeHtml(e.time)} · ${escapeHtml(e.device)}</span></div>
+            <div>
+              <strong>${escapeHtml(e.button || "Botón")}${e.ok ? "" : ` <span style="color:#ef4444;">(falló${e.error ? `: ${escapeHtml(e.error)}` : ""})</span>`}</strong>
+              <span>${escapeHtml(e.time)} · ${escapeHtml(e.device)}${e.page ? ` · Pág: ${escapeHtml(e.page)}` : ""}${e.gesture && e.gesture !== "tap" ? ` · [${escapeHtml(e.gesture)}]` : ""}</span>
+            </div>
           </div>`).join("")}
       </div>`;
   } catch (err) {
     container.innerHTML = `<span class="integration-hint">${escapeHtml(err.message)}</span>`;
   }
+}
+
+async function wireSettingsLogs(root) {
+  const container = root.querySelector("#settings-logs-container");
+  const levelSelect = root.querySelector("#select-log-level");
+  const countBadge = root.querySelector("#logs-count-badge");
+  const refreshBtn = root.querySelector("#btn-refresh-logs");
+  const copyBtn = root.querySelector("#btn-copy-logs");
+  const downloadBtn = root.querySelector("#btn-download-logs");
+  const clearBtn = root.querySelector("#btn-clear-logs");
+
+  if (!container) return;
+
+  const loadLogs = async () => {
+    container.innerHTML = `<span class="integration-hint">Cargando logs...</span>`;
+    try {
+      const lvl = levelSelect?.value || "INFO";
+      const { logs } = await apiJson(`/api/logs?level=${encodeURIComponent(lvl)}&limit=150`);
+      if (countBadge) countBadge.textContent = `${logs.length} evento(s)`;
+      if (!logs.length) {
+        container.innerHTML = `<span class="integration-hint">No hay eventos ni errores registrados en este nivel.</span>`;
+        return;
+      }
+      container.innerHTML = logs.map(e => {
+        let badgeColor = "var(--accent, #f8c700)";
+        let badgeBg = "rgba(248, 199, 0, 0.15)";
+        if (e.level === "ERROR") {
+          badgeColor = "#ef4444";
+          badgeBg = "rgba(239, 68, 68, 0.15)";
+        } else if (e.level === "WARNING") {
+          badgeColor = "#f59e0b";
+          badgeBg = "rgba(245, 158, 11, 0.15)";
+        } else if (e.level === "INFO") {
+          badgeColor = "#3b82f6";
+          badgeBg = "rgba(59, 130, 246, 0.15)";
+        }
+
+        const detailsStr = e.details ? Object.entries(e.details).map(([k, v]) => `<span style="display:inline-block; margin-right:8px; opacity:0.8;"><strong>${escapeHtml(k)}:</strong> ${escapeHtml(v)}</span>`).join("") : "";
+        const errorStr = e.error ? `<div style="color:#ef4444; margin-top:3px; font-weight:600;">Error: ${escapeHtml(e.error)}</div>` : "";
+        const stackStr = e.stack ? `<pre style="margin:4px 0 0; padding:4px; background:rgba(0,0,0,0.3); border-radius:4px; font-size:10px; overflow-x:auto; white-space:pre-wrap; color:#f87171;">${escapeHtml(e.stack)}</pre>` : "";
+
+        return `
+          <div class="device-row" style="flex-direction:column; align-items:flex-start; gap:4px; border-left: 3px solid ${badgeColor}; padding: 8px 10px;">
+            <div style="display:flex; align-items:center; gap:8px; width:100%; flex-wrap:wrap;">
+              <span style="display:inline-block; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:bold; color:${badgeColor}; background:${badgeBg};">${escapeHtml(e.level)}</span>
+              <span style="font-weight:bold; font-size:11px; color:var(--text-2);">[${escapeHtml(e.source || "SISTEMA")}]</span>
+              <span style="font-size:11px; color:var(--text-3);">${escapeHtml(e.time)}</span>
+            </div>
+            <div style="font-size:12px; color:var(--text-1); font-weight:500; word-break:break-word;">${escapeHtml(e.message)}</div>
+            ${detailsStr ? `<div style="font-size:11px; color:var(--text-3); margin-top:2px;">${detailsStr}</div>` : ""}
+            ${errorStr}
+            ${stackStr}
+          </div>`;
+      }).join("");
+    } catch (err) {
+      container.innerHTML = `<span class="integration-hint" style="color:#ef4444;">Error al cargar logs: ${escapeHtml(err.message)}</span>`;
+    }
+  };
+
+  levelSelect?.addEventListener("change", loadLogs);
+  refreshBtn?.addEventListener("click", loadLogs);
+
+  copyBtn?.addEventListener("click", async () => {
+    try {
+      const res = await fetch("/api/logs/file");
+      const text = await res.text();
+      await navigator.clipboard.writeText(text || "Sin registros.");
+      showToast("Logs copiados al portapapeles");
+    } catch (err) {
+      showToast("No se pudieron copiar los logs");
+    }
+  });
+
+  downloadBtn?.addEventListener("click", () => {
+    window.open("/api/logs/file", "_blank");
+  });
+
+  clearBtn?.addEventListener("click", async () => {
+    try {
+      await postJson("/api/logs/clear", {});
+      showToast("Registro de logs reiniciado");
+      loadLogs();
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+
+  loadLogs();
 }
 
 function wireConnectionChecks(root) {
@@ -1196,7 +1317,8 @@ async function collapsePairingWhenDone() {
 
 window.addEventListener("DOMContentLoaded", () => {
   loadTheme();
-  document.getElementById("btn-settings")?.addEventListener("click", openSettings);
+  document.getElementById("btn-settings")?.addEventListener("click", () => openSettings());
+  document.getElementById("btn-logs")?.addEventListener("click", () => openSettings("logs"));
   // Narrow window: the side panel is hidden, and this button shows it over the editor (and any click away or Esc hides it).
   const pairButton = document.getElementById("btn-pair-narrow");
   const closePairPanel = () => document.body.classList.remove("pair-open");

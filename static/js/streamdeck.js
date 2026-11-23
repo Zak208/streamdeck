@@ -192,6 +192,25 @@ function warnOfflineAndReconnect() {
   if (!ws || ws.readyState === WebSocket.CLOSED) connectWebSocket();
 }
 
+function handleLocalPageNavigation(target) {
+  if (!currentConfig || !currentConfig.pages || !currentConfig.pages.length) return;
+  const pages = currentConfig.pages;
+  const curIdx = currentConfig.current_page || 0;
+  const tgt = String(target || "").trim().toLowerCase();
+  if (tgt === "next") {
+    switchPage((curIdx + 1) % pages.length);
+  } else if (tgt === "prev") {
+    switchPage((curIdx - 1 + pages.length) % pages.length);
+  } else if (tgt === "first") {
+    switchPage(0);
+  } else {
+    const foundIdx = pages.findIndex((p, idx) => p.id === target || p.id === tgt || idx === parseInt(target, 10));
+    if (foundIdx !== -1) {
+      switchPage(foundIdx);
+    }
+  }
+}
+
 function switchPage(pageIdx) {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     warnOfflineAndReconnect();
@@ -203,6 +222,7 @@ function switchPage(pageIdx) {
     haptic(20);
     if (!syncPagesEnabled()) {
       currentConfig.current_page = pageIdx;
+      try { sessionStorage.setItem("streamdesk_mobile_page", String(pageIdx)); } catch (e) {}
       if (pages[pageIdx]) {
         currentConfig.slots = pages[pageIdx].slots;
         if (pages[pageIdx].layout) currentConfig.layout = pages[pageIdx].layout;
@@ -459,12 +479,20 @@ function sendWS(payload) {
 function handleServerMessage(data) {
   switch (data.type) {
     case "config_sync":
-    case "config_updated":
+    case "config_updated": {
       if (data.button_labels) buttonLabels = { ...buttonLabels, ...data.button_labels };
+      const keepLocalPage = !syncPagesEnabled() && currentConfig && typeof currentConfig.current_page === "number";
+      const localPage = keepLocalPage ? currentConfig.current_page : null;
       currentConfig = data.config;
+      if (keepLocalPage && currentConfig && currentConfig.pages && currentConfig.pages[localPage]) {
+        currentConfig.current_page = localPage;
+        currentConfig.slots = currentConfig.pages[localPage].slots;
+        if (currentConfig.pages[localPage].layout) currentConfig.layout = currentConfig.pages[localPage].layout;
+      }
       renderDeck(currentConfig);
       renderPageNav(currentConfig);
       break;
+    }
 
     case "page_switched":
       if (!syncPagesEnabled()) {
@@ -488,12 +516,22 @@ function handleServerMessage(data) {
       break;
 
     case "initial_state":
-    case "init_state":
+    case "init_state": {
       currentConfig = data.config;
       currentSessions = data.audio_sessions || data.sessions || [];
       buttonStates = data.button_states || {};
       buttonLabels = data.button_labels || {};
       applyTheme(data.theme);
+      if (!syncPagesEnabled() && currentConfig && currentConfig.pages) {
+        try {
+          const savedPage = parseInt(sessionStorage.getItem("streamdesk_mobile_page"), 10);
+          if (!isNaN(savedPage) && currentConfig.pages[savedPage]) {
+            currentConfig.current_page = savedPage;
+            currentConfig.slots = currentConfig.pages[savedPage].slots;
+            if (currentConfig.pages[savedPage].layout) currentConfig.layout = currentConfig.pages[savedPage].layout;
+          }
+        } catch (e) {}
+      }
       renderDeck(currentConfig);
       renderPageNav(currentConfig);
       lastMaster = data.master || lastMaster;
@@ -502,6 +540,7 @@ function handleServerMessage(data) {
       updateAppVolumes();
       applyMicState(data.mic);
       break;
+    }
 
     case "theme":
       applyTheme(data.theme);
@@ -987,8 +1026,16 @@ function createButtonElement(btn) {
     if ((needsConfirm || risky) && !(await askConfirm(risky && !needsConfirm
       ? `«${label}» apaga el PC o lanza un comando. ¿Seguro?`
       : `¿Ejecutar «${label}»?`))) return;
+
+    if (!syncPagesEnabled() && (action.action_type === "page" || action.type === "page")) {
+      handleLocalPageNavigation(action.target);
+      return;
+    }
+
     keycap.classList.add("btn-busy");
-    sendWS(gesture === "tap" ? { type: "trigger_button", id: btn.id } : { type: "trigger_button", id: btn.id, gesture });
+    const payload = { type: "trigger_button", id: btn.id, page: currentConfig?.current_page ?? 0 };
+    if (gesture !== "tap") payload.gesture = gesture;
+    sendWS(payload);
   };
   if (btn.disabled) keycap.classList.add("is-disabled");
   if (btn.action_type === "none") keycap.classList.add("is-blank");
@@ -1002,7 +1049,7 @@ function createButtonElement(btn) {
     if (btn.target === "mic_ptt" || btn.action_type === "ptt") {
       haptic(30);
       keycap.classList.add("triggered");
-      sendWS({ type: "ptt_state", id: btn.id, pressed: true });
+      sendWS({ type: "ptt_state", id: btn.id, pressed: true, page: currentConfig?.current_page ?? 0 });
       return;
     }
     if (!plain) haptic(25);
@@ -1039,7 +1086,7 @@ function createButtonElement(btn) {
   keycap.addEventListener("pointercancel", () => {
     if (btn.target === "mic_ptt" || btn.action_type === "ptt") {
       keycap.classList.remove("triggered");
-      sendWS({ type: "ptt_state", id: btn.id, pressed: false });
+      sendWS({ type: "ptt_state", id: btn.id, pressed: false, page: currentConfig?.current_page ?? 0 });
     }
   });
   keycap.addEventListener("contextmenu", (event) => event.preventDefault()); // no image menu competing with a long press
@@ -1055,7 +1102,7 @@ function createButtonElement(btn) {
     if (btn.target === "mic_ptt" || btn.action_type === "ptt") {
       haptic(20);
       keycap.classList.remove("triggered");
-      sendWS({ type: "ptt_state", id: btn.id, pressed: false });
+      sendWS({ type: "ptt_state", id: btn.id, pressed: false, page: currentConfig?.current_page ?? 0 });
       return;
     }
     clearTimeout(holdTimer);

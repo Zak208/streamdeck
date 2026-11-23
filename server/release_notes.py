@@ -10,30 +10,29 @@ def get_version_changelog(version: str) -> Dict[str, Any]:
         "title": f"Novedades de StreamDesk v{version}",
         "steps": [
             {
-                "title": "Blindaje y seguridad integral",
-                "tag": "Seguridad",
-                "icon": "shield",
+                "title": "Navegación multi-página independiente",
+                "tag": "Páginas",
+                "icon": "sliders",
                 "description": (
-                    "Bloqueo estricto de atajos de sistema peligrosos, protección anti-replay y límite de fuerza bruta en PIN, "
-                    "cifrado robusto con Windows DPAPI y protección contra SSRF en webhooks."
+                    "Los botones de cualquier página (Spotify, Discord, OBS...) responden al instante desde el móvil o la web, "
+                    "incluso si el PC se encuentra en una página distinta."
                 ),
             },
             {
-                "title": "Control de acceso y privacidad reforzada",
-                "tag": "Privacidad",
-                "icon": "power",
+                "title": "Sistema de logs y diagnóstico de errores",
+                "tag": "Diagnóstico",
+                "icon": "notes",
                 "description": (
-                    "Validación recursiva de permisos en acciones condicionales para móviles limitados y protección de acceso local "
-                    "a StreamDesk Studio en la red Wi-Fi."
+                    "Nuevo visor de logs en tiempo real en Studio y en la app móvil. Registro detallado de fallos, "
+                    "rotación automática de archivo y herramientas para copiar y descargar el registro."
                 ),
             },
             {
                 "title": "Resiliencia y estabilidad del sistema",
                 "tag": "Estabilidad",
-                "icon": "sliders",
+                "icon": "shield",
                 "description": (
-                    "Control de volumen optimizado contra saturación de memoria, validación de estado en Push-to-Talk y sincronización "
-                    "segura de hilos COM en segundo plano."
+                    "Sincronización PTT segura en cualquier página, detección robusta de acciones y registro persistente en disco."
                 ),
             },
         ],

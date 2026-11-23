@@ -1,5 +1,5 @@
 // StreamDesk Service Worker for PWA installation & caching
-const CACHE_NAME = 'streamdesk-v2.20.3';
+const CACHE_NAME = 'streamdesk-v2.20.4';
 const ASSETS_TO_CACHE = [
   '/',
   '/static/css/tokens.css',

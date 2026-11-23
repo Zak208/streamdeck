@@ -16,10 +16,10 @@ import mimetypes
 import re
 from urllib.parse import urlparse
 from contextlib import asynccontextmanager
-from typing import Set, Dict, Any, List, Optional
+from typing import Set, Dict, Any, List, Optional, Tuple
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Body, UploadFile, File, Request, Depends, status
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
@@ -52,7 +52,7 @@ from server.com_worker import com_worker
 from server.actions import execute_action, play_local_sound
 from server.auth import auth_manager
 from server.release_notes import get_version_changelog
-from server import app_icons, audit, desktop, diagnostics, discord_ui, firewall, layouts, live_buttons, page_library, permissions, program_packs, shell_actions, steam, templates, updater, webhooks
+from server import app_icons, audit, desktop, diagnostics, discord_ui, firewall, layouts, live_buttons, logger, page_library, permissions, program_packs, shell_actions, steam, templates, updater, webhooks
 from server.action_catalog import COUNTER_TARGETS, GESTURES, PAGE_KEYWORDS, SAFE_PROCESS, validate_deck_config
 from server.config_manager import CONFIG_FILE, config_manager
 from server.connectors import discord as discord_connector, spotify, windows
@@ -311,6 +311,7 @@ async def smart_page_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("SERVER", f"Servidor StreamDesk Pro v{VERSION} iniciado en puerto {PORT}")
     # The list of installed apps, ready before the apps tab is opened. After Windows starts the app by itself the PC
     # is busy, so the scan waits (app_desktop sets the delay).
     system_scanner.warm_up(float(os.environ.get("STREAMDESK_SCAN_DELAY") or 0))
@@ -324,6 +325,7 @@ async def lifespan(app: FastAPI):
     telemetry_task.cancel()
     smart_task.cancel()
     config_manager.flush_active_page()
+    logger.info("SERVER", "Servidor StreamDesk Pro detenido.")
 
 # No interactive API docs: the schema would list every admin route to anyone on the Wi-Fi.
 app = FastAPI(title="StreamDesk Pro Server", version=VERSION, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -645,6 +647,36 @@ def restrict_paired_device(values: Dict[str, Any] = Body(...), _: None = Depends
 @app.get("/api/audit")
 def recent_button_presses(_: None = Depends(require_local_request)):
     return {"entries": audit.recent(40)}
+
+
+@app.get("/api/logs")
+def get_logs(level: Optional[str] = None, source: Optional[str] = None, limit: int = 100, _: None = Depends(require_local_request)):
+    """Retrieve recent structured logs with timestamps, levels, and failure details."""
+    return {"logs": logger.recent_logs(level=level, source=source, limit=limit)}
+
+
+@app.get("/api/logs/file")
+def download_log_file(_: None = Depends(require_local_request)):
+    """Download or view the raw streamdesk.log content."""
+    content = logger.get_log_text(500)
+    return Response(content=content, media_type="text/plain; charset=utf-8")
+
+
+@app.post("/api/logs/clear")
+def clear_all_logs(_: None = Depends(require_local_request)):
+    """Clear memory logs and reset log file."""
+    logger.clear()
+    return {"success": True, "message": "Registro de logs borrado"}
+
+
+@app.get("/api/logs/mobile")
+def get_mobile_logs(request: Request, token: Optional[str] = Query(default=None)):
+    """Allow authorized mobile devices or local browser to see recent button errors."""
+    client_host = request.client.host if request.client else ""
+    if not _local_browser_request(request.headers, client_host):
+        if not token or not auth_manager.is_token_authorized(token):
+            raise HTTPException(status_code=403, detail="No autorizado")
+    return {"logs": logger.recent_logs(level="WARNING", limit=30)}
 
 
 @app.get("/api/system/connection-check")
@@ -1488,10 +1520,49 @@ async def navigate_pages(target: str) -> Dict[str, Any]:
     return {"success": True, "action": "page"}
 
 
-def _record_button_failure(websocket: WebSocket, label: str, message: str) -> None:
-    """Keep why a button did nothing where Studio's diagnostics can show it."""
+def _record_button_failure(websocket: WebSocket, label: str, message: str, details: Optional[Dict[str, Any]] = None) -> None:
+    """Keep why a button did nothing where Studio's diagnostics and logger can show it."""
     ip = websocket.client.host if websocket.client else ""
-    diagnostics.record("error", f"Botón «{str(label)[:60]}»: {str(message)[:200]}", ip, websocket.headers.get("user-agent"))
+    user_agent = websocket.headers.get("user-agent")
+    diagnostics.record("error", f"Botón «{str(label)[:60]}»: {str(message)[:200]}", ip, user_agent)
+    log_details = {"ip": ip}
+    if details:
+        log_details.update(details)
+    logger.error("BOTON", f"Fallo en botón «{str(label)[:60]}»: {message}", details=log_details)
+
+
+def find_slot_in_deck(btn_id: str, requested_page: Optional[int] = None) -> Tuple[Optional[Dict[str, Any]], Optional[int], str]:
+    """Locate a slot by its ID across the requested page, active page, or any configured page."""
+    config = config_manager.get_config()
+    pages = config.get("pages", [])
+
+    # 1. Check requested page from the client
+    if requested_page is not None:
+        try:
+            req_idx = int(requested_page)
+            if 0 <= req_idx < len(pages):
+                page = pages[req_idx]
+                slot = next((s for s in page.get("slots", []) if s.get("id") == btn_id), None)
+                if slot:
+                    return slot, req_idx, page.get("name") or f"Página {req_idx + 1}"
+        except (ValueError, TypeError):
+            pass
+
+    # 2. Check active page
+    active_page_idx = config_manager.get_active_page_index()
+    active_slots = config.get("slots", [])
+    slot = next((s for s in active_slots if s.get("id") == btn_id), None)
+    if slot:
+        page_name = pages[active_page_idx].get("name") if 0 <= active_page_idx < len(pages) else f"Página {active_page_idx + 1}"
+        return slot, active_page_idx, page_name
+
+    # 3. Check all other pages in the deck
+    for idx, page in enumerate(pages):
+        slot = next((s for s in page.get("slots", []) if s.get("id") == btn_id), None)
+        if slot:
+            return slot, idx, page.get("name") or f"Página {idx + 1}"
+
+    return None, None, ""
 
 
 async def sync_obs_scene_state(active_scene: str) -> None:
@@ -1515,11 +1586,16 @@ async def sync_obs_scene_state(active_scene: str) -> None:
                             await ws_manager.broadcast({"type": "button_state", "id": s_id, "active": is_active})
 
 
-async def run_button_action(websocket: WebSocket, slot: Dict[str, Any], gesture: str = "tap") -> None:
+async def run_button_action(websocket: WebSocket, slot: Dict[str, Any], gesture: str = "tap", page_name: str = "") -> None:
     """Execute a button off the event loop and tell every phone how it went."""
     btn_id = slot.get("id")
+    btn_label = slot.get("label") or btn_id
+    a_type = slot.get("action_type")
+    start_time = time.monotonic()
     try:
         token = getattr(websocket.state, "token", None)
+        dev_name = auth_manager.device_name(token) if token else "Móvil / Web"
+        logger.log_button_trigger(dev_name, btn_id, btn_label, a_type, page_name, gesture, extra=slot.get("extra"))
         try:
             if auth_manager.is_restricted(token) and permissions.is_dangerous(
                     slot.get("action_type"), slot.get("target"), slot.get("extra")):
@@ -1558,7 +1634,15 @@ async def run_button_action(websocket: WebSocket, slot: Dict[str, Any], gesture:
             result = {"success": False, "error": str(exc)}
 
         success = bool(result.get("success"))
-        audit.record(auth_manager.device_name(token), slot.get("label") or btn_id, slot.get("action_type"), success, gesture)
+        duration_ms = (time.monotonic() - start_time) * 1000
+        error_msg = result.get("error", "") if not success else ""
+
+        if success:
+            logger.log_button_success(dev_name, btn_id, btn_label, a_type, page_name, duration_ms)
+        else:
+            logger.log_button_error(dev_name, btn_id, btn_label, a_type, page_name, error_msg or "No se pudo ejecutar la acción", gesture)
+
+        audit.record(dev_name, btn_label, a_type, success, gesture, error=error_msg, page=page_name)
         payload: Dict[str, Any] = {
             "type": "action_result",
             "id": btn_id,
@@ -1567,8 +1651,8 @@ async def run_button_action(websocket: WebSocket, slot: Dict[str, Any], gesture:
             "result": result,
         }
         if not success:
-            payload["message"] = result.get("error") or "No se pudo ejecutar la acción"
-            _record_button_failure(websocket, slot.get("label") or btn_id, payload["message"])
+            payload["message"] = error_msg or "No se pudo ejecutar la acción"
+            _record_button_failure(websocket, btn_label, payload["message"], details={"page": page_name, "action": a_type, "btn_id": btn_id})
         try:
             await websocket.send_text(json.dumps(payload))
         except Exception:
@@ -1611,6 +1695,8 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
 
     await ws_manager.connect(websocket)
     websocket.state.token = token
+    dev_name = auth_manager.device_name(token) if token else ("Navegador local" if is_localhost else "Móvil")
+    logger.info("WEBSOCKET", f"Cliente conectado: {dev_name} ({client_ip})", details={"ip": client_ip, "device": dev_name})
     if not is_localhost:
         auth_manager.touch(token)
         diagnostics.record("ok", "Móvil conectado", client_ip, user_agent)
@@ -1659,28 +1745,34 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                     target_muted = not pressed
                     await run_audio(windows.set_mic_muted, target_muted)
                     if btn_id and isinstance(btn_id, str):
-                        slots = config_manager.get_config().get("slots", [])
-                        if any(s.get("id") == btn_id for s in slots):
+                        slot, _, _ = find_slot_in_deck(btn_id, data.get("page"))
+                        if slot:
                             button_states[btn_id] = pressed
                             await ws_manager.broadcast({"type": "button_state", "id": btn_id, "active": pressed})
 
                 elif msg_type == "trigger_button":
                     btn_id = data.get("id")
-                    config = config_manager.get_config()
-                    slots = config.get("slots", [])
-                    slot = next((s for s in slots if s.get("id") == btn_id), None)
+                    req_page = data.get("page")
                     gesture = data.get("gesture") or "tap"
+                    token = getattr(websocket.state, "token", None)
+                    dev_name = auth_manager.device_name(token) if token else "Móvil / Web"
+
+                    slot, found_page_idx, found_page_name = find_slot_in_deck(btn_id, req_page)
                     rejection = None
                     if not slot or slot.get("type") != "button":
                         # The phone shows a page the PC no longer has active (or an old layout). Say so: a tap that
                         # does nothing and says nothing cannot be told apart from a broken button.
-                        rejection = "Ese botón no está en la página activa del PC. Cambia de página o espera a que se actualice el móvil."
+                        rejection = "Ese botón no está en la página activa del PC ni en el resto de páginas configuradas. Cambia de página o espera a que se actualice el móvil."
                     elif slot.get("disabled"):
                         rejection = "Este botón está desactivado. Actívalo en Studio para usarlo."
                     elif gesture != "tap" and (gesture not in GESTURES or not slot.get(gesture)):
                         rejection = "Este botón no tiene ninguna acción para ese gesto."
                     if rejection:
-                        _record_button_failure(websocket, str(btn_id), rejection)
+                        lbl = (slot.get("label") if slot else "") or str(btn_id)
+                        act = (slot.get("action_type") if slot else "") or "none"
+                        logger.log_button_error(dev_name, str(btn_id), lbl, act, found_page_name, rejection, gesture)
+                        _record_button_failure(websocket, lbl, rejection, details={"btn_id": btn_id, "page": found_page_name, "gesture": gesture})
+                        audit.record(dev_name, lbl, act, False, gesture, error=rejection, page=found_page_name)
                         await websocket.send_text(json.dumps({
                             "type": "action_result", "id": btn_id, "slot_id": btn_id, "success": False,
                             "message": rejection, "result": {"success": False, "error": rejection},
@@ -1697,11 +1789,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                         _running_actions.add(btn_id)
                         # Run it as its own task: a macro or a slow OBS call must not
                         # hold up this phone's faders or anyone else's messages.
-                        task = asyncio.create_task(run_button_action(websocket, slot, gesture))
+                        task = asyncio.create_task(run_button_action(websocket, slot, gesture, page_name=found_page_name))
                         _background_tasks.add(task)
                         task.add_done_callback(_background_tasks.discard)
                     else:
                         busy_msg = "La acción anterior de este botón aún sigue en curso."
+                        logger.warning("BOTON", f"Botón «{slot.get('label') or btn_id}» ocupado", details={"btn_id": btn_id, "device": dev_name})
                         await websocket.send_text(json.dumps({
                             "type": "action_result",
                             "id": btn_id,
@@ -1784,10 +1877,14 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=No
                 diagnostics.record("error", "Mensaje del móvil con formato inválido, ignorado", client_ip, user_agent)
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
+        dev_name = auth_manager.device_name(token) if token else ("Navegador local" if is_localhost else "Móvil")
+        logger.info("WEBSOCKET", f"Cliente desconectado: {dev_name} ({client_ip})", details={"ip": client_ip, "device": dev_name})
         if not is_localhost:
             diagnostics.record("info", "Móvil desconectado", client_ip, user_agent)
     except Exception as exc:
         ws_manager.disconnect(websocket)
+        dev_name = auth_manager.device_name(token) if token else ("Navegador local" if is_localhost else "Móvil")
+        logger.error("WEBSOCKET", f"Fallo en conexión de {dev_name} ({client_ip}): {exc}", exc=exc)
         if not is_localhost:
             diagnostics.record("error", f"La conexión del móvil falló en el PC: {type(exc).__name__}", client_ip, user_agent)
 

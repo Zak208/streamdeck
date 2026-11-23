@@ -18,7 +18,7 @@ MAX_BYTES = 256 * 1024  # about 1,500 lines; one older copy is kept
 _lock = threading.Lock()
 
 
-def record(device: str, label: str, action_type: str, success: bool, gesture: str = "tap") -> None:
+def record(device: str, label: str, action_type: str, success: bool, gesture: str = "tap", error: str = "", page: str = "") -> None:
     entry = {
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
         "device": str(device or "")[:48],
@@ -27,6 +27,10 @@ def record(device: str, label: str, action_type: str, success: bool, gesture: st
         "gesture": gesture if gesture in ("tap", "long_press", "double_tap") else "tap",
         "ok": bool(success),
     }
+    if not success and error:
+        entry["error"] = str(error)[:200]
+    if page:
+        entry["page"] = str(page)[:40]
     try:
         with _lock:
             os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)

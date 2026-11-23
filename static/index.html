@@ -16,8 +16,8 @@
     // Same theme as Studio, remembered from the last connection, applied before first paint.
     try { document.documentElement.dataset.theme = localStorage.getItem("streamdesk_theme") || "ctma"; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css?v=2.20.3">
-  <link rel="stylesheet" href="/static/css/style.css?v=2.20.3">
+  <link rel="stylesheet" href="/static/css/tokens.css?v=2.20.4">
+  <link rel="stylesheet" href="/static/css/style.css?v=2.20.4">
 </head>
 <body>
   <!-- Top bar -->
@@ -142,6 +142,14 @@
       <section class="sheet-section"><h3>Panel</h3><div id="sheet-screen"></div></section>
       <section class="sheet-section"><h3>Instalar como app</h3><div id="sheet-install"></div></section>
       <section class="sheet-section"><h3>Conexión</h3><div id="sheet-connection"></div></section>
+      <section class="sheet-section">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="margin:0;">Registro de fallos</h3>
+          <button class="btn-secondary" id="btn-sheet-refresh-logs" style="font-size:11px; padding:3px 8px;" type="button">Actualizar</button>
+        </div>
+        <p class="sheet-note" style="margin-top:4px;">Si pulsas un botón y no responde o da error, aquí verás la causa exacta.</p>
+        <div id="sheet-logs"></div>
+      </section>
     </div>
   </div>
 
@@ -161,8 +169,8 @@
   <!-- Action Result & Error Toast -->
   <div id="mobile-toast" class="mobile-toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/js/monitors.js?v=2.20.3"></script>
-  <script src="/static/js/streamdeck.js?v=2.20.3"></script>
-  <script src="/static/js/phone-settings.js?v=2.20.3"></script>
+  <script src="/static/js/monitors.js?v=2.20.4"></script>
+  <script src="/static/js/streamdeck.js?v=2.20.4"></script>
+  <script src="/static/js/phone-settings.js?v=2.20.4"></script>
 </body>
 </html>

@@ -163,6 +163,38 @@ function renderConnection() {
   });
 }
 
+async function renderLogs() {
+  const container = document.getElementById("sheet-logs");
+  if (!container) return;
+  container.innerHTML = `<span class="sheet-note">Cargando registro...</span>`;
+  try {
+    const t = (typeof window !== "undefined" && window.token) ? window.token : (localStorage.getItem("streamdesk_token") || "");
+    const res = await fetch(`/api/logs/mobile?token=${encodeURIComponent(t)}`);
+    if (!res.ok) {
+      container.innerHTML = `<span class="sheet-note">Solo visible con el móvil conectado y autorizado.</span>`;
+      return;
+    }
+    const data = await res.json();
+    const logs = data.logs || [];
+    if (!logs.length) {
+      container.innerHTML = `<span class="sheet-note" style="color:var(--text-3, #888);">No hay errores recientes. Todo funciona correctamente.</span>`;
+      return;
+    }
+    container.innerHTML = logs.slice(0, 10).map(e => `
+      <div style="background: rgba(239, 68, 68, 0.1); border-left: 3px solid #ef4444; border-radius: 4px; padding: 6px 8px; margin-bottom: 6px; font-size: 12px;">
+        <div style="display:flex; justify-content:space-between; color: #ef4444; font-weight:600; font-size: 11px;">
+          <span>${escapeText(e.source || "BOTÓN")}</span>
+          <span style="color:var(--text-3, #888); font-weight:normal;">${escapeText(e.time)}</span>
+        </div>
+        <div style="color: var(--text-1, #fff); margin-top: 2px;">${escapeText(e.message)}</div>
+        ${e.details?.page ? `<div style="color: var(--text-3, #aaa); font-size: 10px; margin-top: 2px;">Página: ${escapeText(e.details.page)}</div>` : ""}
+      </div>
+    `).join("");
+  } catch (err) {
+    container.innerHTML = `<span class="sheet-note">No se pudo cargar el registro: ${escapeText(err.message)}</span>`;
+  }
+}
+
 // ------------------------------------------------------------------ open / close
 
 function openSettingsSheet(section) {
@@ -170,6 +202,7 @@ function openSettingsSheet(section) {
   renderPanelOptions();
   renderInstall();
   renderConnection();
+  renderLogs();
   settingsSheet.hidden = false;
   if (section) document.getElementById(`sheet-${section}`)?.closest(".sheet-section")?.scrollIntoView({ block: "start" });
 }
@@ -179,6 +212,7 @@ function closeSettingsSheet() {
 }
 
 document.getElementById("btn-close-sheet")?.addEventListener("click", closeSettingsSheet);
+document.getElementById("btn-sheet-refresh-logs")?.addEventListener("click", renderLogs);
 settingsSheet?.addEventListener("pointerdown", (event) => { if (event.target === settingsSheet) closeSettingsSheet(); });
 document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !settingsSheet.hidden) closeSettingsSheet(); });
 document.getElementById("current-page-name")?.addEventListener("click", () => openSettingsSheet("pages"));
